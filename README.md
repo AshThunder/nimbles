@@ -22,17 +22,17 @@ Skill-only duels for friends, built as a [Nimiq Pay mini app](https://nimiq.dev/
 | Chess Blitz | 3:00 per side, live | Server-run board and clocks |
 | 8-Ball Pool | Live turns, 60 s shot clock | Server-run physics |
 | Darts | 10 darts, tap to stop a moving reticle | Server replay of your throw times |
-| Block Puzzle (coming soon) | Same pieces, clear lines | Server replay of your placements |
-| Speed Math (coming soon) | 60 seconds of sums, same list | Server recomputes from your answers |
-| Spider Solitaire (coming soon) | One suit, eight runs, same deal | Server replay of your move log |
-| Domino Chain (coming soon) | Same tiles, build the longest chain | Server replay of your plays and draws |
-| 21 Blitz (coming soon) | 20 cards onto four stacks, aim for 21 | Server replay of where each card went |
-| Bowling (coming soon) | Ten frames, two timed taps per ball, the lane drifts by seed | Server replay of your tap times |
-| Carrom (coming soon) | Eight strikes on a shared board, pocket the coins | Server replay of your strikes (fixed-step physics) |
-| Ghost Race (coming soon) | 45 second three-lane dash against a fixed-pace ghost | Server replay of your lane changes |
+| Block Puzzle | Same pieces, clear lines | Server replay of your placements |
+| Speed Math | 60 seconds of sums, same list | Server recomputes from your answers |
+| Spider Solitaire | One suit, eight runs, same deal | Server replay of your move log |
+| Domino Chain | Same tiles, build the longest chain | Server replay of your plays and draws |
+| 21 Blitz | 20 cards onto four stacks, aim for 21 | Server replay of where each card went |
+| Bowling | Ten frames, two timed taps per ball, the lane drifts by seed | Server replay of your tap times |
+| Carrom | Eight strikes on a shared board, pocket the coins | Server replay of your strikes (fixed-step physics) |
+| Ghost Race | 45 second three-lane dash against a fixed-pace ghost | Server replay of your lane changes |
 | Splat Royale | 2 to 6 players, one arena, last one standing. Twin-stick on a phone | Server-run simulation at 30 ticks a second, own blob predicted on the phone |
 
-Splat Royale is a live battle royale. The phones only send stick and dash input; the server runs the whole match with no random numbers, so the same inputs always give the same result. Save mode pays the winner (or 60 / 30 / 10 to the top three), and if a match cannot finish every stake is refunded. Settle for 2 to 6 players is built and tested, but shows "Coming soon" and the server refuses it for now. When it opens:  the host sets the bill and who is paid, the split is by finishing place (last pays most, a draw splits evenly), everyone agrees before anything is locked, and each player locks only their own largest possible share. Practice matches fill empty seats with Nimos.
+Splat Royale is a live battle royale. The phones only send stick and dash input; the server runs the whole match with no random numbers, so the same inputs always give the same result. Save mode pays the winner (or 60 / 30 / 10 to the top three), and if a match cannot finish every stake is refunded. Settle works for 2 to 6 players: the host sets the bill and who is paid, the split is by finishing place (last pays most, a draw splits evenly), everyone agrees before anything is locked, and each player locks only their own largest possible share. Practice matches fill empty seats with Nimos.
 
 Chess and pool against a friend are fully server-authoritative: the phones only send a move or a shot, and the server runs the rules and the clocks. Against Nimo they are Play mode only.
 
@@ -111,9 +111,9 @@ The e2e run drives the real SDK against a mock `window.nimiq`, then plays every 
 
 ## Roadmap
 
-Shipped recently: Nimo (the built-in rival), the savings plan with its daily interest pool, chests and rewards, Splat Royale, Win mode, and Darts. Settle for Splat Royale with up to six players is built but held back ("Coming soon").
+Shipped recently: Nimo (the built-in rival), the savings plan with its daily interest pool, chests and rewards, Splat Royale, Win mode, and Darts. Settle for Splat Royale with up to six players.
 
-Darts is live in all four modes (Play, Win, Save, Settle), skill only: the server recomputes the score from your throw times. Eight more skill games are built and tested but held back: Block Puzzle, Spider Solitaire, Speed Math, Domino Chain, 21 Blitz, Bowling, Carrom and Ghost Race. They show in the hub as greyed "Coming soon" tiles that cannot be opened, and the server refuses to start them. To open them (and Splat Settle) set `NIMBLES_UNLOCK_ALL=1` on the server, or take them out of `COMING_SOON` in `shared/types.ts`. `E2E_UNLOCK=1 npm run e2e` runs the browser test with them open. The whole app sits on one flat warm cream background (`#F5F0E6`).
+All nine new skill games are live in Play, Win, Save and Settle: Darts, Block Puzzle, Speed Math, Spider Solitaire, Domino Chain, 21 Blitz, Bowling, Carrom and Ghost Race. Every one uses the same seed or deal for both players, and the server recomputes the score from your inputs, so a made-up score is ignored. Settle for Splat Royale (2 to 6 players) is open too. `COMING_SOON` in `shared/types.ts` can hold any game back as a greyed tile that cannot be opened (the server refuses it too); it is empty now. The whole app sits on one flat warm cream background (`#F5F0E6`).
 
 Games not in yet: Code Sprint. Settle for more than two players in live chess and pool is also still to do.
 

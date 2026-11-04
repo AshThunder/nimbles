@@ -7,7 +7,6 @@ import { BK_N, BK_SHAPES, BlockGame, bkTray, replayBlocks, type BkMove } from '.
 import { smQuestion, replaySpeedMath, type SmAnswer } from '../shared/speedmath'
 
 process.env.CHAIN = 'mock'
-process.env.NIMBLES_UNLOCK_ALL = '1' // these games are held back in production, the tests open them
 process.env.GEMINI_API_KEY = ''
 
 let app: Awaited<ReturnType<typeof createApp>>

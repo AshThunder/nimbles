@@ -10,8 +10,6 @@ import assert from 'node:assert/strict'
 import { canMake } from '../../shared/words'
 
 process.env.CHAIN = 'mock'
-const UNLOCK = process.env.E2E_UNLOCK === '1' // E2E_UNLOCK=1 also runs the held-back games
-if (UNLOCK) process.env.NIMBLES_UNLOCK_ALL = '1'; else delete process.env.NIMBLES_UNLOCK_ALL
 process.env.SPLAT_CAP_SECONDS = '30' // a short Splat Royale so the whole match fits in the test
 const BREAK = !!process.env.E2E_BREAK
 if (!process.env.E2E_AI) delete process.env.GEMINI_API_KEY
@@ -142,19 +140,8 @@ try {
   const chris = await player(browser, 'chris')
   const c = chris.page
   assert.equal(await c.locator('.gc').count(), 18, '18 game cards')
-  if (!UNLOCK) {
-    assert.equal(await c.locator('.gc.soon').count(), 8, '8 Coming soon tiles')
-    assert.equal(await c.locator('.gc.soon:disabled').count(), 8, 'they cannot be tapped')
-    await c.locator('.gc.soon').first().scrollIntoViewIfNeeded()
-    await shot(c, 'home-soon-tiles')
-    await c.locator('.gc.soon').first().click({ force: true })
-    assert.equal(new URL(c.url()).hash, '', 'a Coming soon tile goes nowhere')
-    await c.goto('/#/g/spider')
-    await c.waitForTimeout(400)
-    assert.ok(!(await c.locator('#go').count()), 'a Coming soon game has no setup page')
-    await c.goto('/')
-    await c.waitForSelector('.gc')
-  }
+  assert.equal(await c.locator('.gc.soon').count(), 0, 'every game is open')
+  assert.equal(await c.locator('.gc:disabled').count(), 0)
   assert.match(await c.locator('.xpi b').innerText(), /.+/)
   assert.ok(!(await c.content()).includes('Preview'), 'inside Nimiq Pay there is no preview banner')
   await shot(c, 'home')
@@ -414,7 +401,6 @@ try {
   await c.waitForSelector('.res', { timeout: 15000 })
   log('darts: 3 darts thrown, finished vs Nimo')
 
-  if (UNLOCK) {
   await c.goto('/#/g/blocks')
   await c.waitForSelector('#go')
   await c.locator('#go').click()
@@ -552,7 +538,6 @@ try {
   await c.waitForSelector('.res', { timeout: 20000 })
   log('ghost race: changed lane twice, finished vs Nimo')
 
-  }
 
   await c.goto('/#/g/chess')
   await c.waitForSelector('#go')
@@ -691,12 +676,7 @@ try {
   // ---------- 5d. Splat Royale: three seats, two phones and a Nimo, host starts early ----------
   await c.goto('/#/g/splat')
   await c.waitForSelector('#go')
-  if (UNLOCK) assert.equal(await c.locator('[data-m=settle].lock').count(), 0, 'Splat Settle is open now')
-  else {
-    assert.equal(await c.locator('[data-m=settle]').isDisabled(), true, 'Splat Settle shows Coming soon')
-    assert.match(await c.locator('[data-m=settle]').innerText(), /Coming soon/)
-    await shot(c, 'splat-settle-soon')
-  }
+  assert.equal(await c.locator('[data-m=settle].lock').count(), 0, 'Splat Settle is open')
   await c.locator('[data-act=opp][data-k=invite]').click()
   await c.locator('[data-act=seats][data-n="3"]').click()
   await shot(c, 'splat-setup')
@@ -749,7 +729,6 @@ try {
   log('Splat Royale: 3 seats, host starts early, WASD and stick fire, server-scored result for both phones')
 
   // ---------- 5e. Splat Royale Settle: host sets the bill, starts with two of three seats, both agree, the result pays by place ----------
-  if (UNLOCK) {
   await c.goto('/#/g/splat')
   await c.waitForSelector('#go')
   await c.locator('[data-m=settle]').click()
@@ -789,7 +768,6 @@ try {
   assert.equal(ssm.players.reduce((x: number, p: any) => x + (p.share ?? 0), 0), 6 * 1e5, 'the place shares add up to the bill')
   await shot(c, 'splat-settle-result')
   log('Splat Settle: host sets the bill, early start re-agrees the split, shares by place add up to the bill')
-  }
 
   // ---------- 6. Vault, rank, pip, me, credits ----------
   await c.goto('/#/vault')

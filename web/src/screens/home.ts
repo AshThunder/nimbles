@@ -53,8 +53,8 @@ route('/', async (root) => {
       <button class="jarc" data-act="jar" style="text-align:left"><div class="h">${JAR}<div><div class="k">Savings jar</div><div class="n">${fmtNim(me.jarLuna)}<small> / ${fmtNim(me.plan.goalLuna)}</small></div></div></div><div class="bar"><i style="width:${Math.min(100, (jar / goal) * 100)}%"></i></div><div class="m">${ic('lock', 's16')}${lockText(me.jarLuna, me.jarUnlockAt)}</div></button>
       <div class="strk"><div class="h"><div class="flame">${FLAME}<b>${me.streak}</b></div><div><div class="k">Day streak</div><div class="sub">${me.vaultToday ? 'Vault done today' : 'Vault open today'}</div></div></div><div class="wk">${weekDots(me.streakDays)}</div><button class="btn gold sm block" data-act="vault" style="min-height:36px;font-size:14px">${me.vaultToday ? 'Vault deposit' : 'Play vault'}</button></div>
     </div>
-    <div class="lab" style="margin-top:4px">Games<small>${(Object.keys(GAMES) as GameId[]).filter((id) => !isSoon(id, S.cfg.unlockAll)).length} to play, more coming</small></div>
-    <div class="gcs">${(Object.keys(GAMES) as GameId[]).map((id) => gameCard(id, GAMES[id], isSoon(id, S.cfg.unlockAll))).join('')}</div>
+    <div class="lab" style="margin-top:4px">Games<small>${Object.keys(GAMES).length} games, 1 to 5 min</small></div>
+    <div class="gcs">${(Object.keys(GAMES) as GameId[]).map((id) => gameCard(id, GAMES[id], isSoon(id))).join('')}</div>
   </div>${tabs('Play')}`
   actions(root, {
     chests: () => go('/chests'),

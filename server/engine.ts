@@ -22,7 +22,7 @@ import { REPLAYS } from '../shared/replays'
 import { makeSudoku } from '../shared/puzzles'
 import { COSMETICS, LOCK_XP_PCT, derivedBadges, lockXpPct, streakXpPct, unlockedCosmetics, withXpBonus, BOOST_TOTAL_MAX, CHEST_TITLES, CHEST_WHY, chestContents, chestsDue,  DEFAULT_GOAL_LUNA, MAX_GOAL_NIM, POOL_DAILY_CAP, POOL_DAILY_PCT, earlyFee, isTier, levelBoostPct, poolDay, poolWeight, saveFee, type LockDays, type Plan } from '../shared/rewards'
 import {
-  GAMES, LUNA, STAKES, SPLAT_SETTLE_SOON, isSoon, levelFor,
+  GAMES, LUNA, STAKES, isSoon, levelFor,
   type GameId, type Mode, type OppKind, type Payee, type Payout, type PipLevel, type Profile, type PublicMatch, type Result, type Settlement, type SettleTerms,
 } from '../shared/types'
 
@@ -262,15 +262,13 @@ export class Engine {
   async create(host: string, b: any): Promise<PublicMatch> {
     const game = b.game as GameId
     if (!GAMES[game]) throw bad('Unknown game')
-    const unlockAll = process.env.NIMBLES_UNLOCK_ALL === '1'
-    if (isSoon(game, unlockAll)) throw bad(`${GAMES[game].name} is coming soon`)
+    if (isSoon(game)) throw bad(`${GAMES[game].name} is coming soon`)
     const mode = b.mode as Mode
     if (!['play', 'win', 'save', 'settle'].includes(mode)) throw bad('Unknown mode')
     const opp = b.opp as OppKind
     if (!['invite', 'auto', 'pip'].includes(opp)) throw bad('Unknown opponent type')
     if (opp === 'pip' && mode !== 'play') throw bad('Nimo only plays for fun. Staked matches need a real player')
     const pipLevel: PipLevel | undefined = opp === 'pip' ? (['easy', 'med', 'hard'].includes(b.pipLevel) ? b.pipLevel : 'med') : undefined
-    if (mode === 'settle' && game === 'splat' && SPLAT_SETTLE_SOON && !unlockAll) throw bad('Settle for Splat Royale is coming soon')
     if (mode === 'settle' && opp !== 'invite') throw bad('Settle is for friends only. Invite them with a code or link')
 
     let stake = 0

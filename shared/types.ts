@@ -5,12 +5,9 @@ export type PipLevel = 'easy' | 'med' | 'hard'
 
 export const LUNA = 100_000 // 1 NIM = 100,000 luna
 
-/** Built and tested, but not open to players yet. They show as "Coming soon" tiles; the server refuses to start them.
- *  Set NIMBLES_UNLOCK_ALL=1 on the server to open them (tests do this). */
-export const COMING_SOON: readonly GameId[] = ['blocks', 'spider', 'speedmath', 'dominoes', 'blitz', 'bowling', 'carrom', 'ghost']
-/** Settle for Splat Royale (2 to 6 players, split by place) is built but held back */
-export const SPLAT_SETTLE_SOON = true
-export const isSoon = (id: string, unlockAll = false) => !unlockAll && COMING_SOON.includes(id as GameId)
+/** Games shown as greyed "Coming soon" tiles that cannot be opened. The server refuses to start them. Empty: every game is open. */
+export const COMING_SOON: readonly GameId[] = []
+export const isSoon = (id: string) => COMING_SOON.includes(id as GameId)
 
 export const GAMES: Record<GameId, { name: string; blurb: string; tag?: 'Hot' | 'New'; minutes: string; level: number; maxPlayers: number }> = {
   trivia: { name: 'AI Trivia Duel', blurb: 'Any topic', tag: 'Hot', minutes: '2 min', level: 5, maxPlayers: 2 },

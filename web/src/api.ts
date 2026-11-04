@@ -45,7 +45,7 @@ export type JarInfo = {
   boost: { levelPct: number; totalPct: number }
   interest: { last: number; lastDay: string; week: number; total: number }
 }
-export type Config = { chain: 'mock' | 'nimiq'; network: 'testnet' | 'mainnet'; escrow: string; lockDays: number; ai: { gemini: boolean; model: string | null }; mock: boolean; serverNow: number; unlockAll?: boolean }
+export type Config = { chain: 'mock' | 'nimiq'; network: 'testnet' | 'mainnet'; escrow: string; lockDays: number; ai: { gemini: boolean; model: string | null }; mock: boolean; serverNow: number }
 export type SaverRow = { rank: number; address: string; name: string; avatar: string; frame: string; level: number; interest: number; saved: number; lockDays: number; locked: boolean; me: boolean }
 export type Row = { rank: number; address: string; name: string; avatar: string; frame: string; weekXp: number; level: number; me: boolean }
 export type MatchView = Omit<PublicMatch, 'players'> & {

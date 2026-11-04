@@ -13,7 +13,6 @@ import { CR_MIN_GAP_MS, crFire, crNew, crValid, replayCarrom, type CrShot } from
 import { GH_MS, ghNew, ghRowAt, ghStep, ghTrack, replayGhost, type GhEvent } from '../shared/ghost'
 
 process.env.CHAIN = 'mock'
-process.env.NIMBLES_UNLOCK_ALL = '1' // these games are held back in production, the tests open them
 process.env.GEMINI_API_KEY = ''
 
 let app: Awaited<ReturnType<typeof createApp>>
