@@ -1,7 +1,9 @@
 import { BANK, type Question } from './bank'
 import { rng } from '../shared/rng'
 
-const MODEL = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+// Model chain: first working model wins (preview/alias models can 404 or 503 under load).
+const MODELS = () => [process.env.GEMINI_MODEL, 'gemini-3-flash-preview', 'gemini-flash-lite-latest', 'gemini-flash-latest'].filter((m, i, a): m is string => !!m && a.indexOf(m) === i)
+const MODEL = () => MODELS()[0]
 const hasKey = () => !!process.env.GEMINI_API_KEY
 
 export const aiStatus = () => ({ gemini: hasKey(), model: hasKey() ? MODEL() : null })
@@ -11,30 +13,35 @@ type Part = { text: string } | { inlineData: { mimeType: string; data: string } 
 async function gemini(parts: Part[], schema: unknown, opts: { temperature?: number; timeoutMs?: number } = {}): Promise<any> {
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('no-key')
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 25000)
-  try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL()}:generateContent`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: schema,
-          temperature: opts.temperature ?? 0.7,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-    })
-    if (!res.ok) throw new Error('gemini-' + res.status)
-    const j: any = await res.json()
-    const text = j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? '').join('') ?? ''
-    return JSON.parse(text)
-  } finally {
-    clearTimeout(timer)
+  let last = new Error('gemini-failed')
+  for (const model of MODELS()) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 20000)
+    try {
+      const generationConfig: Record<string, unknown> = {
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+        temperature: opts.temperature ?? 0.7,
+      }
+      if (/gemini-3/.test(model)) generationConfig.thinkingConfig = { thinkingLevel: 'minimal' }
+      else if (/2\.5-flash$/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 }
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+        signal: ctrl.signal,
+        body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig }),
+      })
+      if (!res.ok) throw new Error(`gemini-${res.status} (${model})`)
+      const j: any = await res.json()
+      const text = j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? '').join('') ?? ''
+      return JSON.parse(text)
+    } catch (e) {
+      last = e as Error
+    } finally {
+      clearTimeout(timer)
+    }
   }
+  throw last
 }
 
 const clean = (s: unknown, max: number) =>
@@ -168,7 +175,8 @@ export async function generateTrivia(topicIn: string, countIn: number, seed: str
       /* verification is best effort */
     }
     return { questions: qs.slice(0, count), source: 'gemini', verified, topic }
-  } catch {
+  } catch (e) {
+    console.warn('[ai] trivia generation failed, using the built-in bank:', (e as Error).message)
     return { questions: fromBank(topic, count, seed), source: 'bank', verified: false, topic }
   }
 }
