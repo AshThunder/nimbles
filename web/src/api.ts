@@ -56,7 +56,9 @@ export type MatchView = Omit<PublicMatch, 'players'> & {
 
 export const api = {
   config: () => call<Config>('GET', '/config'),
-  session: (address: string, name?: string, avatar?: string) => call<{ token: string; profile: Profile & { vaultToday?: boolean } }>('POST', '/session', { address, name, avatar }),
+  challenge: () => call<{ nonce: string; message: string }>('GET', '/auth/challenge'),
+  session: (address: string, name?: string, avatar?: string, proof?: { nonce: string; publicKey: string; signature: string }) =>
+    call<{ token: string; verified: boolean; profile: Profile & { vaultToday?: boolean } }>('POST', '/session', { address, name, avatar, proof }),
   me: () => call<Profile & { vaultToday?: boolean }>('GET', '/me'),
   setMe: (b: { name?: string; avatar?: string }) => call<Profile>('POST', '/me', b),
   board: (scope: 'global' | 'friends') => call<{ rows: Row[]; me: Row | null; total: number; week: string }>('GET', '/leaderboard?scope=' + scope),

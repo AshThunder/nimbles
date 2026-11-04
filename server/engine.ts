@@ -313,6 +313,7 @@ export class Engine {
     const check = await this.chain.verifyDeposit(txHash, { from: addr, luna: need, memo: m.escrow.memo })
     if (!check.ok) {
       if (check.pending) return { ...this.view(m, addr), pending: true, pendingReason: check.reason }
+      if (check.wrongSender) throw await this.wrongSender(addr, txHash, check.wrongSender, m.id, m.players.map((p) => p.player.address))
       throw bad(check.reason)
     }
     if (this.db.usedTx[txHash]) throw bad('That transaction was already used')
@@ -322,6 +323,26 @@ export class Engine {
     if (m.status === 'funding' && m.players.every((p) => p.funded || p.escrowed === 0)) this.beginCountdown(m)
     this.store.save()
     return this.view(m, addr)
+  }
+
+  /** A valid deposit arrived from a wallet other than the signed-in one. It is not credited. If the sender is not
+   *  one of the players it goes straight back to the sender (once), so a mix-up never strands funds. */
+  private async wrongSender(addr: string, txHash: string, w: { from: string; luna: number }, ref: string, keep: string[] = []) {
+    const short = (a: string) => { const n = a.replace(/\s+/g, '').toUpperCase(); return `${n.slice(0, 4)}…${n.slice(-4)}` }
+    const from = w.from.replace(/\s+/g, ' ').trim().toUpperCase()
+    const isPlayer = keep.some((a) => sameAddr(a, from))
+    const head = `Nimiq Pay paid from ${short(from)}, but you are signed in as ${short(addr)}.`
+    if (isPlayer || !isNimiqAddress(from)) return bad(`${head} That payment was not counted.`)
+    this.db.usedTx[txHash] = 'refunded:' + ref
+    this.store.save()
+    try {
+      await this.chain.pay(from, w.luna, 'nb:refund')
+    } catch {
+      delete this.db.usedTx[txHash]
+      this.store.save()
+      return bad(`${head} That payment was not counted and the refund did not go through yet, tap Lock in again in a minute.`)
+    }
+    return bad(`${head} It was not counted and the ${w.luna / 1e5} NIM has been sent back to ${short(from)}. Switch to ${short(addr)} in Nimiq Pay and lock in again.`)
   }
 
   async cancel(addr: string, id: string) {
@@ -708,6 +729,7 @@ export class Engine {
     const check = await this.chain.verifyDeposit(txHash, { from: addr, luna: toLuna(amountNim), memo })
     if (!check.ok) {
       if (check.pending) return { pending: true, reason: check.reason }
+      if (check.wrongSender) throw await this.wrongSender(addr, txHash, check.wrongSender, 'vault')
       throw bad(check.reason)
     }
     this.db.usedTx[txHash] = 'vault'

@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export type DepositCheck = { ok: true } | { ok: false; reason: string; pending?: boolean }
+/** `wrongSender` is set when the deposit is otherwise valid (to escrow, right memo, enough value, final) but signed by another wallet */
+export type DepositCheck = { ok: true } | { ok: false; reason: string; pending?: boolean; wrongSender?: { from: string; luna: number } }
 
 export interface Chain {
   readonly kind: 'mock' | 'nimiq'
@@ -40,10 +41,10 @@ export class MockChain implements Chain {
   async verifyDeposit(tx: string, e: { from: string; luna: number; memo: string }): Promise<DepositCheck> {
     const t = this.txs.get(tx)
     if (!t) return { ok: false, reason: 'Transaction not found' }
-    if (!sameAddr(t.from, e.from)) return { ok: false, reason: 'Sent from a different wallet' }
     if (!sameAddr(t.to, this.escrowAddress)) return { ok: false, reason: 'Not sent to the escrow address' }
     if (t.luna < e.luna) return { ok: false, reason: 'Amount is too low' }
     if (t.memo !== e.memo) return { ok: false, reason: 'Memo does not match this match' }
+    if (!sameAddr(t.from, e.from)) return { ok: false, reason: 'Sent from a different wallet', wrongSender: { from: t.from, luna: t.luna } }
     return { ok: true }
   }
 
@@ -125,12 +126,12 @@ export class NimiqChain implements Chain {
     if (!t || t.blockNumber == null) return { ok: false, reason: 'Waiting for the block', pending: true }
     if (t.executionResult === false) return { ok: false, reason: 'Transaction failed on chain' }
     if (t.networkId !== NETWORK_ID[this.network]) return { ok: false, reason: 'Wrong network' }
-    if (!sameAddr(t.from, e.from)) return { ok: false, reason: 'Sent from a different wallet' }
     if (!sameAddr(t.to, this.escrowAddress)) return { ok: false, reason: 'Not sent to the escrow address' }
     if (Number(t.value) < e.luna) return { ok: false, reason: 'Amount is too low' }
     const memo = Buffer.from(String(t.recipientData || ''), 'hex').toString('utf8')
     if (memo !== e.memo) return { ok: false, reason: 'Memo does not match this match' }
     if ((t.confirmations ?? 0) < this.minConfirmations) return { ok: false, reason: 'Waiting for confirmations', pending: true }
+    if (!sameAddr(t.from, e.from)) return { ok: false, reason: 'Sent from a different wallet', wrongSender: { from: String(t.from), luna: Number(t.value) } }
     return { ok: true }
   }
 

@@ -6,6 +6,7 @@ import { Engine, ApiError } from './engine'
 import { Store } from './store'
 import { MockChain, makeChain } from './chain'
 import { aiStatus, parseReceipt } from './ai'
+import { Challenges, addressFromProof, challengeText } from './auth'
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
@@ -53,6 +54,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
   const store = new Store(dataDir, opts.persist ?? true)
   const chain = await makeChain(dataDir)
   const engine = new Engine(store, chain)
+  const challenges = new Challenges()
   const distDir = join(ROOT, 'dist')
 
   const send = (res: ServerResponse, status: number, body: unknown) => {
@@ -77,7 +79,17 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
     if (method === 'POST' && path === '/session') {
       limit('sess:' + ip, 60, 60_000)
       const b = await readBody(req, 4096)
-      return send(res, 200, engine.session(b.address, b.name, b.avatar))
+      // proof of wallet ownership: a signed one-time challenge. A good signature decides the address, a missing or
+      // unreadable one keeps the claimed address (older wallets) and is reported back as unverified.
+      let proven: string | null = null
+      if (b.proof && typeof b.proof === 'object') {
+        if (challenges.take(String(b.proof.nonce))) proven = await addressFromProof(b.proof, challengeText(String(b.proof.nonce)))
+      }
+      return send(res, 200, { ...engine.session(proven ?? b.address, b.name, b.avatar), verified: !!proven })
+    }
+    if (method === 'GET' && path === '/auth/challenge') {
+      limit('chal:' + ip, 60, 60_000)
+      return send(res, 200, challenges.issue())
     }
     // dev only: the mocked Nimiq Pay provider registers the tx it pretends to send
     if (method === 'POST' && path === '/dev/mock-tx' && chain instanceof MockChain) {

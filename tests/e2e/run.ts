@@ -430,6 +430,93 @@ try {
   await shot(c, 'home-after')
   log('rank, Pip, profile, credits (CC BY credit present)')
 
+  // ---------- 6b. Wallet start-up: late provider, flaky first answers, several accounts, wrong signer ----------
+  {
+    const { KeyPair } = await import('@nimiq/core')
+    const { createHash } = await import('node:crypto')
+    const post = async (tok: string | null, method: string, path: string, body?: unknown) =>
+      (await fetch(`${BASE}/api${path}`, { method, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined })).json() as Promise<any>
+    const flaky = async (opts: { sender: string; accounts: string[]; canSign: boolean; kp?: any }) => {
+      const ctx = await browser.newContext({ ...devices['Pixel 7'], viewport: { width: 390, height: 844 }, baseURL: BASE })
+      if (opts.canSign) {
+        await ctx.exposeFunction('__sign', (msg: string) => {
+          const raw = Buffer.from(msg)
+          const wrapped = Buffer.concat([Buffer.from('\x16Nimiq Signed Message:\n' + raw.length), raw])
+          const sig = opts.kp.sign(createHash('sha256').update(wrapped).digest())
+          return { publicKey: opts.kp.publicKey.toHex(), signature: sig.toHex() }
+        })
+      }
+      await ctx.addInitScript(`(() => {
+        const sender = ${JSON.stringify(opts.sender)}, accounts = ${JSON.stringify(opts.accounts)}, canSign = ${opts.canSign}
+        window.__listCalls = 0
+        window.nimiqPay = { network: 'testnet', language: 'en' }
+        const send = async (recipient, value, data) => {
+          const r = await fetch('/api/dev/mock-tx', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: sender, to: recipient, luna: value, memo: data }) })
+          return (await r.json()).hash
+        }
+        // the provider shows up 2s after the page starts, the first answer is an error, the second is empty
+        setTimeout(() => {
+          window.nimiq = {
+            listAccounts: async () => { const n = ++window.__listCalls; if (n === 1) throw new Error('host not ready'); if (n === 2) return []; return accounts },
+            getBalance: async () => 5000 * 1e5,
+            sendBasicTransaction: async (t) => send(t.recipient, t.value, ''),
+            sendBasicTransactionWithData: async (t) => send(t.recipient, t.value, t.data),
+            ...(canSign ? { sign: async (m) => window.__sign(m) } : {}),
+          }
+        }, 2000)
+      })()`)
+      const page = await ctx.newPage()
+      pages.set('flaky-' + opts.sender.slice(-4), page)
+      page.on('pageerror', (e) => errors.push(`[flaky] pageerror: ${e.message}`))
+      return page
+    }
+    const lockScreen = async (page: Page, host: string, stake: number) => {
+      const tok = (await page.evaluate(() => sessionStorage.getItem('nb:token')))!
+      const ht = (await post(null, 'POST', '/session', { address: host })).token
+      const m = await post(ht, 'POST', '/matches', { game: 'trivia', mode: 'save', stake, opp: 'invite', config: { topic: 'Science', count: 5 } })
+      await post(tok, 'POST', '/matches/join', { code: m.code })
+      await page.goto(`/#/m/${m.id}`)
+      await page.waitForSelector('[data-act="fund"]')
+      return { m, tok }
+    }
+
+    // (a) wallet connects with no reload, and the signer, not accounts[0], becomes the identity
+    const signer = KeyPair.generate()
+    const signerAddr = signer.publicKey.toAddress().toUserFriendlyAddress()
+    const pa = await flaky({ sender: signerAddr, accounts: [ADDR.tobi, signerAddr], canSign: true, kp: signer })
+    await pa.goto('/')
+    await pa.waitForSelector('text=Connecting to Nimiq Pay')
+    await shot(pa, 'wallet-connecting')
+    await pa.waitForSelector('.gcs', { timeout: 30000 })
+    assert.equal(await pa.evaluate(() => performance.getEntriesByType('navigation').length), 1, 'no reload was needed')
+    assert.ok((await pa.evaluate(() => (window as any).__listCalls)) >= 3, 'retried through the error and the empty answer')
+    const me = await post((await pa.evaluate(() => sessionStorage.getItem('nb:token')))!, 'GET', '/me')
+    assert.equal(me.address, signerAddr, 'identity is the account that signs, not accounts[0]')
+    const l = await lockScreen(pa, ADDR.ada, 2)
+    await pa.click('[data-act="fund"]')
+    await pa.waitForSelector('.okb.on', { timeout: 20000 })
+    assert.equal(await pa.locator('.err').count(), 0, 'no mismatch banner')
+    const fm = await matchOf(pa, l.m.id)
+    assert.equal(fm.players.find((p: any) => p.player.address === signerAddr).funded, true)
+    await shot(pa, 'wallet-locked-with-signer')
+    log('wallet connects without a reload (late provider, error, empty list) and uses the signing account')
+
+    // (b) a wallet that cannot prove its signer and pays from another account: clear message, money goes back
+    const pb = await flaky({ sender: ADDR.ada.replace(/2$/, '9'), accounts: [ADDR.tobi], canSign: false })
+    await pb.goto('/')
+    await pb.waitForSelector('.gcs', { timeout: 30000 })
+    await lockScreen(pb, ADDR.ada, 2)
+    const before = (await (await fetch(`${BASE}/api/dev/mock-payouts`)).json()).length
+    await pb.click('[data-act="fund"]')
+    await pb.waitForSelector('.err')
+    const msg = await pb.locator('.err').innerText()
+    assert.match(msg, /Nimiq Pay paid from NQ07…0009, but you are signed in as NQ07…0003/)
+    assert.match(msg, /sent back/)
+    assert.equal((await (await fetch(`${BASE}/api/dev/mock-payouts`)).json()).length, before + 1)
+    await shot(pb, 'wallet-wrong-signer')
+    log('a real wrong-signer payment is explained with both wallets and refunded')
+  }
+
   // ---------- 7. Preview mode (no wallet): free play only ----------
   const pctx = await browser.newContext({ ...devices['Pixel 7'], viewport: { width: 390, height: 844 }, baseURL: BASE })
   const pp = await pctx.newPage()
