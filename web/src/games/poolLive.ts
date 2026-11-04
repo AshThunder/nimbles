@@ -30,7 +30,7 @@ export const poolLive: GameMod = (ctx) => {
   ctx.root.innerHTML = `<div class="top"><span style="width:40px"></span><div class="ttl">8-Ball Pool</div><span class="tmr" id="tm">6:00</span></div>
   <div class="scroll" style="gap:8px"><div class="pls" id="pls"></div><div class="plw"><canvas id="cv"></canvas></div>
   <div class="cst" id="cst" role="status"></div>
-  <div class="pwr"><span class="mono">Power</span><input type="range" id="pw" min="10" max="100" value="60" aria-label="Shot power"><button class="btn gold" id="sh" style="height:48px;padding:0 20px">${ic('target', 's20')}Shoot</button></div>
+  <div class="pwr"><span class="mono">Power</span><input type="range" id="pw" min="10" max="100" value="60" aria-label="Shot power"><button class="btn gold" id="sh" style="min-height:48px;padding:0 20px">${ic('target', 's20')}Shoot</button></div>
   ${finishBtn('Concede')}</div>`
   wireFinish(ctx.root, () => void send({ resign: true }), 'Concede', 'Tap again to concede')
   const table = createTable($('#cv', ctx.root) as HTMLCanvasElement, ctx.root.querySelector('.plw') as HTMLElement)

@@ -39,7 +39,6 @@ export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
     escrowed: number
     result?: Result
     progress?: number
-    payer?: boolean
     share?: number
     isBot?: boolean
   }[]

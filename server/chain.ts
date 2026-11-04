@@ -16,6 +16,8 @@ export interface Chain {
   /** Pay out of escrow. Returns the tx hash. */
   pay(to: string, luna: number, memo: string): Promise<string>
   balance(): Promise<number>
+  /** True when the address is an ordinary wallet that can receive a plain transfer (not an HTLC, vesting or other contract). */
+  isWallet(address: string): Promise<boolean>
 }
 
 const norm = (a: string) => a.replace(/\s+/g, '').toUpperCase()
@@ -33,6 +35,12 @@ export class MockChain implements Chain {
   readonly escrowAddress = 'NQ07 0000 0000 0000 0000 0000 0000 0000 0000'
   txs = new Map<string, MockTx>()
   paid: { to: string; luna: number; memo: string; tx: string }[] = []
+  /** Test hook: addresses that behave like contracts */
+  contracts = new Set<string>()
+
+  async isWallet(address: string) {
+    return ![...this.contracts].some((c) => sameAddr(c, address))
+  }
 
   /** Dev-only: the mocked Nimiq Pay provider registers the tx it "sent". */
   register(tx: MockTx): string {
@@ -150,6 +158,11 @@ export class NimiqChain implements Chain {
       if (a?.type === 'vesting' && isNimiqAddress(String(a.owner))) return String(a.owner)
     } catch { /* unknown */ }
     return null
+  }
+
+  async isWallet(address: string): Promise<boolean> {
+    const a = await this.rpc('getAccountByAddress', [address]).catch(() => null)
+    return !a || !a.type || a.type === 'basic'
   }
 
   pay(to: string, luna: number, memo: string): Promise<string> {

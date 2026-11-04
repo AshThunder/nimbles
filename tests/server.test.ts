@@ -109,26 +109,141 @@ test('draw refunds both stakes through escrow', async () => {
   assert.deepEqual(paid.map((p: any) => p.luna), [100000, 100000])
 })
 
-test('spend duel: loser pays the larger share to the payer, the rest is refunded', async () => {
+const paidFor = (id: string) => (app.chain as any).paid.filter((p: any) => p.memo.startsWith('nb:' + id)) as { to: string; luna: number; memo: string }[]
+const start = async (t: string, id: string) => {
+  app.engine.db.matches[id].startsAt = Date.now() - 1
+  await call(t, 'GET', `/matches/${id}`)
+}
+
+test('settle: invite only, both must agree before anyone locks, loser pays all to the host', async () => {
   const ta = await login(A, 'Ada'), tb = await login(B, 'Bisi')
-  const c = (await call(ta, 'POST', '/matches', { game: 'sudoku', mode: 'spend', stake: 10, opp: 'invite' })).j
-  await call(tb, 'POST', '/matches/join', { code: c.code })
-  const joined = (await call(ta, 'GET', `/matches/${c.id}`)).j
-  assert.equal(joined.players[0].escrowed, 0, 'payer locks nothing')
-  assert.equal(joined.players[1].escrowed, 600000, 'opponent locks the biggest share')
-  const ready = (await call(tb, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(B, 600000, c.escrow.memo) })).j
+  const mk = { game: 'sudoku', mode: 'settle', opp: 'invite', terms: { bill: 10, loserPct: 100, payee: 'me' } }
+  assert.equal((await call(ta, 'POST', '/matches', { ...mk, opp: 'auto' })).status, 400, 'no auto-match for Settle')
+  assert.equal((await call(ta, 'POST', '/matches', { ...mk, opp: 'pip' })).status, 400)
+  assert.equal((await call(ta, 'POST', '/matches', { ...mk, terms: { ...mk.terms, loserPct: 40 } })).status, 400)
+  const c = (await call(ta, 'POST', '/matches', mk)).j
+  assert.equal(c.status, 'lobby')
+  assert.deepEqual(c.terms.payee, { seat: 0 })
+  const joined = (await call(tb, 'POST', '/matches/join', { code: c.code })).j
+  assert.equal(joined.status, 'terms')
+  assert.equal(joined.terms.lock, 1000000)
+  assert.deepEqual(joined.terms.agreed, [A])
+  // nobody can lock before both agreed
+  assert.equal((await call(tb, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(B, 1000000, c.escrow.memo) })).status, 400)
+  // Bisi counters, which clears Ada's agreement and bumps the revision
+  const counter = (await call(tb, 'POST', `/matches/${c.id}/terms`, { action: 'propose', bill: 10, loserPct: 70, payee: 'friend' })).j
+  assert.equal(counter.terms.rev, 2)
+  assert.deepEqual(counter.terms.agreed, [B])
+  assert.equal(counter.stake, 10)
+  // agreeing to a stale revision is refused
+  assert.equal((await call(ta, 'POST', `/matches/${c.id}/terms`, { action: 'agree', rev: 1 })).status, 400)
+  // Ada pushes back to loser-pays-all, Bisi agrees
+  await call(ta, 'POST', `/matches/${c.id}/terms`, { action: 'propose', bill: 10, loserPct: 100, payee: 'me' })
+  const both = (await call(tb, 'POST', `/matches/${c.id}/terms`, { action: 'agree', rev: 3 })).j
+  assert.equal(both.status, 'funding')
+  assert.equal(both.players[0].escrowed, 1000000)
+  assert.equal(both.players[1].escrowed, 1000000)
+  // terms are frozen once funding starts
+  assert.equal((await call(ta, 'POST', `/matches/${c.id}/terms`, { action: 'propose', bill: 1, loserPct: 50, payee: 'me' })).status, 400)
+  await call(ta, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(A, 1000000, c.escrow.memo) })
+  const ready = (await call(tb, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(B, 1000000, c.escrow.memo) })).j
   assert.equal(ready.status, 'ready')
-  app.engine.db.matches[c.id].startsAt = Date.now() - 1
-  await call(tb, 'GET', `/matches/${c.id}`)
+  await start(tb, c.id)
   await call(ta, 'POST', `/matches/${c.id}/result`, { score: 10, time: 1000 })
-  const r = (await call(tb, 'POST', `/matches/${c.id}/result`, { score: 30, time: 1000 })).j // B wins, pays 40%
+  const r = (await call(tb, 'POST', `/matches/${c.id}/result`, { score: 30, time: 1000 })).j // Bisi wins, so Ada loses and pays the bill
   assert.equal(r.settlement.winner, B)
   await new Promise((r) => setTimeout(r, 50))
-  const paid = (app.chain as any).paid.filter((p: any) => p.memo.startsWith('nb:' + c.id))
-  const toA = paid.find((p: any) => p.to === A)
-  const toB = paid.find((p: any) => p.to === B)
-  assert.equal(toA.luna, 400000)
-  assert.equal(toB.luna, 200000)
+  const paid = paidFor(c.id)
+  const total = paid.reduce((s, p) => s + p.luna, 0)
+  assert.equal(total, 2000000, 'everything locked is paid out')
+  // Ada is the loser AND the payee: she pays her own bill, gets her lock back, and Bisi's winner share (0) is nothing
+  assert.equal(paid.filter((p) => p.to === A).reduce((s, p) => s + p.luna, 0), 1000000)
+  assert.equal(paid.filter((p) => p.to === B).reduce((s, p) => s + p.luna, 0), 1000000)
+})
+
+test('settle: 70/30 to a third-party wallet, draw splits evenly, unused locks come back', async () => {
+  const ta = await login(A, 'Ada'), tb = await login(B, 'Bisi')
+  const shop = C
+  const c = (await call(ta, 'POST', '/matches', { game: 'sudoku', mode: 'settle', opp: 'invite', terms: { bill: 10, loserPct: 70, payee: shop } })).j
+  assert.deepEqual(c.terms.payee, { address: shop })
+  await call(tb, 'POST', '/matches/join', { code: c.code })
+  const f = (await call(tb, 'POST', `/matches/${c.id}/terms`, { action: 'agree', rev: 1 })).j
+  assert.equal(f.status, 'funding')
+  assert.equal(f.players[0].escrowed, 700000)
+  await call(ta, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(A, 700000, c.escrow.memo) })
+  await call(tb, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(B, 700000, c.escrow.memo) })
+  await start(ta, c.id)
+  await call(ta, 'POST', `/matches/${c.id}/result`, { score: 50, time: 1000 })
+  const r = (await call(tb, 'POST', `/matches/${c.id}/result`, { score: 50, time: 1000 })).j
+  assert.equal(r.settlement.draw, true)
+  assert.deepEqual(r.players.map((p: any) => p.share), [500000, 500000])
+  await new Promise((r) => setTimeout(r, 50))
+  const paid = paidFor(c.id)
+  assert.equal(paid.find((p) => p.to === shop)!.luna, 1000000, 'the payee gets the whole bill')
+  assert.equal(paid.find((p) => p.to === A)!.luna, 200000)
+  assert.equal(paid.find((p) => p.to === B)!.luna, 200000)
+  // a decisive game: winner owes 30%, loser 70%
+  const d = (await call(ta, 'POST', '/matches', { game: 'sudoku', mode: 'settle', opp: 'invite', terms: { bill: 10, loserPct: 70, payee: 'friend' } })).j
+  await call(tb, 'POST', '/matches/join', { code: d.code })
+  await call(tb, 'POST', `/matches/${d.id}/terms`, { action: 'agree', rev: 1 })
+  await call(ta, 'POST', `/matches/${d.id}/fund`, { txHash: deposit(A, 700000, d.escrow.memo) })
+  await call(tb, 'POST', `/matches/${d.id}/fund`, { txHash: deposit(B, 700000, d.escrow.memo) })
+  await start(ta, d.id)
+  await call(ta, 'POST', `/matches/${d.id}/result`, { score: 90, time: 1000 })
+  await call(tb, 'POST', `/matches/${d.id}/result`, { score: 10, time: 1000 })
+  await new Promise((r) => setTimeout(r, 50))
+  const p2 = paidFor(d.id)
+  // payee 'friend' = Bisi (seat 1), who lost and pays 70%. Ada won and pays 30%
+  assert.equal(p2.filter((p) => p.to === B).reduce((s, p) => s + p.luna, 0), 700000 + 300000, 'payee gets own lock back plus the winner share')
+  assert.equal(p2.filter((p) => p.to === A).reduce((s, p) => s + p.luna, 0), 400000, 'Ada gets her unused 4 NIM back')
+})
+
+test('settle: a contract address cannot be the payee, and an expired terms or funding window refunds everyone', async () => {
+  const ta = await login(A, 'Ada'), tb = await login(B, 'Bisi')
+  ;(app.chain as any).contracts.add(C)
+  const terms = { bill: 4, loserPct: 100, payee: C }
+  assert.equal((await call(ta, 'POST', '/matches', { game: 'sudoku', mode: 'settle', opp: 'invite', terms })).status, 400)
+  ;(app.chain as any).contracts.clear()
+  assert.equal((await call(ta, 'POST', '/matches', { game: 'sudoku', mode: 'settle', opp: 'invite', terms: { ...terms, payee: 'NQ00 nope' } })).status, 400)
+  // terms never agreed: cancelled, nothing was locked
+  const c = (await call(ta, 'POST', '/matches', { game: 'sudoku', mode: 'settle', opp: 'invite', terms: { ...terms, payee: 'me' } })).j
+  await call(tb, 'POST', '/matches/join', { code: c.code })
+  app.engine.db.matches[c.id].fundBy = Date.now() - 1
+  assert.equal((await call(tb, 'GET', `/matches/${c.id}`)).j.status, 'cancelled')
+  assert.equal(paidFor(c.id).length, 0)
+  // agreed, one locks, the other never does: the one who locked is refunded
+  const d = (await call(ta, 'POST', '/matches', { game: 'sudoku', mode: 'settle', opp: 'invite', terms: { ...terms, payee: 'me' } })).j
+  await call(tb, 'POST', '/matches/join', { code: d.code })
+  await call(tb, 'POST', `/matches/${d.id}/terms`, { action: 'agree', rev: 1 })
+  await call(tb, 'POST', `/matches/${d.id}/fund`, { txHash: deposit(B, 400000, d.escrow.memo) })
+  app.engine.db.matches[d.id].fundBy = Date.now() - 1
+  assert.equal((await call(tb, 'GET', `/matches/${d.id}`)).j.status, 'cancelled')
+  await new Promise((r) => setTimeout(r, 50))
+  const paid = paidFor(d.id)
+  assert.equal(paid.length, 1)
+  assert.equal(paid[0].to, B)
+  assert.equal(paid[0].luna, 400000)
+})
+
+test('settle: a player who never finishes forfeits and pays the loser share', async () => {
+  const ta = await login(A, 'Ada'), tb = await login(B, 'Bisi')
+  const c = (await call(ta, 'POST', '/matches', { game: 'sudoku', mode: 'settle', opp: 'invite', terms: { bill: 6, loserPct: 100, payee: C } })).j
+  await call(tb, 'POST', '/matches/join', { code: c.code })
+  await call(tb, 'POST', `/matches/${c.id}/terms`, { action: 'agree', rev: 1 })
+  await call(ta, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(A, 600000, c.escrow.memo) })
+  await call(tb, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(B, 600000, c.escrow.memo) })
+  await start(ta, c.id)
+  await call(ta, 'POST', `/matches/${c.id}/result`, { score: 5, time: 1000 })
+  const m = app.engine.db.matches[c.id]
+  m.endsAt = Date.now() - 60_000
+  await call(ta, 'GET', `/matches/${c.id}`)
+  const fin = (await call(ta, 'GET', `/matches/${c.id}`)).j
+  assert.equal(fin.status, 'settled')
+  assert.equal(fin.settlement.winner, A)
+  await new Promise((r) => setTimeout(r, 50))
+  const paid = paidFor(c.id)
+  assert.equal(paid.find((p) => p.to === C)!.luna, 600000, 'Bisi forfeited, so the bill is paid out of her lock')
+  assert.equal(paid.find((p) => p.to === A)!.luna, 600000, 'Ada, the winner, owes nothing and gets her lock back')
 })
 
 test('Pip: play only, free, scores from the shared seed', async () => {
@@ -153,26 +268,11 @@ test('auto-match pairs two players with the same game and stake', async () => {
   assert.equal(b.status, 'ready')
 })
 
-test('last bite: three friends, shares add up to the bill', async () => {
-  const ta = await login(A, 'Ada'), tb = await login(B, 'Bisi'), tc = await login(C, 'Chi')
-  const c = (await call(ta, 'POST', '/matches', { game: 'lastbite', mode: 'spend', stake: 12.96, opp: 'invite', size: 3 })).j
-  await call(tb, 'POST', '/matches/join', { code: c.code })
-  const j = (await call(tc, 'POST', '/matches/join', { code: c.code })).j
-  assert.equal(j.status, 'funding')
-  const need = (id: string) => j.players.find((p: any) => p.player.address === id).escrowed
-  await call(tb, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(B, need(B), c.escrow.memo) })
-  await call(tc, 'POST', `/matches/${c.id}/fund`, { txHash: deposit(C, need(C), c.escrow.memo) })
-  app.engine.db.matches[c.id].startsAt = Date.now() - 1
-  await call(ta, 'GET', `/matches/${c.id}`)
-  await call(ta, 'POST', `/matches/${c.id}/result`, { score: 5, time: 5 })
-  await call(tb, 'POST', `/matches/${c.id}/result`, { score: 20, time: 5 })
-  const r = (await call(tc, 'POST', `/matches/${c.id}/result`, { score: 10, time: 5 })).j
-  assert.equal(r.status, 'settled')
-  const final = (await call(ta, 'GET', `/matches/${c.id}`)).j
-  const shares = final.players.map((p: any) => p.share)
-  assert.equal(shares.reduce((s: number, x: number) => s + x, 0), 1296000)
-  const byAddr = Object.fromEntries(final.players.map((p: any) => [p.player.address, p.share]))
-  assert.ok(byAddr[B] < byAddr[C] && byAddr[C] < byAddr[A], 'best player pays least')
+test('last bite is a normal two-player game in any mode', async () => {
+  const ta = await login(A, 'Ada')
+  const c = (await call(ta, 'POST', '/matches', { game: 'lastbite', mode: 'play', opp: 'pip' })).j
+  assert.equal(c.status, 'ready')
+  assert.equal(c.size, 2)
 })
 
 test('vault: wrong grid refused, right grid grants XP once', async () => {

@@ -34,7 +34,7 @@ route('/jar', async (root) => {
     const won = st.winner === S.wallet.address
     const jarc = (st.jarCredit[S.wallet.address] ?? 0) / 1
     const mine = st.payouts.filter((p) => (p.for ?? p.to) === S.wallet.address).reduce((s, p) => s + p.luna, 0)
-    return `<div class="rw" style="height:52px"><span class="avs" style="background:${GLYPH_BG[m.game]};border-radius:10px;padding:4px">${glyph(m.game)}</span><span class="nm"><b>${GAMES[m.game].name}</b><span>${st.draw ? 'Draw' : won ? 'Won' : 'Lost'} · ${m.mode}</span></span><span class="am"><b>${jarc ? '+' + fmtNim(jarc) : mine ? '+' + fmtNim(mine) : '0'}</b><span>NIM</span></span></div>`
+    return `<div class="rw" style="min-height:52px"><span class="avs" style="background:${GLYPH_BG[m.game]};border-radius:10px;padding:4px">${glyph(m.game)}</span><span class="nm"><b>${GAMES[m.game].name}</b><span>${st.draw ? 'Draw' : won ? 'Won' : 'Lost'} · ${m.mode}</span></span><span class="am"><b>${jarc ? '+' + fmtNim(jarc) : mine ? '+' + fmtNim(mine) : '0'}</b><span>NIM</span></span></div>`
   }
   draw()
   actions(root, {
@@ -87,7 +87,7 @@ route('/pip', async (root) => {
         <button class="btn gold block" data-act="snap" ${busy ? 'disabled' : ''}>${busy ? ic('refresh-cw', 's20 spin') + 'Reading…' : ic('camera', 's20') + 'Snap or pick a receipt'}</button>
         <input type="file" id="rf" accept="image/*" class="hide">
         <div class="lab" style="margin:0;font-size:14px">Or type the lines</div>
-        <textarea id="rt" class="field" rows="3" placeholder="Pizza 12.5&#10;Drinks 6&#10;Dessert 4" style="height:auto;padding:10px">${esc(text)}</textarea>
+        <textarea id="rt" class="field" rows="3" placeholder="Pizza 12.5&#10;Drinks 6&#10;Dessert 4" style="min-height:auto;padding:10px">${esc(text)}</textarea>
         <button class="btn ghost block" data-act="parse" ${busy || text.trim().length < 3 ? 'disabled' : ''}>${ic('sparkles', 's20')}Read the lines</button></div>
       ${err ? errBox(err) : ''}
       ${receipt ? resultCard() : ''}</div>${tabs('Pip')}`
@@ -99,7 +99,7 @@ route('/pip', async (root) => {
     <div class="card flat" style="display:flex;flex-direction:column;gap:6px">${r.items.map((i) => `<div class="row" style="font-size:14px"><span>${esc(i.name)}</span><span class="sp"></span><b>${i.price}</b></div>`).join('')}</div>
     <div class="lab" style="margin:0">Split between</div><div class="pick">${[2, 3, 4, 5, 6].map((k) => `<button class="pc ${n === k ? 'on' : ''}" data-act="n" data-n="${k}">${n === k ? ic('check') : ''}${k}</button>`).join('')}</div>
     <div class="card" style="background:var(--gold-tint)"><div class="row"><b>Even split</b><span class="sp"></span><b style="font-size:22px">${(Math.round(each * 100) / 100).toFixed(2)}</b></div><div style="font-size:13px;color:var(--ink2)">per person. Or settle it with a Last Bite duel, where the winner pays the least</div></div>
-    <button class="btn gold block" data-act="duel">${ic('swords', 's20')}Settle it with Last Bite</button>`
+    <button class="btn gold block" data-act="duel">${ic('swords', 's20')}Settle the bill with a friend</button>`
   }
   draw()
   const run = async (b: { imageBase64?: string; mime?: string; text?: string }) => {
@@ -225,8 +225,8 @@ route('/me', (root) => {
     root.innerHTML = `${topbar('You', 'back', '<span style="width:40px"></span>')}<div class="scroll" style="gap:14px">
       <div class="card" style="display:flex;gap:14px;align-items:center"><div class="pav" style="position:relative;width:64px;height:64px">${avatar(me.avatar)}</div><div style="flex:1"><b style="font-size:20px">${esc(me.name)}</b><div class="mono" style="font-size:12px;color:var(--muted)">${shortAddr(me.address)}</div><div style="margin-top:4px;display:flex;gap:6px;align-items:center">${lvBadge(me.level, 22)}<span style="font-size:13px;color:var(--ink2)">${me.xp} XP · ${me.wins} wins / ${me.played} played</span></div></div></div>
       <div class="lab" style="margin:0">Name</div><input id="nm" class="field" value="${esc(me.name)}" maxlength="16" autocomplete="off">
-      <div class="lab" style="margin:0">Avatar</div><div style="display:grid;grid-template-columns:repeat(8,1fr);gap:6px">${AVATARS.map((a) => `<button data-act="av" data-a="${a}" aria-label="${a}" style="position:relative;border-radius:50%;padding:0;${me.avatar === a ? 'outline:3px solid var(--ink);outline-offset:1px' : ''}">${avatar(a, 'av')}${me.avatar === a ? `<span class="ck" style="position:absolute;right:-2px;bottom:-2px;width:16px;height:16px;border-radius:8px;background:var(--ink);color:var(--gold);display:grid;place-items:center">${ic('check', 's12')}</span>` : ''}</button>`).join('')}</div>
-      <div class="opt ${isMuted() ? '' : 'on'}" data-act="mute" role="switch" aria-checked="${!isMuted()}" tabindex="0" style="height:52px"><span class="ic" style="width:36px;height:36px">${ic(isMuted() ? 'volume-x' : 'volume-2', 's20')}</span><span class="tx"><span class="n">Sound</span><span class="m">${isMuted() ? 'Off' : 'On'}</span></span>${isMuted() ? '<span class="ring"></span>' : `<span class="ck">${ic('check')}</span>`}</div>
+      <div class="lab" style="margin:0">Avatar</div><div style="display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px">${AVATARS.map((a) => `<button data-act="av" data-a="${a}" aria-label="${a}" style="position:relative;border-radius:50%;padding:0;${me.avatar === a ? 'outline:3px solid var(--ink);outline-offset:1px' : ''}">${avatar(a, 'av')}${me.avatar === a ? `<span class="ck" style="position:absolute;right:-2px;bottom:-2px;width:16px;height:16px;border-radius:8px;background:var(--ink);color:var(--gold);display:grid;place-items:center">${ic('check', 's12')}</span>` : ''}</button>`).join('')}</div>
+      <div class="opt ${isMuted() ? '' : 'on'}" data-act="mute" role="switch" aria-checked="${!isMuted()}" tabindex="0" style="min-height:52px"><span class="ic" style="width:36px;height:36px">${ic(isMuted() ? 'volume-x' : 'volume-2', 's20')}</span><span class="tx"><span class="n">Sound</span><span class="m">${isMuted() ? 'Off' : 'On'}</span></span>${isMuted() ? '<span class="ring"></span>' : `<span class="ck">${ic('check')}</span>`}</div>
       <div class="card flat" style="font-size:13px;line-height:19px;color:var(--ink2)"><div class="row"><b style="color:var(--ink)">Wallet</b><span class="sp"></span><span class="mono">${S.wallet.kind === 'nimiq-pay' ? 'Nimiq Pay' : 'Preview'}</span></div><div class="row"><b style="color:var(--ink)">Network</b><span class="sp"></span><span class="mono">${esc(S.wallet.network)} (server: ${esc(S.cfg.network)}${S.cfg.mock ? ', mock chain' : ''})</span></div><div class="row"><b style="color:var(--ink)">AI</b><span class="sp"></span><span class="mono">${S.cfg.ai.gemini ? 'Gemini' : 'Built-in bank'}</span></div></div>
       <button class="btn ghost block" data-act="credits">${ic('heart', 's20')}Credits</button></div>`
   }

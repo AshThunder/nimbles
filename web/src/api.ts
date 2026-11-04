@@ -69,6 +69,7 @@ export const api = {
   move: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/move`, b),
   fund: (id: string, txHash: string) => call<MatchView>('POST', `/matches/${id}/fund`, { txHash }),
   cancel: (id: string) => call<MatchView>('POST', `/matches/${id}/cancel`, {}),
+  terms: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/terms`, b),
   answer: (id: string, q: number, choice: number, ms: number) => call<any>('POST', `/matches/${id}/answer`, { q, choice, ms }),
   progress: (id: string, score: number) => call<any>('POST', `/matches/${id}/progress`, { score }),
   result: (id: string, b: { score: number; time: number; detail?: unknown }) => call<MatchView>('POST', `/matches/${id}/result`, b),

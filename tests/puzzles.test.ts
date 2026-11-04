@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makeSudoku, dealKlondike } from '../shared/puzzles'
-import { billShares, escrowRequired, SPLIT_WEIGHTS } from '../shared/economy'
+import { drawShares, escrowRequired, settleShares } from '../shared/economy'
 import { rng } from '../shared/rng'
 
 test('same seed gives same sudoku, different seed differs', () => {
@@ -27,18 +27,22 @@ test('klondike deal is deterministic and has 52 cards', () => {
   assert.equal(n, 52)
 })
 
-test('bill shares add up exactly', () => {
-  for (const n of [2, 3, 4]) {
-    for (const bill of [1, 2, 12.96, 1296.33]) {
-      const s = billShares(bill, n, [1])
-      assert.equal(s.reduce((a, b) => a + b, 0), Math.round(bill * 100000))
-      assert.equal(SPLIT_WEIGHTS[n].reduce((a, b) => a + b, 0).toFixed(6), '1.000000')
+test('settle shares add up exactly and locks cover the biggest share', () => {
+  for (const pct of [50, 70, 85, 100]) {
+    for (const bill of [0.5, 1, 12.96, 1000, 33.333]) {
+      const s = settleShares(bill, pct)
+      assert.equal(s.loser + s.winner, Math.round(bill * 100000))
+      assert.ok(s.loser >= s.winner)
+      const d = drawShares(bill)
+      assert.equal(d[0] + d[1], s.total)
+      assert.ok(d[0] <= s.loser && d[1] <= s.loser, 'a draw never costs more than the lock')
+      assert.equal(escrowRequired('settle', bill, pct), s.loser)
     }
   }
-  assert.equal(escrowRequired('spend', 10, 2, true), 0)
-  assert.equal(escrowRequired('spend', 10, 2, false), 600000)
-  assert.equal(escrowRequired('save', 2, 2, false), 200000)
-  assert.equal(escrowRequired('play', 2, 2, false), 0)
+  assert.equal(escrowRequired('settle', 10, 100), 1000000)
+  assert.equal(escrowRequired('settle', 10, 70), 700000)
+  assert.equal(escrowRequired('save', 2), 200000)
+  assert.equal(escrowRequired('play', 2), 0)
 })
 
 test('rng is stable', () => {

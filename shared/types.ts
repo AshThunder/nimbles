@@ -1,5 +1,5 @@
 export type GameId = 'trivia' | 'solitaire' | 'chess' | 'pool' | 'sudoku' | 'bubble' | 'word' | 'lastbite'
-export type Mode = 'play' | 'save' | 'spend'
+export type Mode = 'play' | 'save' | 'settle'
 export type OppKind = 'invite' | 'auto' | 'pip'
 export type PipLevel = 'easy' | 'med' | 'hard'
 
@@ -13,7 +13,7 @@ export const GAMES: Record<GameId, { name: string; blurb: string; tag?: 'Hot' | 
   sudoku: { name: 'Sudoku', blurb: 'Race a grid', minutes: '3 min', level: 6, maxPlayers: 2 },
   bubble: { name: 'Bubble Shooter', blurb: '90 sec', tag: 'Hot', minutes: '90 sec', level: 3, maxPlayers: 2 },
   word: { name: 'Word Rush', blurb: 'Same letters', tag: 'New', minutes: '1 min', level: 1, maxPlayers: 2 },
-  lastbite: { name: 'Last Bite', blurb: 'Split a bill', minutes: '2 min', level: 2, maxPlayers: 4 },
+  lastbite: { name: 'Last Bite', blurb: 'Quick 4x4 sprint', minutes: '2 min', level: 2, maxPlayers: 2 },
 }
 
 export const STAKES = [1, 2, 5, 10] as const
@@ -24,6 +24,7 @@ export type Result = { score: number; time: number; detail?: unknown }
 
 export type MatchStatus =
   | 'lobby' // waiting for opponent(s)
+  | 'terms' // Settle: both players are in, agreeing the bill, payee and split
   | 'funding' // opponent present, collecting escrow deposits
   | 'ready' // everyone funded, countdown
   | 'playing'
@@ -37,18 +38,33 @@ export type PublicMatch = {
   mode: Mode
   opp: OppKind
   pipLevel?: PipLevel
-  stake: number // NIM per player (Spend: the whole bill in NIM)
+  stake: number // NIM per player (Settle: the whole bill in NIM)
   status: MatchStatus
   host: string
-  players: { player: Player; funded: boolean; result?: Result; progress?: number; payer?: boolean; share?: number; paidFrom?: string }[]
+  players: { player: Player; funded: boolean; result?: Result; progress?: number; share?: number; paidFrom?: string }[]
   seedCommit: string // sha256(seed), published before play
   seed?: string // revealed once playing
   config: Record<string, unknown>
   startsAt?: number
   endsAt?: number
   settlement?: Settlement
+  terms?: SettleTerms
   escrow: { address: string; network: string; memo: string }
   createdAt: number
+}
+
+/** Who receives the bill: one of the two players (by seat) or any other wallet address. */
+export type Payee = { seat: 0 | 1 } | { address: string }
+
+/** Settle: what both friends agree to before anything is locked. Changing any field clears the other side's agreement. */
+export type SettleTerms = {
+  bill: number // NIM
+  loserPct: number // 50..100: share of the bill the loser pays, the winner pays the rest. A draw splits 50/50
+  payee: Payee
+  agreed: string[] // addresses that agreed to this exact revision
+  proposedBy: string
+  rev: number
+  lock?: number // luna each player locks (the most they could owe), filled in by the server view
 }
 
 /** `for` is the seat the money belongs to, when it was paid out to a different address than the seat's own */

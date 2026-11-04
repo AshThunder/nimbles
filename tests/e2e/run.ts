@@ -10,10 +10,13 @@ import assert from 'node:assert/strict'
 import { canMake } from '../../shared/words'
 
 process.env.CHAIN = 'mock'
+const BREAK = !!process.env.E2E_BREAK
 if (!process.env.E2E_AI) delete process.env.GEMINI_API_KEY
 const { createApp } = await import('../../server/index')
 const { makeSudoku } = await import('../../shared/puzzles')
 
+const [VW, VH] = (process.env.E2E_VIEWPORT || '390x844').split('x').map(Number)
+const VP = { width: VW, height: VH }
 const PORT = 8799
 const BASE = `http://127.0.0.1:${PORT}`
 const OUT = join(import.meta.dirname, 'out')
@@ -35,7 +38,7 @@ let step = 0
 const log = (s: string) => console.log(`  ✓ ${s}`)
 
 async function player(browser: Browser, name: keyof typeof ADDR): Promise<{ ctx: BrowserContext; page: Page }> {
-  const ctx = await browser.newContext({ ...devices['Pixel 7'], viewport: { width: 390, height: 844 }, baseURL: BASE })
+  const ctx = await browser.newContext({ ...devices['Pixel 7'], viewport: VP, baseURL: BASE })
   // plain string so the transpiler cannot inject helpers into the page context
   await ctx.addInitScript(`(() => {
     const addr = ${JSON.stringify(ADDR[name])}
@@ -56,12 +59,74 @@ async function player(browser: Browser, name: keyof typeof ADDR): Promise<{ ctx:
   page.on('pageerror', (e) => errors.push(`[${name}] pageerror: ${e.message}`))
   page.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errors.push(`[${name}] console: ${m.text()}`))
   page.on('response', (r) => r.status() >= 500 && errors.push(`[${name}] ${r.status()} ${r.url()}`))
+  if (BREAK) await ctx.addInitScript(`addEventListener('DOMContentLoaded',()=>{const st=document.createElement('style');st.textContent='.top{padding-top:60px!important;height:56px!important}';document.head.appendChild(st)})`)
   await page.goto('/')
   await page.waitForSelector('.gcs')
   real[name] = (await page.evaluate(async (t) => (await (await fetch('/api/me', { headers: { authorization: 'Bearer ' + t } })).json()).address, await token(page))) as string
   return { ctx, page }
 }
-const shot = async (p: Page, name: string) => p.screenshot({ path: join(OUT, `${String(++step).padStart(2, '0')}-${name}.png`) })
+// Layout check run on every screenshot: no overlapping in-flow siblings, no clipped text, nothing off the sides,
+// and the game screens must fit without scrolling. Failures are collected and fail the run.
+const layoutIssues: string[] = []
+const NO_SCROLL = /^(solitaire$|sudoku|word-rush|bubble|chess$|chess-selected|chess-live|pool)/
+const CHECK_JS = String.raw`(noScroll) => {
+  var out = []
+  var app = document.getElementById('app')
+  var W = window.innerWidth
+  var label = function (e) { return e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).join('.') : '') }
+  var live = function (e) {
+    var cs = getComputedStyle(e)
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.position === 'absolute' || cs.position === 'fixed') return false
+    var r = e.getBoundingClientRect()
+    return r.width > 0 && r.height > 0
+  }
+  var skip = function (e) { return !!e.closest('svg,canvas,.cf-layer,.toast,.scrim,.sheet,[data-overlap-ok]') }
+  var all = [app].concat(Array.from(app.querySelectorAll('*')))
+  all.forEach(function (parent) {
+    if (skip(parent)) return
+    var kids = Array.from(parent.children).filter(function (k) { return live(k) && !skip(k) && getComputedStyle(k).display !== 'inline' })
+    for (var i = 0; i < kids.length; i++)
+      for (var j = i + 1; j < kids.length; j++) {
+        var a = kids[i].getBoundingClientRect(), b = kids[j].getBoundingClientRect()
+        var ox = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+        var oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+        if (ox > 2 && oy > 2) out.push('overlap ' + label(kids[i]) + ' x ' + label(kids[j]) + ' (' + Math.round(ox) + 'x' + Math.round(oy) + 'px)')
+      }
+  })
+  all.forEach(function (e) {
+    if (e === app || skip(e)) return
+    var cs = getComputedStyle(e)
+    if (cs.display === 'none') return
+    if (cs.overflowY === 'hidden' && e.scrollHeight > e.clientHeight + 2 && e.clientHeight > 0 && e.textContent.trim())
+      out.push('clipped ' + label(e) + ' (' + e.scrollHeight + '>' + e.clientHeight + ')')
+    if (cs.overflowX === 'hidden' && e.scrollWidth > e.clientWidth + 2 && e.clientWidth > 0 && cs.textOverflow !== 'ellipsis' && e.textContent.trim())
+      out.push('clipped-x ' + label(e) + ' (' + e.scrollWidth + '>' + e.clientWidth + ')')
+    if (live(e)) {
+      var r = e.getBoundingClientRect()
+      if (r.right > W + 1) out.push('offscreen ' + label(e) + ' right=' + Math.round(r.right) + '>' + W)
+      if (r.left < -1) out.push('offscreen ' + label(e) + ' left=' + Math.round(r.left))
+    }
+  })
+  Array.from(app.querySelectorAll('.top')).forEach(function (t) {
+    var tr = t.getBoundingClientRect()
+    Array.from(t.children).forEach(function (c) {
+      var r = c.getBoundingClientRect()
+      if (r.height > 0 && (r.bottom > tr.bottom + 1 || r.top < tr.top - 1)) out.push('top row child sticks out of header: ' + label(c))
+    })
+  })
+  var sc = app.querySelector('.scroll')
+  if (sc && new RegExp(noScroll).test(document.body.dataset.shot || '') && sc.scrollHeight > sc.clientHeight + 2) out.push('must fit without scrolling (' + sc.scrollHeight + '>' + sc.clientHeight + ')')
+  return Array.from(new Set(out))
+}`
+async function checkLayout(p: Page, name: string) {
+  const issues = (await p.evaluate(`(${CHECK_JS})(${JSON.stringify(NO_SCROLL.source)})`)) as string[]
+  for (const i of issues) layoutIssues.push(`[${VW}x${VH}] ${name}: ${i}`)
+}
+const shot = async (p: Page, name: string) => {
+  await p.evaluate((n) => (document.body.dataset.shot = n), name).catch(() => {})
+  await checkLayout(p, name).catch((e) => layoutIssues.push(`[check failed] ${name}: ${String(e).slice(0, 120)}`))
+  return p.screenshot({ path: join(OUT, `${String(++step).padStart(2, '0')}-${name}.png`) })
+}
 function token(p: Page) {
   return p.evaluate(() => sessionStorage.getItem('nb:token'))
 }
@@ -157,26 +222,36 @@ try {
   await c.waitForSelector('.jarart')
   await shot(c, 'jar')
 
-  // ---------- 4. Last Bite (Spend): ada fronts the bill, chris + tobi settle ----------
-  const tobi = await player(browser, 'tobi')
-  const t = tobi.page
+  // ---------- 4. Settle: ada invites chris, they agree terms (70/30, paid to a third-party wallet), play Last Bite ----------
   await a.goto('/#/g/lastbite')
-  await a.waitForSelector('#bill')
-  await a.locator('#bill').fill('9')
-  await a.locator('[data-act=size][data-n="3"]').click()
-  await shot(a, 'setup-lastbite')
+  await a.waitForSelector('#t-bill')
+  await a.locator('#t-bill').fill('9')
+  await a.locator('[data-act=tpct][data-k="70"]').click()
+  await a.locator('[data-act=tpay][data-k=other]').click()
+  await a.locator('#t-other').fill(ADDR.tobi)
+  await shot(a, 'setup-settle')
   await a.locator('#go').click()
   await a.waitForSelector('#code')
+  await shot(a, 'settle-lobby')
   const lbCode = (await a.locator('#code').innerText()).trim()
   const lbId = matchId(a)
   await c.goto(`/#/join/${lbCode}`)
-  await c.waitForSelector('text=Waiting for')
-  await t.goto(`/#/join/${lbCode}`)
-  await t.waitForSelector('[data-act=fund]')
-  await c.waitForSelector('[data-act=fund]')
-  await shot(t, 'funding-lastbite')
-  await Promise.all([c.locator('[data-act=fund]').click(), t.locator('[data-act=fund]').click()])
-  for (const p of [a, c, t]) await p.waitForSelector('.sdk', { timeout: 20000 })
+  await c.waitForSelector('[data-act=agree]')
+  await a.waitForSelector('text=You agreed')
+  await shot(c, 'settle-terms-chris')
+  await shot(a, 'settle-terms-ada')
+  // chris counters, which clears ada's agreement; ada agrees to the new terms
+  await c.locator('[data-act=change]').click()
+  await c.waitForSelector('#t-bill')
+  await shot(c, 'settle-change-terms')
+  await c.locator('[data-act=keep]').click()
+  await c.waitForSelector('[data-act=agree]')
+  await Promise.all([c.locator('[data-act=agree]').click()])
+  for (const p of [a, c]) await p.waitForSelector('[data-act=fund]', { timeout: 20000 })
+  await shot(c, 'funding-settle')
+  assert.equal((await matchOf(a, lbId)).terms.agreed.length, 2)
+  await Promise.all([c.locator('[data-act=fund]').click(), a.locator('[data-act=fund]').click()])
+  for (const p of [a, c]) await p.waitForSelector('.sdk', { timeout: 20000 })
   await shot(a, 'lastbite-playing')
   const lm = await matchOf(a, lbId)
   const pz = makeSudoku(lm.seed, 4)
@@ -194,19 +269,18 @@ try {
   await shot(c, 'lastbite-partial')
   await c.locator('[data-fin]').click()
   await c.locator('[data-fin]').click()
-  await t.locator('[data-fin]').click()
-  await t.locator('[data-fin]').click()
-  for (const p of [a, c, t]) await p.waitForSelector('.res', { timeout: 20000 })
-  await shot(a, 'lastbite-result-payer')
-  await shot(t, 'lastbite-result-last')
+  for (const p of [a, c]) await p.waitForSelector('.res', { timeout: 20000 })
+  await shot(a, 'settle-result-winner')
+  await shot(c, 'settle-result-loser')
   const lbs = await matchOf(a, lbId)
   assert.equal(lbs.settlement.ranks[0].address, real.ada, 'full solve wins')
   const shares = lbs.players.map((p: any) => p.share)
   assert.equal(shares.reduce((s: number, x: number) => s + x, 0), 9 * 1e5, 'shares add up to the bill')
-  log(`Last Bite: 3 players, shares ${shares.map((x: number) => x / 1e5).join('/')} sum to the 9 NIM bill`)
+  assert.equal(lbs.players.find((p: any) => p.player.address === real.chris).share, 6.3 * 1e5, 'loser pays 70%')
+  log(`Settle: 70/30 shares ${shares.map((x: number) => x / 1e5).join('/')} sum to the 9 NIM bill`)
   await new Promise((r) => setTimeout(r, 2500))
   const paid = (await (await fetch(`${BASE}/api/dev/mock-payouts`)).json()) as { to: string; luna: number }[]
-  assert.ok(paid.some((p) => p.to === real.ada), 'bill payer received settlement')
+  assert.ok(paid.some((p) => p.to.replace(/\s/g, '') === ADDR.tobi.replace(/\s/g, '') && p.luna === 9 * 1e5), 'the payee received the whole bill')
 
   // ---------- 5. Solitaire vs Pip + Sudoku vs Pip ----------
   await c.goto('/#/g/solitaire')
@@ -437,7 +511,7 @@ try {
     const post = async (tok: string | null, method: string, path: string, body?: unknown) =>
       (await fetch(`${BASE}/api${path}`, { method, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined })).json() as Promise<any>
     const flaky = async (opts: { sender: string; accounts: string[]; canSign: boolean; kp?: any }) => {
-      const ctx = await browser.newContext({ ...devices['Pixel 7'], viewport: { width: 390, height: 844 }, baseURL: BASE })
+      const ctx = await browser.newContext({ ...devices['Pixel 7'], viewport: VP, baseURL: BASE })
       if (opts.canSign) {
         await ctx.exposeFunction('__sign', (msg: string) => {
           const raw = Buffer.from(msg)
@@ -520,7 +594,7 @@ try {
   }
 
   // ---------- 7. Preview mode (no wallet): free play only ----------
-  const pctx = await browser.newContext({ ...devices['Pixel 7'], viewport: { width: 390, height: 844 }, baseURL: BASE })
+  const pctx = await browser.newContext({ ...devices['Pixel 7'], viewport: VP, baseURL: BASE })
   const pp = await pctx.newPage()
   await pp.goto('/?preview')
   await pp.waitForSelector('.gcs')
@@ -537,6 +611,10 @@ try {
 if (process.exitCode) process.exit(1)
 if (errors.length) {
   console.error('Browser errors:\n' + errors.join('\n'))
+  process.exit(1)
+}
+if (layoutIssues.length) {
+  console.error(`Layout issues (${layoutIssues.length}):\n` + layoutIssues.join('\n'))
   process.exit(1)
 }
 console.log(`E2E passed. ${step} screenshots in ${OUT}`)

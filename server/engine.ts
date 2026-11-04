@@ -4,7 +4,7 @@ import { isNimiqAddress, sameAddr, type Chain } from './chain'
 
 const normAddr = (a: string) => a.replace(/\s+/g, ' ').trim().toUpperCase()
 import { generateTrivia } from './ai'
-import { billShares, escrowRequired, toLuna } from '../shared/economy'
+import { clampPct, drawShares, escrowRequired, settleShares, toLuna } from '../shared/economy'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { sevensOf, scoreWords, wordRack } from '../shared/words'
@@ -17,7 +17,7 @@ import { replayBubble } from '../shared/bubblesim'
 import { makeSudoku } from '../shared/puzzles'
 import {
   GAMES, LUNA, STAKES, levelFor,
-  type GameId, type Mode, type OppKind, type Payout, type PipLevel, type Profile, type PublicMatch, type Result, type Settlement,
+  type GameId, type Mode, type OppKind, type Payee, type Payout, type PipLevel, type Profile, type PublicMatch, type Result, type Settlement, type SettleTerms,
 } from '../shared/types'
 
 export class ApiError extends Error {
@@ -41,6 +41,7 @@ const rid = (n = 8) => randomBytes(n).toString('hex')
 export const TRIVIA_Q_MS = 15000
 const GRACE_MS = 25000
 const LOBBY_TTL = 15 * 60_000
+const TERMS_TTL = 10 * 60_000
 const FUND_TTL = 3 * 60_000
 const FORFEIT_AFTER = 45_000
 
@@ -155,7 +156,7 @@ export class Engine {
     out.seed = showSeed ? m.seed : undefined
     out.size = m.size
     out.players = m.players.map((p) => ({
-      player: p.player, funded: p.funded, escrowed: p.escrowed, payer: p.payer, share: p.share, isBot: p.isBot,
+      player: p.player, funded: p.funded, escrowed: p.escrowed, share: p.share, isBot: p.isBot,
       progress: p.progress, paidFrom: viewer && p.player.address === viewer ? p.paidFrom : undefined, result: m.status === 'settled' ? p.result : p.result ? { score: 0, time: 0, done: true } : undefined,
     }))
     out.serverNow = Date.now()
@@ -165,6 +166,7 @@ export class Engine {
       out.live = { ...m.live, last: { ...last, frames: seenShot !== undefined && seenShot < last.no ? last.frames : [] } }
     }
     out.fundBy = m.fundBy
+    if (m.terms) out.terms = { ...m.terms, lock: escrowRequired('settle', m.terms.bill, m.terms.loserPct) }
     out.settlement = m.settlement
     if (m.trivia && (m.status === 'playing' || m.status === 'settled')) {
       const mine = viewer ? m.trivia.answers[viewer] ?? [] : []
@@ -202,32 +204,60 @@ export class Engine {
     return { address, name: p.name, avatar: p.avatar }
   }
 
-  private required(m: MatchRec, address: string) {
-    const pl = m.players.find((p) => p.player.address === address)
-    return escrowRequired(m.mode, m.stake, m.size, !!pl?.payer)
+  private required(m: MatchRec) {
+    return escrowRequired(m.mode, m.stake, m.terms?.loserPct)
+  }
+
+  /** Settle terms from a request: bill, split and payee. `who` is the seat proposing, so 'me' and 'friend' resolve to seats. */
+  private async parseTerms(m: { players: { player: { address: string } }[]; terms?: SettleTerms }, who: number, b: any): Promise<{ bill: number; loserPct: number; payee: Payee }> {
+    const bill = Math.round(Number(b.bill) * 100) / 100
+    if (!(bill >= 0.5 && bill <= 1000)) throw bad('A bill must be between 0.5 and 1000 NIM')
+    if (bill > this.maxStakeNim) throw bad(`The limit on this server is ${this.maxStakeNim} NIM per match`)
+    const pct = Math.round(Number(b.loserPct))
+    if (!Number.isInteger(pct) || pct < 50 || pct > 100) throw bad('The loser pays between 50% and 100% of the bill')
+    let payee: Payee
+    const raw = b.payee
+    if (raw === 'me') payee = { seat: who as 0 | 1 }
+    else if (raw === 'friend') payee = { seat: (1 - who) as 0 | 1 }
+    else if (raw && typeof raw === 'object' && (raw.seat === 0 || raw.seat === 1)) payee = { seat: raw.seat }
+    else {
+      const a = normAddr(String(typeof raw === 'object' && raw ? raw.address : raw ?? ''))
+      if (!isNimiqAddress(a)) throw bad('The payee must be "me", "friend" or a valid Nimiq address')
+      if (sameAddr(a, this.chain.escrowAddress)) throw bad('The payee cannot be the escrow account')
+      const seat = m.players.findIndex((p) => sameAddr(p.player.address, a))
+      if (seat >= 0) payee = { seat: seat as 0 | 1 }
+      else {
+        if (!(await this.chain.isWallet(a))) throw bad('That address is a contract, not a wallet. A payment there would fail. Use a normal wallet address')
+        payee = { address: a }
+      }
+    }
+    return { bill, loserPct: pct, payee }
   }
 
   async create(host: string, b: any): Promise<PublicMatch> {
     const game = b.game as GameId
     if (!GAMES[game]) throw bad('Unknown game')
     const mode = b.mode as Mode
-    if (!['play', 'save', 'spend'].includes(mode)) throw bad('Unknown mode')
+    if (!['play', 'save', 'settle'].includes(mode)) throw bad('Unknown mode')
     const opp = b.opp as OppKind
     if (!['invite', 'auto', 'pip'].includes(opp)) throw bad('Unknown opponent type')
     if (opp === 'pip' && mode !== 'play') throw bad('Pip only plays for fun. Staked matches need a real player')
     const pipLevel: PipLevel | undefined = opp === 'pip' ? (['easy', 'med', 'hard'].includes(b.pipLevel) ? b.pipLevel : 'med') : undefined
-    if (game === 'lastbite' && mode !== 'spend') throw bad('Last Bite splits a bill, so it runs in Spend mode')
+    if (mode === 'settle' && opp !== 'invite') throw bad('Settle is for friends only. Invite them with a code or link')
 
     let stake = 0
     if (mode === 'save') {
       stake = Number(b.stake)
       if (!(STAKES as readonly number[]).includes(stake)) throw bad('Pick a stake from the list')
-    } else if (mode === 'spend') {
-      stake = Math.round(Number(b.stake) * 100) / 100
-      if (!(stake >= 0.5 && stake <= 1000)) throw bad('A bill must be between 0.5 and 1000 NIM')
+    }
+    let terms: SettleTerms | undefined
+    if (mode === 'settle') {
+      const t = await this.parseTerms({ players: [{ player: { address: host } }] }, 0, b.terms ?? b)
+      stake = t.bill
+      terms = { ...t, agreed: [host], proposedBy: host, rev: 1 }
     }
     if (stake > this.maxStakeNim) throw bad(`The limit on this server is ${this.maxStakeNim} NIM per match`)
-    const size = game === 'lastbite' && opp !== 'auto' ? Math.max(2, Math.min(4, Math.floor(Number(b.size)) || 2)) : 2
+    const size = 2
     if (opp === 'auto') {
       const cfgTopic = game === 'trivia' ? String(b.config?.topic || 'General knowledge').slice(0, 60) : ''
       const waiting = Object.values(this.db.matches).find(
@@ -247,7 +277,7 @@ export class Engine {
     const config: Record<string, unknown> = {}
     const m: MatchRec = {
       id, code, game, mode, opp, pipLevel, stake, status: 'lobby', host, size, seed, seedCommit: sha(seed), config,
-      players: [{ player: this.playerOf(host), funded: false, escrowed: 0, payer: mode === 'spend' }],
+      players: [{ player: this.playerOf(host), funded: false, escrowed: 0 }], terms,
       escrow: { address: this.chain.escrowAddress, network: this.chain.network, memo: 'nb:' + id },
       createdAt: Date.now(),
     }
@@ -259,7 +289,7 @@ export class Engine {
       config.topic = set.topic
       config.count = set.questions.length
     }
-    if (game === 'lastbite') {
+    if (mode === 'settle') {
       const r = b.config?.receipt
       config.billNote = String(b.config?.note || '').slice(0, 40)
       if (r && typeof r === 'object') config.receiptItems = Array.isArray(r.items) ? r.items.slice(0, 40).map((i: any) => ({ name: String(i.name).slice(0, 40), price: Number(i.price) || 0 })) : []
@@ -280,15 +310,52 @@ export class Engine {
     if (!m) throw bad('No open match with that code. Ask for a fresh one', 404)
     if (m.players.some((p) => p.player.address === addr)) return this.view(m, addr) as any
     if (m.players.length >= m.size) throw bad('That match is full')
-    m.players.push({ player: this.playerOf(addr), funded: false, escrowed: 0, payer: false })
+    m.players.push({ player: this.playerOf(addr), funded: false, escrowed: 0 })
     this.store.save()
-    if (m.players.length >= m.size) this.readyUp(m)
+    if (m.players.length >= m.size) {
+      if (m.mode === 'settle') this.openTerms(m)
+      else this.readyUp(m)
+    }
     return this.view(m, addr) as any
   }
 
-  /** Called when the lobby is full. */
+  /** Settle: both friends are in. Nothing is locked until each has agreed to the same terms. */
+  private openTerms(m: MatchRec) {
+    m.status = 'terms'
+    m.fundBy = Date.now() + TERMS_TTL
+    this.store.save()
+  }
+
+  /** Propose new terms or agree to the current ones. Any change clears the other player's agreement. */
+  async terms(addr: string, id: string, b: any) {
+    const m = this.db.matches[id]
+    if (!m || m.mode !== 'settle' || !m.terms) throw bad('Match not found', 404)
+    const seat = m.players.findIndex((p) => p.player.address === addr)
+    if (seat < 0) throw bad('Not your match', 403)
+    this.tick(m)
+    if (m.status !== 'lobby' && m.status !== 'terms') throw bad('The terms are locked in, the match has moved on')
+    const t = m.terms
+    if (b?.action === 'agree') {
+      if (m.status !== 'terms') throw bad('Wait for your friend to join first')
+      if (Number(b.rev) !== t.rev) throw bad('The terms just changed. Read them again before you agree')
+      if (!t.agreed.includes(addr)) t.agreed.push(addr)
+      if (m.players.every((p) => t.agreed.includes(p.player.address))) this.readyUp(m)
+    } else if (b?.action === 'propose') {
+      const n = await this.parseTerms(m, seat, b)
+      const same = n.bill === t.bill && n.loserPct === t.loserPct && JSON.stringify(n.payee) === JSON.stringify(t.payee)
+      if (!same) {
+        m.terms = { ...n, agreed: [addr], proposedBy: addr, rev: t.rev + 1 }
+        m.stake = n.bill
+        if (m.status === 'terms') m.fundBy = Date.now() + TERMS_TTL
+      }
+    } else throw bad('Unknown action')
+    this.store.save()
+    return this.view(m, addr)
+  }
+
+  /** Called when the lobby is full (or, for Settle, when both agreed). */
   private readyUp(m: MatchRec) {
-    for (const p of m.players) p.escrowed = this.required(m, p.player.address)
+    for (const p of m.players) p.escrowed = this.required(m)
     const need = m.players.some((p) => !p.isBot && p.escrowed > 0 && !p.funded)
     if (need) {
       m.status = 'funding'
@@ -343,8 +410,9 @@ export class Engine {
   async cancel(addr: string, id: string) {
     const m = this.db.matches[id]
     if (!m) throw bad('Match not found', 404)
-    if (m.host !== addr) throw bad('Only the host can cancel', 403)
-    if (m.status !== 'lobby' && m.status !== 'funding') throw bad('Too late to cancel, the game has started')
+    const inTerms = m.status === 'terms' && m.players.some((p) => p.player.address === addr)
+    if (m.host !== addr && !inTerms) throw bad('Only the host can cancel', 403)
+    if (m.status !== 'lobby' && m.status !== 'terms' && m.status !== 'funding') throw bad('Too late to cancel, the game has started')
     await this.cancelMatch(m, 'Cancelled by host')
     return this.view(m, addr)
   }
@@ -523,6 +591,7 @@ export class Engine {
   tick(m: MatchRec) {
     const now = Date.now()
     if (m.status === 'lobby' && now - m.createdAt > LOBBY_TTL) void this.cancelMatch(m, 'Nobody joined in time')
+    else if (m.status === 'terms' && m.fundBy && now > m.fundBy) void this.cancelMatch(m, 'The terms were not agreed in time. Nothing was locked')
     else if (m.status === 'funding' && m.fundBy && now > m.fundBy) void this.cancelMatch(m, 'Deposits were not all in on time, funds refunded')
     else if (m.status === 'ready' && m.startsAt && now >= m.startsAt) {
       m.status = 'playing'
@@ -589,20 +658,27 @@ export class Engine {
     if (m.mode === 'save' && !allForfeit) {
       if (draw) for (const p of humans) payouts.push({ ...this.dest(p), luna: p.escrowed, kind: 'refund', note: 'Draw, stake returned' })
       else jarCredit[winner!] = m.players.reduce((s, p) => s + p.escrowed, 0)
-    } else if (m.mode === 'spend' && !allForfeit) {
-      const payer = m.players.find((p) => p.payer)!
-      const shares = billShares(m.stake, m.size, draw ? null : [1])
-      const order = draw ? m.players.map((_, i) => i) : ranks.map((r) => m.players.findIndex((p) => p.player.address === r.address))
-      order.forEach((pi, i) => (m.players[pi].share = shares[i]))
-      let toPayer = 0
-      for (const p of humans) {
-        if (p.payer) continue
+    } else if (m.mode === 'settle' && m.terms && !allForfeit) {
+      // the loser pays their agreed share, the winner pays the rest, a draw splits it evenly. Each player's unused lock
+      // goes back to them and the bill goes to the payee the two of them agreed.
+      const t = m.terms
+      const sh = settleShares(t.bill, t.loserPct)
+      const dr = drawShares(t.bill)
+      m.players.forEach((p, i) => (p.share = draw ? dr[i] : p.player.address === winner ? sh.winner : sh.loser))
+      const payeeSeat = 'seat' in t.payee ? t.payee.seat : -1
+      let toPayee = 0
+      m.players.forEach((p, i) => {
         const share = p.share ?? 0
-        toPayer += share
-        const back = p.escrowed - share
-        if (back > 0) payouts.push({ ...this.dest(p), luna: back, kind: 'refund', note: 'Unused part of your deposit' })
-      }
-      if (toPayer > 0) payouts.push({ ...this.dest(payer), luna: toPayer, kind: 'settle', note: 'Your friends settled the bill' })
+        toPayee += share
+        // a payee who is also a player keeps their own share, so all of their lock comes back
+        const back = i === payeeSeat ? p.escrowed : p.escrowed - share
+        if (back > 0) payouts.push({ ...this.dest(p), luna: back, kind: 'refund', note: i === payeeSeat ? 'Your lock, you are the payee' : 'Unused part of your lock' })
+      })
+      if (payeeSeat >= 0) {
+        const other = m.players[1 - payeeSeat]
+        const amt = other.share ?? 0
+        if (amt > 0) payouts.push({ ...this.dest(m.players[payeeSeat]), luna: amt, kind: 'settle', note: `${other.player.name}'s share of the bill` })
+      } else if (toPayee > 0 && 'address' in t.payee) payouts.push({ to: t.payee.address, luna: toPayee, kind: 'settle', note: `Bill settled by ${m.players[0].player.name} and ${m.players[1].player.name}` })
     } else if (allForfeit || forfeit) {
       // nobody finished: give everything back
       for (const p of humans) if (p.escrowed > 0 && m.mode !== 'play') payouts.push({ ...this.dest(p), luna: p.escrowed, kind: 'refund', note: 'Match did not finish' })

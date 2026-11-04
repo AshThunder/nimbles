@@ -6,7 +6,7 @@ Skill-only duels for friends, built as a [Nimiq Pay mini app](https://nimiq.dev/
 
 - **Play**: free, for XP and rank. Practice against Pip, the built-in AI, or a friend.
 - **Save**: both players stake NIM. The winner's pot goes into a locked savings jar.
-- **Spend**: split a real bill by how you rank. The loser of the round pays the most, the winner the least.
+- **Settle**: invite a friend, agree the terms first (bill, who gets paid, loser pays all, 70/30 or custom), both lock their share, the game decides who pays what, and the payee is paid on-chain. A draw splits it evenly.
 
 **Games**
 

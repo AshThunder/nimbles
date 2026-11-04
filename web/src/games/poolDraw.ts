@@ -6,7 +6,8 @@ export type TableOpts = { guide: { aim: number; power: number } | null; place: b
 export function createTable(cv: HTMLCanvasElement, wrap: HTMLElement) {
   const g = cv.getContext('2d')!
   const availW = Math.min(wrap.clientWidth || 358, 360)
-  const S = availW / (TW + RAIL * 2)
+  const availH = wrap.clientHeight || 9999
+  const S = Math.min(availW / (TW + RAIL * 2), (availH - 6) / (TH + RAIL * 2))
   const CW = TW + RAIL * 2
   const CH = TH + RAIL * 2
   const dpr = Math.min(2, window.devicePixelRatio || 1)

@@ -1,34 +1,31 @@
 import { LUNA, type Mode } from './types'
 
-/** Share of the bill each rank pays in Spend mode, best rank first. Always sums to 1. */
-export const SPLIT_WEIGHTS: Record<number, number[]> = {
-  2: [0.4, 0.6],
-  3: [0.2, 0.3, 0.5],
-  4: [0.15, 0.2, 0.3, 0.35],
+export const toLuna = (n: number) => Math.round(n * LUNA)
+
+/** The split presets offered when two friends settle a bill. The loser pays this share, the winner pays the rest. */
+export const SETTLE_PRESETS = [100, 70] as const
+export const clampPct = (n: number) => Math.max(50, Math.min(100, Math.round(Number(n) || 0)))
+
+/** Luna the loser and the winner owe. They always add up to the bill exactly. */
+export function settleShares(billNim: number, loserPct: number): { total: number; loser: number; winner: number } {
+  const total = toLuna(billNim)
+  const loser = Math.round((total * clampPct(loserPct)) / 100)
+  return { total, loser, winner: total - loser }
 }
 
-export const toLuna = (n: number) => Math.round(n * LUNA)
+/** Each player's share when the game ends level: half the bill each, the odd luna goes to seat 0. */
+export function drawShares(billNim: number): [number, number] {
+  const total = toLuna(billNim)
+  const a = Math.ceil(total / 2)
+  return [a, total - a]
+}
 
 /**
  * Luna each player must lock in escrow before a match starts.
- * Play: nothing. Save: the stake. Spend: the biggest share they could end up owing
- * (the player who fronted the bill locks nothing, they just receive the settlements).
+ * Play: nothing. Save: the stake. Settle: the most they could owe, which is the loser's share.
  */
-export function escrowRequired(mode: Mode, stakeNim: number, nPlayers: number, isPayer: boolean): number {
-  const lunaAmt = toLuna(stakeNim)
+export function escrowRequired(mode: Mode, stakeNim: number, loserPct = 100): number {
   if (mode === 'play') return 0
-  if (mode === 'save') return lunaAmt
-  if (isPayer) return 0
-  const w = SPLIT_WEIGHTS[Math.max(2, Math.min(4, nPlayers))]
-  return Math.ceil(lunaAmt * w[w.length - 1])
-}
-
-/** Luna each rank owes, last rank absorbs rounding so the shares add up to the bill exactly. */
-export function billShares(stakeNim: number, nPlayers: number, ranks: number[] | null): number[] {
-  const total = toLuna(stakeNim)
-  const n = Math.max(2, Math.min(4, nPlayers))
-  const w = ranks ? SPLIT_WEIGHTS[n] : new Array(n).fill(1 / n)
-  const shares = w.map((x) => Math.floor(total * x))
-  shares[n - 1] += total - shares.reduce((a, b) => a + b, 0)
-  return shares
+  if (mode === 'save') return toLuna(stakeNim)
+  return settleShares(stakeNim, loserPct).loser
 }
