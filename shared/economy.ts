@@ -29,3 +29,13 @@ export function escrowRequired(mode: Mode, stakeNim: number, loserPct = 100): nu
   if (mode === 'save') return toLuna(stakeNim)
   return settleShares(stakeNim, loserPct).loser
 }
+
+/** Splat Royale Save payouts, in luna. 'wta' gives the winner everything; 'top3' is 60/30/10 with the rounding going to 1st.
+ * With two players there is no 2nd or 3rd pot, so top3 is the same as winner takes all. */
+export type Payout3 = 'wta' | 'top3'
+export function splatShares(net: number, preset: Payout3, players: number): number[] {
+  if (preset !== 'top3' || players < 3) return [net]
+  const second = Math.floor((net * 30) / 100)
+  const third = Math.floor((net * 10) / 100)
+  return [net - second - third, second, third]
+}

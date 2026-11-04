@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url'
 import { sevensOf, scoreWords, wordRack } from '../shared/words'
 import { chessMove, chessResign, chessScore, chessTick, chessTimeUp, initChess, type ChessLive } from '../shared/chessgame'
 import { initPool, poolResign, poolScore, poolShot, poolTick, poolTimeUp, type PoolLive } from '../shared/poolgame'
+import { SplatRuns } from './splat'
+import { splatShares, type Payout3 } from '../shared/economy'
 import { ENGINE_GAMES, GAME_DURATION_MS, PIP_ADDRESS, PIP_NAMES, PIP_TRIVIA, pipScore } from '../shared/pip'
 import { rng } from '../shared/rng'
 import { replaySolitaire } from '../shared/solitaire'
@@ -55,6 +57,8 @@ export class Engine {
   get maxStakeNim() {
     return Number(process.env.MAX_STAKE_NIM ?? (this.chain.kind === 'nimiq' && this.chain.network === 'mainnet' ? 25 : 1000))
   }
+  /** Live Splat Royale runs. The sim itself lives in shared/splat.ts. */
+  splat = new SplatRuns((m, order, sim) => this.splatFinish(m, order, sim))
   constructor(public store: Store, public chain: Chain) {}
   get db() {
     return this.store.db
@@ -270,7 +274,13 @@ export class Engine {
       terms = { ...t, agreed: [host], proposedBy: host, rev: 1 }
     }
     if (stake > this.maxStakeNim) throw bad(`The limit on this server is ${this.maxStakeNim} NIM per match`)
-    const size = 2
+    let size = 2
+    if (game === 'splat') {
+      if (mode === 'settle') throw bad('Splat Royale is Play or Save for now')
+      if (opp === 'auto') throw bad('Splat Royale is played with friends or Nimo. Invite them with a code or link')
+      size = Math.round(Number(b.config?.seats ?? 4))
+      if (!(size >= 2 && size <= GAMES.splat.maxPlayers)) throw bad('Pick 2 to 6 players')
+    }
     if (opp === 'auto') {
       const cfgTopic = game === 'trivia' ? String(b.config?.topic || 'General knowledge').slice(0, 60) : ''
       const waiting = Object.values(this.db.matches).find(
@@ -288,6 +298,10 @@ export class Engine {
     } while (Object.values(this.db.matches).some((m) => m.code === code && m.status !== 'settled' && m.status !== 'cancelled'))
     const seed = rid(16)
     const config: Record<string, unknown> = {}
+    if (game === 'splat') {
+      config.seats = size
+      config.payout = b.config?.payout === 'top3' ? 'top3' : 'wta'
+    }
     const m: MatchRec = {
       id, code, game, mode, opp, pipLevel, stake, status: 'lobby', host, size, seed, seedCommit: sha(seed), config,
       players: [{ player: this.playerOf(host), funded: false, escrowed: 0 }], terms,
@@ -309,12 +323,38 @@ export class Engine {
     }
     this.db.matches[id] = m
     if (opp === 'pip') {
-      m.players.push({ player: { address: PIP_ADDRESS, name: PIP_NAMES[pipLevel!], avatar: 'pip' }, funded: true, escrowed: 0, isBot: true })
+      if (game === 'splat') this.fillBots(m)
+      else m.players.push({ player: { address: PIP_ADDRESS, name: PIP_NAMES[pipLevel!], avatar: 'pip' }, funded: true, escrowed: 0, isBot: true })
       if (m.trivia) m.trivia.pip = this.rollPip(m, pipLevel!)
       this.readyUp(m)
     }
     this.store.save()
     return this.view(m, host) as any
+  }
+
+  /** Nimo takes every empty seat. Play mode only, so no money is ever against a bot. */
+  private fillBots(m: MatchRec) {
+    const level = m.pipLevel ?? 'med'
+    for (let i = m.players.filter((p) => p.isBot).length; m.players.length < m.size; i++) {
+      m.players.push({ player: { address: i ? `${PIP_ADDRESS}-${i + 1}` : PIP_ADDRESS, name: i ? `Nimo ${i + 1}` : PIP_NAMES[level], avatar: 'pip' }, funded: true, escrowed: 0, isBot: true })
+    }
+  }
+
+  /** Splat Royale: the host starts early. Play fills the empty seats with Nimo, Save plays with whoever is in. */
+  async startNow(addr: string, id: string) {
+    const m = this.db.matches[id]
+    if (!m) throw bad('Match not found', 404)
+    if (m.host !== addr) throw bad('Only the host can start', 403)
+    if (m.game !== 'splat' || m.status !== 'lobby') throw bad('Nothing to start')
+    if (m.players.length < 2 && m.mode !== 'play') throw bad('You need at least two players')
+    if (m.mode === 'play') {
+      m.pipLevel = m.pipLevel ?? 'med'
+      this.fillBots(m)
+    } else m.size = m.players.length
+    m.config.seats = m.size
+    this.readyUp(m)
+    this.store.save()
+    return this.view(m, addr)
   }
 
   async join(addr: string, codeIn: string): Promise<PublicMatch> {
@@ -498,6 +538,7 @@ export class Engine {
     if (!m || !pl) throw bad('Match not found', 404)
     this.tick(m)
     if (m.game === 'trivia') throw bad('Trivia is scored by the server')
+    if (m.game === 'splat') throw bad('Splat Royale is scored by the server')
     if (m.live) throw bad('This game is played live, moves go through the relay')
     if (m.status !== 'playing') throw bad(m.status === 'settled' ? 'Already settled' : 'The round is not live')
     if (pl.result) return this.view(m, addr)
@@ -603,12 +644,19 @@ export class Engine {
 
   tick(m: MatchRec) {
     const now = Date.now()
+    if (m.game === 'splat') {
+      if (m.status === 'ready') this.ensureSplatRun(m.id)
+      else if (m.status === 'playing' && !this.splat.has(m.id)) return void this.abortSplat(m)
+    }
     if (m.status === 'lobby' && now - m.createdAt > LOBBY_TTL) void this.cancelMatch(m, 'Nobody joined in time')
     else if (m.status === 'terms' && m.fundBy && now > m.fundBy) void this.cancelMatch(m, 'The terms were not agreed in time. Nothing was locked')
     else if (m.status === 'funding' && m.fundBy && now > m.fundBy) void this.cancelMatch(m, 'Deposits were not all in on time, funds refunded')
     else if (m.status === 'ready' && m.startsAt && now >= m.startsAt) {
       m.status = 'playing'
       m.endsAt = m.startsAt + GAME_DURATION_MS[m.game] + GRACE_MS
+      if (m.game === 'splat') {
+        m.endsAt = m.startsAt + this.splat.capTicks * 50 + GRACE_MS
+      }
       if (this.isLive(m)) m.live = m.game === 'chess' ? initChess(m.seed, m.startsAt) : initPool(m.seed, m.startsAt)
       this.store.save()
     } else if (m.status === 'playing' && m.live && !m.live.over) {
@@ -616,6 +664,30 @@ export class Engine {
     } else if (m.status === 'playing' && m.endsAt && now > m.endsAt + FORFEIT_AFTER) {
       this.settle(m, true)
     }
+  }
+
+  ensureSplatRun(id: string) {
+    const m = this.db.matches[id]
+    if (m && m.game === 'splat' && (m.status === 'ready' || m.status === 'playing')) this.splat.ensure(m)
+  }
+
+  /** The server lost the run (a restart mid-match). Nobody can be ranked fairly, so every stake goes back. */
+  private abortSplat(m: MatchRec) {
+    for (const p of m.players) p.result = { score: -1, time: 0 }
+    this.settle(m, true)
+  }
+
+  /** The sim finished: turn its order into results. Rank 1 gets the top score, so the normal settle does the rest. */
+  private splatFinish(m: MatchRec, order: number[], sim: import('../shared/splat').Sim) {
+    if (m.status !== 'playing') return
+    order.forEach((seat, i) => {
+      const sp = sim.players[seat]
+      m.players[seat].result = {
+        score: m.players.length - i, time: sp.alive ? sim.tick * 50 : sp.out * 50,
+        detail: { place: i + 1, out: sp.alive ? null : sp.out * 50, splats: sp.splats, hp: sp.hp, alive: sp.alive },
+      }
+    })
+    this.settle(m, false)
   }
 
   tickAll() {
@@ -641,7 +713,10 @@ export class Engine {
       let score = p.result?.score ?? -1
       let time = p.result?.time ?? Number.MAX_SAFE_INTEGER
       if (p.isBot) {
-        if (m.trivia?.pip) {
+        if (m.game === 'splat') {
+          score = p.result?.score ?? -1
+          time = p.result?.time ?? 0
+        } else if (m.trivia?.pip) {
           score = m.trivia.pip.reduce((s, a) => s + a.points, 0)
           time = m.trivia.pip.reduce((s, a) => s + a.ms, 0)
         } else if (ENGINE_GAMES.includes(m.game)) {
@@ -673,7 +748,15 @@ export class Engine {
 
     if (m.mode === 'save' && !allForfeit) {
       if (draw) for (const p of humans) payouts.push({ ...this.dest(p), luna: p.escrowed, kind: 'refund', note: 'Draw, stake returned' })
-      else {
+      else if (m.game === 'splat') {
+        // places are a strict order, so nobody ties. Winner takes all, or 60/30/10 to the top three.
+        const pot = m.players.reduce((s, p) => s + p.escrowed, 0)
+        poolFee = saveFee(pot)
+        const shares = splatShares(pot - poolFee, (m.config.payout as Payout3) ?? 'wta', ranks.length)
+        shares.forEach((amt, i) => { if (amt > 0) jarCredit[ranks[i].address] = amt })
+        this.pool.luna += poolFee
+        this.pool.feesTotal = (this.pool.feesTotal ?? 0) + poolFee
+      } else {
         const pot = m.players.reduce((s, p) => s + p.escrowed, 0)
         poolFee = saveFee(pot) // a small slice of every Save pot goes to the savers
         jarCredit[winner!] = pot - poolFee
@@ -737,7 +820,7 @@ export class Engine {
     m.settlement = {
       winner, draw: draw || undefined, ranks: ranks.map((r) => ({ address: r.address, rank: r.rank, score: Math.max(0, r.score), time: r.time === Number.MAX_SAFE_INTEGER ? 0 : r.time })),
       payouts, xp, jarCredit, ...(poolFee ? { fee: poolFee } : {}), ...(Object.keys(xpBonus).length ? { xpBonus } : {}),
-      reason: allForfeit ? 'Nobody finished' : forfeit ? 'A player ran out of time and forfeited' : draw ? 'Dead heat' : 'Best score wins',
+      reason: allForfeit ? (m.game === 'splat' ? 'The match could not finish, stakes returned' : 'Nobody finished') : forfeit ? 'A player ran out of time and forfeited' : draw ? 'Dead heat' : m.game === 'splat' ? 'Last one standing' : 'Best score wins',
     }
     this.store.save()
     this.runPayouts(m)

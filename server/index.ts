@@ -1,3 +1,4 @@
+import { attachSplat } from './splat'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, normalize, resolve } from 'node:path'
@@ -134,6 +135,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
         if (action === 'fund') return send(res, 200, await engine.fund(me, id, b.txHash))
         if (action === 'terms') return send(res, 200, await engine.terms(me, id, b))
         if (action === 'cancel') return send(res, 200, await engine.cancel(me, id))
+        if (action === 'start') return send(res, 200, await engine.startNow(me, id))
         if (action === 'answer') return send(res, 200, engine.answer(me, id, b))
         if (action === 'progress') return send(res, 200, engine.progress(me, id, Number(b.score)))
         if (action === 'result') return send(res, 200, engine.result(me, id, b))
@@ -201,7 +203,8 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
   })
   const timer = setInterval(() => engine.tickAll(), 1000)
   timer.unref()
-  return { server, engine, chain, store, close: () => { clearInterval(timer); store.flush(); server.close() } }
+  const ws = attachSplat(server, engine)
+  return { server, engine, chain, store, close: () => { clearInterval(timer); ws.close(); store.flush(); server.close() } }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

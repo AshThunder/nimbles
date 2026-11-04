@@ -85,6 +85,7 @@ export const api = {
   match: (id: string) => call<MatchView>('GET', `/matches/${id}?shot=${liveSeen[id] ?? 0}`),
   move: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/move`, b),
   fund: (id: string, txHash: string) => call<MatchView>('POST', `/matches/${id}/fund`, { txHash }),
+  start: (id: string) => call<MatchView>('POST', `/matches/${id}/start`, {}),
   cancel: (id: string) => call<MatchView>('POST', `/matches/${id}/cancel`, {}),
   terms: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/terms`, b),
   answer: (id: string, q: number, choice: number, ms: number) => call<any>('POST', `/matches/${id}/answer`, { q, choice, ms }),

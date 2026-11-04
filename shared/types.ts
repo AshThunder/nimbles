@@ -1,4 +1,4 @@
-export type GameId = 'trivia' | 'solitaire' | 'chess' | 'pool' | 'sudoku' | 'bubble' | 'word' | 'lastbite'
+export type GameId = 'trivia' | 'solitaire' | 'chess' | 'pool' | 'sudoku' | 'bubble' | 'word' | 'lastbite' | 'splat'
 export type Mode = 'play' | 'save' | 'settle'
 export type OppKind = 'invite' | 'auto' | 'pip'
 export type PipLevel = 'easy' | 'med' | 'hard'
@@ -14,6 +14,7 @@ export const GAMES: Record<GameId, { name: string; blurb: string; tag?: 'Hot' | 
   bubble: { name: 'Bubble Shooter', blurb: '90 sec', tag: 'Hot', minutes: '90 sec', level: 3, maxPlayers: 2 },
   word: { name: 'Word Rush', blurb: 'Same letters', tag: 'New', minutes: '1 min', level: 1, maxPlayers: 2 },
   lastbite: { name: 'Last Bite', blurb: 'Quick 4x4 sprint', minutes: '2 min', level: 2, maxPlayers: 2 },
+  splat: { name: 'Splat Royale', blurb: '2 to 6 players', tag: 'New', minutes: '3 min', level: 3, maxPlayers: 6 },
 }
 
 export const STAKES = [1, 2, 5, 10] as const

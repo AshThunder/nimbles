@@ -50,4 +50,5 @@ export const GAME_DURATION_MS: Record<GameId, number> = {
   bubble: 90000,
   word: 60000,
   lastbite: 90000,
+  splat: 180000,
 }

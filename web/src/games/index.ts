@@ -9,6 +9,7 @@ import { chessLive } from './chessLive'
 import { poolLive } from './poolLive'
 import { word } from './word'
 import { sudokuGame } from './sudoku'
+import { splat } from './splat'
 
 export const MODS: Partial<Record<GameId, GameMod>> = {
   trivia,
@@ -17,6 +18,7 @@ export const MODS: Partial<Record<GameId, GameMod>> = {
   chess,
   pool,
   solitaire,
+  splat,
   sudoku: sudokuGame(9),
   lastbite: sudokuGame(4),
 }

@@ -1,6 +1,7 @@
 import qrcode from 'qrcode-generator'
 import { api, serverNow, type MatchView } from '../api'
 import { LIVE_MODS, MODS } from '../games'
+import { SEAT_COL } from '../games/splat'
 import { meOf, others, type GameInst } from '../games/common'
 import { actions, avatar, confetti, esc, fmtTime, glyph, GLYPH_BG, ic, pipImg, shortAddr, sfx, buzz, toast, tap, $ } from '../lib'
 import { S, go, route } from '../state'
@@ -10,7 +11,7 @@ import { GAMES, fmtNim } from '../../../shared/types'
 import { settleShares } from '../../../shared/economy'
 import { draftBody, draftOk, newDraft, payeeLabel, termsActions, termsForm, termsInput, type TermsDraft } from './terms'
 
-const ORD = ['1st', '2nd', '3rd', '4th']
+const ORD = ['1st', '2nd', '3rd', '4th', '5th', '6th']
 const shareLink = (code: string) => `${location.origin}/#/join/${code}`
 
 route('/join/:code', async (root, p) => {
@@ -55,7 +56,7 @@ route('/m/:id', async (root, { id }) => {
     gameRoot?.remove()
     gameRoot = undefined
   }
-  const header = (title = GAMES[m.game].name, left: 'back' | 'close' = 'close') => topbar(title, left, `<div class="coin nb">${m.mode === 'play' ? 'Free play' : m.mode === 'save' ? `Pot ${m.stake * 2}` : `Bill ${m.stake}`}</div>`)
+  const header = (title = GAMES[m.game].name, left: 'back' | 'close' = 'close') => topbar(title, left, `<div class="coin nb">${m.mode === 'play' ? 'Free play' : m.mode === 'save' ? `Pot ${m.stake * (m.size ?? 2)}` : `Bill ${m.stake}`}</div>`)
 
   const refresh = async () => {
     try {
@@ -135,9 +136,22 @@ route('/m/:id', async (root, { id }) => {
         <div class="inv-row"><div class="qrbox" aria-label="QR code for the invite link">${q.createSvgTag({ cellSize: 4, margin: 0, scalable: true })}</div>
         <div class="inv-col"><div class="mono" style="font-size:28px;font-weight:700;letter-spacing:.04em" id="code">${m.code}</div>
         <button class="btn gold sm" data-act="share">${ic('share-2', 's16')}Share link</button><button class="btn ghost sm" data-act="copy">${ic('copy', 's16')}Copy code</button></div></div></div>
-      <div class="wait"><div class="ghostav">${ic('user-plus', 's20')}</div><div class="tx"><b>Waiting for ${need > 1 ? need + ' players' : 'your friend'}</b><span>${m.mode === 'settle' ? 'You both agree the terms once they join' : staked ? 'Both lock the stake once they join' : 'The game starts when they join'}</span></div><div class="dotsw"><i></i><i></i><i></i></div></div>
+      ${royale ? royaleSeats() : ''}
+      <div class="wait"><div class="ghostav">${ic('user-plus', 's20')}</div><div class="tx"><b>${royale ? `${m.players.length} of ${m.size} in` : `Waiting for ${need > 1 ? need + ' players' : 'your friend'}`}</b><span>${royale ? (staked ? 'Everyone locks the stake when the match fills, or when the host starts it' : 'Nimos fill the empty seats when the host starts') : m.mode === 'settle' ? 'You both agree the terms once they join' : staked ? 'Both lock the stake once they join' : 'The game starts when they join'}</span></div><div class="dotsw"><i></i><i></i><i></i></div></div>
       ${pipRow('wink', `Seeds are sealed: <span class="mono" style="font-size:12px">${m.seedCommit.slice(0, 10)}…</span> proves nobody can rig the deal`)}</div>
-      <div class="foot"><button class="btn ghost block" data-act="cancel">Cancel match</button></div>`
+      <div class="foot">${royale && m.host === S.wallet.address ? `<button class="btn gold block" data-act="start" ${busy || (staked && m.players.length < 2) ? 'disabled' : ''}>${ic('zap', 's20')}${staked ? (m.players.length < 2 ? 'Need one more player' : `Start now with ${m.players.length}`) : 'Start now'}</button>` : ''}<button class="btn ghost block" data-act="cancel">Cancel match</button></div>`
+  }
+  const royale = m.game === 'splat'
+  function royaleSeats() {
+    const dots = (i: number) => `<i class="sdot" style="background:${SEAT_COL[i % SEAT_COL.length]}"></i>`
+    const rows = Array.from({ length: m.size ?? 2 }, (_, i) => {
+      const p = m.players[i]
+      if (!p) return `<div class="rw" style="min-height:48px;border-style:dashed"><span class="avs"><span class="ghostav" style="width:36px;height:36px;border-radius:18px;border:2px dashed var(--ink);display:grid;place-items:center">${dots(i)}</span></span><span class="nm"><b style="color:var(--muted)">${m.mode === 'play' ? 'Nimo joins' : 'Open seat'}</b></span></div>`
+      const you = p.player.address === S.wallet.address
+      return `<div class="rw ${you ? 'me' : ''}" style="min-height:48px"><span class="avs">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}</span><span class="nm"><b>${you ? 'You' : esc(p.player.name)}${p.player.address === m.host ? '<span class="tg2" style="background:var(--ink)">Host</span>' : ''}</b></span>${dots(i)}</div>`
+    }).join('')
+    const pay = m.mode === 'save' ? (m.config.payout === 'top3' ? 'Top 3 split the pot 60 / 30 / 10' : 'Last one standing takes the pot') : 'Free play, earns XP'
+    return `<div class="sec"><div class="lab">Players<small>${esc(pay)}</small></div><div class="rank" style="gap:8px">${rows}</div></div>`
   }
 
   // ---------------- terms (Settle) ----------------
@@ -205,7 +219,9 @@ route('/m/:id', async (root, { id }) => {
       .join('')
     const what =
       m.mode === 'save'
-        ? `Both lock <b>${m.stake} NIM</b>. Winner's <b>${m.stake * 2} NIM</b> goes into their locked savings jar. Draw returns both stakes`
+        ? royale
+          ? `All ${m.players.length} lock <b>${m.stake} NIM</b>. The pot is <b>${m.stake * m.players.length} NIM</b>. ${m.config.payout === 'top3' && m.players.length >= 3 ? 'The top 3 split it 60 / 30 / 10' : 'The last one standing takes it'}, into locked savings jars. If the match cannot finish, every stake comes back`
+          : `Both lock <b>${m.stake} NIM</b>. Winner's <b>${m.stake * 2} NIM</b> goes into their locked savings jar. Draw returns both stakes`
         : m.terms
           ? `Terms agreed: bill <b>${m.terms.bill} NIM</b>, loser pays ${m.terms.loserPct}%. Each locks the most they could owe. Whatever is not owed comes back`
           : ''
@@ -262,9 +278,10 @@ route('/m/:id', async (root, { id }) => {
   function ready() {
     const players = m.players
     root.innerHTML = `${header()}<div class="scroll center" style="gap:16px;justify-content:center">
+      ${royale ? `<div class="sqd">${players.map((p, i) => `<div class="sq" style="border-color:${SEAT_COL[i % SEAT_COL.length]}">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}<span>${p.player.address === S.wallet.address ? 'You' : esc(p.player.name.split(' ')[0])}</span></div>`).join('')}</div>` : `
       <div class="arena" style="width:100%"><div class="l"></div><div class="r"></div>
-      ${[players[0], players[1] ?? players[0]].map((p, i) => `<div class="pl ${i ? 'b' : 'a'}">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}<span class="nm">${p.player.address === S.wallet.address ? 'You' : esc(p.player.name.split(' ')[0])}</span></div>`).join('')}<div class="vs">VS</div></div>
-      <div class="cd" id="cd">3</div><div style="font-weight:700;color:var(--ink2)">Same seed for both: <span class="mono" style="font-size:13px">${m.seedCommit.slice(0, 8)}…</span></div></div>`
+      ${[players[0], players[1] ?? players[0]].map((p, i) => `<div class="pl ${i ? 'b' : 'a'}">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}<span class="nm">${p.player.address === S.wallet.address ? 'You' : esc(p.player.name.split(' ')[0])}</span></div>`).join('')}<div class="vs">VS</div></div>`}
+      <div class="cd" id="cd">3</div><div style="font-weight:700;color:var(--ink2)">${royale ? 'Same arena for everyone' : 'Same seed for both'}: <span class="mono" style="font-size:13px">${m.seedCommit.slice(0, 8)}…</span></div></div>`
     let last = -1
     const tick = () => {
       const left = (m.startsAt ?? 0) - serverNow()
@@ -292,7 +309,7 @@ route('/m/:id', async (root, { id }) => {
   }
 
   function play() {
-    const mod = m.live ? LIVE_MODS[m.game] : MODS[m.game]
+    const mod = m.game === 'splat' ? MODS.splat : m.live ? LIVE_MODS[m.game] : MODS[m.game]
     if (!mod) {
       root.innerHTML = `${header()}<div class="scroll" style="gap:14px">${pipRow('sleepy', `<b>${GAMES[m.game].name} is not built yet.</b> Cancel and pick another game`)}</div>`
       return
@@ -325,14 +342,20 @@ route('/m/:id', async (root, { id }) => {
     const chestCard = `<button class="card chr" data-act="chests" style="background:var(--gold-tint);min-height:56px;padding:6px 12px 6px 8px"><img src="/badges/chest-closed.svg" alt="" width="40" height="40"><span class="nm"><b>Chest earned</b><span>Hold to open. See what is inside first</span></span><span class="chip gold">Open</span></button>`
     const myPay = st.payouts.filter((p) => (p.for ?? p.to) === addr)
     const jar = st.jarCredit[addr] ?? 0
-    const unit = (s: number) => (m.game === 'trivia' ? `${s} pts` : m.game === 'solitaire' ? `${s / 10} cards` : `${s} pts`)
+    const unit = (s: number, a?: string) => (m.game === 'splat' ? splatLine(a) : m.game === 'trivia' ? `${s} pts` : m.game === 'solitaire' ? `${s / 10} cards` : `${s} pts`)
+    const splatLine = (a?: string) => {
+      const d: any = m.players.find((x) => x.player.address === a)?.result?.detail
+      if (!d) return ''
+      return `${d.alive ? 'Last standing' : 'Out at ' + fmtTime(d.out ?? 0)} · ${d.splats} ${d.splats === 1 ? 'splat' : 'splats'}`
+    }
+    const jarOf = (a: string) => st.jarCredit[a] ?? 0
     const settle = m.mode === 'settle'
     const rows = st.ranks
       .map((r) => {
         const p = m.players.find((x) => x.player.address === r.address)!
         const you = r.address === addr
         const medal = r.rank === 1 ? 'g' : r.rank === 2 ? 's' : r.rank === 3 ? 'b' : 'c'
-        return `<div class="rw ${you ? 'me' : ''}"><span class="med ${medal}">${r.rank}</span><span class="avs">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}</span><span class="nm"><b>${you ? 'You' : esc(p.player.name)}</b><span>${unit(r.score)}</span></span>${settle ? `<span class="am"><b>${fmtNim(p.share ?? 0)}</b><span>${st.draw ? 'half' : r.rank === 1 ? 'winner share' : 'owes'}</span></span>` : ''}</div>`
+        return `<div class="rw ${you ? 'me' : ''}"><span class="med ${medal}">${r.rank}</span><span class="avs">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}</span><span class="nm"><b>${you ? 'You' : esc(p.player.name)}</b><span>${unit(r.score, r.address)}</span></span>${m.game === 'splat' && jarOf(r.address) ? `<span class="am"><b>+${fmtNim(jarOf(r.address))}</b><span>to jar</span></span>` : ''}${settle ? `<span class="am"><b>${fmtNim(p.share ?? 0)}</b><span>${st.draw ? 'half' : r.rank === 1 ? 'winner share' : 'owes'}</span></span>` : ''}</div>`
       })
       .join('')
     const lines = [
@@ -398,6 +421,21 @@ route('/m/:id', async (root, { id }) => {
     home: () => go('/'),
     chests: () => go('/chests'),
     again: () => go('/g/' + m.game),
+    start: async () => {
+      busy = 'Starting…'
+      sig = ''
+      onMatch()
+      try {
+        m = await api.start(id)
+        sfx('ui/confirm')
+      } catch (e: any) {
+        toast(e.message)
+        sfx('ui/error')
+      }
+      busy = ''
+      sig = ''
+      onMatch()
+    },
     cancel: async () => {
       try {
         await api.cancel(id)

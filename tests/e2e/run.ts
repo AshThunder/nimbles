@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import { canMake } from '../../shared/words'
 
 process.env.CHAIN = 'mock'
+process.env.SPLAT_CAP_SECONDS = '30' // a short Splat Royale so the whole match fits in the test
 const BREAK = !!process.env.E2E_BREAK
 if (!process.env.E2E_AI) delete process.env.GEMINI_API_KEY
 const { createApp } = await import('../../server/index')
@@ -138,7 +139,7 @@ try {
   // ---------- 1. Home + wallet via the real SDK ----------
   const chris = await player(browser, 'chris')
   const c = chris.page
-  assert.equal(await c.locator('.gc').count(), 8, '8 game cards')
+  assert.equal(await c.locator('.gc').count(), 9, '9 game cards')
   assert.match(await c.locator('.xpi b').innerText(), /.+/)
   assert.ok(!(await c.content()).includes('Preview'), 'inside Nimiq Pay there is no preview banner')
   await shot(c, 'home')
@@ -486,6 +487,61 @@ try {
   for (const p of [a, c]) await p.waitForSelector('.res', { timeout: 20000 })
   assert.equal((await matchOf(c, plId)).status, 'settled')
   log('live pool: server-run break shown on both phones, off-turn locked, concede settles')
+
+  // ---------- 5d. Splat Royale: three seats, two phones and a Nimo, host starts early ----------
+  await c.goto('/#/g/splat')
+  await c.waitForSelector('#go')
+  assert.equal(await c.locator('[data-m=settle]').count(), 0, 'Splat Royale has no Settle mode')
+  await c.locator('[data-act=opp][data-k=invite]').click()
+  await c.locator('[data-act=seats][data-n="3"]').click()
+  await shot(c, 'splat-setup')
+  await c.locator('#go').click()
+  await c.waitForSelector('#code')
+  const spCode = (await c.locator('#code').innerText()).trim()
+  const spId = matchId(c)
+  await a.goto('/#/g/splat')
+  await a.locator('[data-act=opp][data-k=join]').click()
+  await a.locator('#code').fill(spCode)
+  await a.locator('#go').click()
+  await a.waitForSelector('.sdot', { timeout: 15000 })
+  await c.waitForFunction(() => document.querySelectorAll('.rank .rw .avs').length >= 2, null, { timeout: 15000 })
+  assert.equal(await a.locator('[data-act=start]').count(), 0, 'only the host sees Start now')
+  await shot(c, 'splat-lobby')
+  await c.locator('[data-act=start]').click()
+  await c.waitForSelector('.sqd', { timeout: 15000 })
+  await shot(c, 'splat-ready')
+  for (const p of [c, a]) await p.waitForSelector('#cv', { timeout: 25000 })
+  await c.waitForFunction(() => (document.querySelector('#msg') as HTMLElement | null)?.style.display === 'none', null, { timeout: 15000 })
+  const sim = () => (app.engine as any).splat.runs.get(spId).sim
+  const mySeat = (await matchOf(c, spId)).players.findIndex((p: any) => p.player.address === real.chris)
+  const x0 = sim().players[mySeat].x
+  await c.keyboard.down('d')
+  await c.waitForTimeout(700)
+  await c.keyboard.up('d')
+  assert.ok(sim().players[mySeat].x !== x0, 'WASD moves your player')
+  const stk = (await c.locator('#sta').boundingBox())!
+  await c.mouse.move(stk.x + stk.width / 2, stk.y + stk.height / 2)
+  await c.mouse.down()
+  await c.mouse.move(stk.x + stk.width / 2 + 40, stk.y + stk.height / 2 - 10)
+  await c.waitForTimeout(700)
+  const knob = await c.locator('#sta i').evaluate((e) => (e as HTMLElement).style.transform)
+  assert.match(knob, /translate/, 'the aim stick knob follows the finger')
+  const ammoMid = sim().players[mySeat].ammo
+  await shot(c, 'splat-play')
+  await c.mouse.up()
+  assert.ok(ammoMid < 5, 'holding the aim stick fires')
+  assert.equal(await c.locator('.spl-st').first().evaluate((e) => (e as HTMLElement).getBoundingClientRect().width >= 88), true)
+  const fit = await c.evaluate(() => { const h = document.querySelector('.spl-help')!.getBoundingClientRect(); return h.bottom <= innerHeight && document.documentElement.scrollHeight <= innerHeight + 1 })
+  assert.equal(fit, true, 'the Splat screen fits without scrolling')
+  await a.waitForTimeout(8000)
+  await shot(a, 'splat-play-late')
+  for (const p of [a, c]) await p.waitForSelector('.res', { timeout: 60000 })
+  const spm = await matchOf(c, spId)
+  assert.equal(spm.status, 'settled')
+  assert.equal(spm.settlement.ranks.length, 3)
+  assert.match(await c.locator('.rank').first().innerText(), /splat/)
+  await shot(c, 'splat-result')
+  log('Splat Royale: 3 seats, host starts early, WASD and stick fire, server-scored result for both phones')
 
   // ---------- 6. Vault, rank, pip, me, credits ----------
   await c.goto('/#/vault')
