@@ -3,7 +3,7 @@ import { actions, esc, glyph, GLYPH_BG, ic, sfx, tap, toast, $ } from '../lib'
 import { S, route } from '../state'
 import { errBox, pipRow, tabs, topbar } from '../ui'
 import { GAMES, fmtNim } from '../../../shared/types'
-import { LOCK_TIERS } from '../../../shared/rewards'
+import { LOCK_TIERS, LOCK_XP_PCT } from '../../../shared/rewards'
 
 const DAY = 864e5
 const GOAL_CHIPS = [25, 50, 100, 250, 500, 1000]
@@ -69,6 +69,7 @@ route('/jar', async (root) => {
       <div class="row" style="gap:8px"><input id="goal" class="field" inputmode="decimal" placeholder="Other amount" aria-label="Goal in NIM" style="flex:1;min-width:0"><button class="btn ghost sm" data-act="goal-set" style="flex:none">Set</button></div>
       <div class="lab" style="margin:0">Lock length<small>${canTier ? 'Applies to your next deposit' : 'Fixed while locked'}</small></div>
       <div class="seg">${LOCK_TIERS.map((d) => { const on = plan.lockDays === d; return `<button class="sg ${on ? 'on' : ''}" data-act="tier" data-d="${d}" ${canTier ? '' : 'disabled'}><b>${d}</b><small>days</small>${on ? `<span class="ck">${ic('check')}</span>` : ''}</button>` }).join('')}</div>
+      <div style="font-size:13px;line-height:19px;color:var(--ink2)">While locked, duel XP is higher: ${LOCK_TIERS.map((d) => `<b>${d} days +${LOCK_XP_PCT[d]}%`).join('</b>, ')}</b>.</div>
       ${info ? poolCard(info, locked) : ''}
       ${pipRow(locked ? 'sleepy' : 'happy', locked ? '<b>New deposits join the lock</b> without restarting it. Your date stays put' : '<b>Pick a goal and a lock.</b> Win Save duels or add to the vault to fill the jar')}
       <div class="lab">Recent duels<small>${hist.length ? '' : 'Nothing yet'}</small></div>

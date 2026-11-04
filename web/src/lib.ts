@@ -1,4 +1,5 @@
 // Small UI helpers: icons, avatars, sounds, haptics, confetti, toasts.
+import { cosmeticOf } from '../../shared/rewards'
 
 const raw = (g: Record<string, string>) =>
   Object.fromEntries(Object.entries(g).map(([k, v]) => [k.replace(/^.*\/(.+)\.svg$/, '$1'), v]))
@@ -20,8 +21,12 @@ export const GLYPH_BG: Record<string, string> = {
   trivia: '#1F78C4', solitaire: '#1F8A5B', chess: '#1F2348', pool: '#1F7F73', sudoku: '#F4B323', bubble: '#F29AAE', word: '#D0432E', lastbite: '#EBD6A0', vault: '#1F2348',
 }
 export const pipImg = (mood = 'happy', cls = '') => `<img class="${cls}" src="/pip/pip-${mood}.svg" alt="" width="52" height="52">`
-export const avatar = (name: string, cls = 'av') =>
-  name === 'pip' ? `<img class="${cls}" src="/pip/pip-cool.svg" alt="">` : `<img class="${cls}" src="/avatars/${esc(name)}.svg" alt="">`
+/** An avatar, optionally wearing a frame: a solid ring in the frame's colour, no gradients. */
+export const avatar = (name: string, cls = 'av', frame = '') => {
+  const f = frame ? cosmeticOf(frame) : undefined
+  const st = f ? ` style="box-shadow:0 0 0 3px ${f.color}"` : ''
+  return name === 'pip' ? `<img class="${cls}" src="/pip/pip-cool.svg" alt=""${st}>` : `<img class="${cls}" src="/avatars/${esc(name)}.svg" alt=""${st}>`
+}
 export const lvBadge = (n: number, size = 24) => `<img class="lvb" src="/badges/levels/level-${Math.max(1, Math.min(50, n))}.svg" alt="Level ${n}" style="width:${size}px;height:${size}px">`
 
 export const $ = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as T | null

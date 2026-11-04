@@ -46,7 +46,8 @@ export type JarInfo = {
   interest: { last: number; lastDay: string; week: number; total: number }
 }
 export type Config = { chain: 'mock' | 'nimiq'; network: 'testnet' | 'mainnet'; escrow: string; lockDays: number; ai: { gemini: boolean; model: string | null }; mock: boolean; serverNow: number }
-export type Row = { rank: number; address: string; name: string; avatar: string; weekXp: number; level: number; me: boolean }
+export type SaverRow = { rank: number; address: string; name: string; avatar: string; frame: string; level: number; interest: number; saved: number; lockDays: number; locked: boolean; me: boolean }
+export type Row = { rank: number; address: string; name: string; avatar: string; frame: string; weekXp: number; level: number; me: boolean }
 export type MatchView = Omit<PublicMatch, 'players'> & {
   size?: number
   fundBy?: number
@@ -74,6 +75,8 @@ export const api = {
   session: (address: string, name?: string, avatar?: string, proof?: { nonce: string; publicKey: string; signature: string }) =>
     call<{ token: string; verified: boolean; profile: Profile & { vaultToday?: boolean } }>('POST', '/session', { address, name, avatar, proof }),
   me: () => call<Profile & { vaultToday?: boolean }>('GET', '/me'),
+  setStyle: (b: { frame?: string; theme?: string }) => call<Profile>('POST', '/me/style', b),
+  savers: () => call<{ rows: SaverRow[]; me: SaverRow | null; total: number; week: string }>('GET', '/leaderboard/savers'),
   setMe: (b: { name?: string; avatar?: string }) => call<Profile>('POST', '/me', b),
   board: (scope: 'global' | 'friends') => call<{ rows: Row[]; me: Row | null; total: number; week: string }>('GET', '/leaderboard?scope=' + scope),
   matches: () => call<MatchView[]>('GET', '/matches'),

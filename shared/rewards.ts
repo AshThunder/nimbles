@@ -138,4 +138,30 @@ export const BADGES: BadgeDef[] = [
   { id: 'level-20', name: 'Level 20', why: 'Reached level 20', icon: 'trophy-silver' },
   { id: 'level-25', name: 'Level 25', why: 'Reached level 25', icon: 'trophy-gold' },
 ]
-export const badgeOf = (id: string) => BADGES.find((b) => b.id === id) ?? { id, name: id.replace('level-', 'Level '), why: 'Reached a high level', icon: 'trophy-gold' }
+export const badgeOf = (id: string) => [...DERIVED_BADGES, ...BADGES].find((b) => b.id === id) ?? { id, name: id.replace('level-', 'Level '), why: 'Reached a high level', icon: 'trophy-gold' }
+
+// ---- XP boosts ----
+/** Match XP grows with a running streak and with a locked jar. Both are plain percentages, so the same play always earns the same. */
+export const streakXpPct = (streak: number) => (streak >= 30 ? 30 : streak >= 7 ? 20 : streak >= 3 ? 10 : 0)
+export const LOCK_XP_PCT: Record<number, number> = { 7: 5, 30: 10, 90: 20 }
+export const lockXpPct = (lockDays: number, locked: boolean) => (locked ? LOCK_XP_PCT[lockDays] ?? 0 : 0)
+export const withXpBonus = (base: number, pct: number) => base + Math.floor((base * pct) / 100)
+
+// ---- badges earned by playing ----
+export const DERIVED_BADGES: BadgeDef[] = [
+  { id: 'first-win', name: 'First win', why: 'Won your first duel', icon: 'medal-bronze' },
+  { id: 'wins-10', name: '10 wins', why: 'Won 10 duels', icon: 'medal-silver' },
+  { id: 'wins-50', name: '50 wins', why: 'Won 50 duels', icon: 'medal-gold' },
+  { id: 'saver', name: 'Saver', why: 'Put NIM in your jar', icon: 'jar' },
+]
+export const derivedBadges = (s: { wins: number; saved: boolean }) => [
+  ...(s.wins >= 1 ? ['first-win'] : []),
+  ...(s.wins >= 10 ? ['wins-10'] : []),
+  ...(s.wins >= 50 ? ['wins-50'] : []),
+  ...(s.saved ? ['saver'] : []),
+]
+export const ALL_BADGES = (): BadgeDef[] => [...DERIVED_BADGES, ...BADGES]
+
+/** Everything a player may wear: unlocked by level, plus whatever chests gave them. */
+export const unlockedCosmetics = (level: number, fromChests: string[]) =>
+  COSMETICS.filter((c) => (c.level !== undefined && level >= c.level) || fromChests.includes(c.id)).map((c) => c.id)

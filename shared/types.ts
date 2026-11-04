@@ -78,6 +78,7 @@ export type Settlement = {
   xp: Record<string, number>
   jarCredit: Record<string, number>
   fee?: number // the saver pool's share of the pot
+  xpBonus?: Record<string, number> // percent added to each player's XP from streak and lock
   reason: string
 }
 
@@ -101,6 +102,9 @@ export type Profile = {
   questDay: string
   weekXp: number
   chests: number // earned and not opened yet
+  badges: string[]
+  unlocked: string[] // frames and themes the player may wear
+  style: { frame: string; theme: string }
 }
 
 export function levelFor(xp: number) {

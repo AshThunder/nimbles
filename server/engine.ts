@@ -15,7 +15,7 @@ import { rng } from '../shared/rng'
 import { replaySolitaire } from '../shared/solitaire'
 import { replayBubble } from '../shared/bubblesim'
 import { makeSudoku } from '../shared/puzzles'
-import { BOOST_TOTAL_MAX, CHEST_TITLES, CHEST_WHY, chestContents, chestsDue,  DEFAULT_GOAL_LUNA, MAX_GOAL_NIM, POOL_DAILY_CAP, POOL_DAILY_PCT, earlyFee, isTier, levelBoostPct, poolDay, poolWeight, saveFee, type LockDays, type Plan } from '../shared/rewards'
+import { COSMETICS, LOCK_XP_PCT, derivedBadges, lockXpPct, streakXpPct, unlockedCosmetics, withXpBonus, BOOST_TOTAL_MAX, CHEST_TITLES, CHEST_WHY, chestContents, chestsDue,  DEFAULT_GOAL_LUNA, MAX_GOAL_NIM, POOL_DAILY_CAP, POOL_DAILY_PCT, earlyFee, isTier, levelBoostPct, poolDay, poolWeight, saveFee, type LockDays, type Plan } from '../shared/rewards'
 import {
   GAMES, LUNA, STAKES, levelFor,
   type GameId, type Mode, type OppKind, type Payee, type Payout, type PipLevel, type Profile, type PublicMatch, type Result, type Settlement, type SettleTerms,
@@ -116,6 +116,9 @@ export class Engine {
       wins: p.wins, played: p.played, jarLuna: p.jarLuna, jarUnlockAt: p.jarUnlockAt, plan: this.planOf(p),
       questWins: p.questDay === today ? p.questWins : 0, questDay: today, weekXp: p.weekXp,
       chests: (p.chests ?? []).filter((c) => !c.openedAt).length,
+      badges: [...new Set([...derivedBadges({ wins: p.wins, saved: p.vaultDeposits > 0 || p.jarLuna > 0 || (p.interestTotal ?? 0) > 0 }), ...(p.badges ?? [])])],
+      unlocked: unlockedCosmetics(lv.level, p.cosmetics ?? []),
+      style: { frame: p.frame ?? '', theme: p.theme ?? '' },
       ...({ vaultToday: p.vaultDay === today, vaultDay: p.vaultDay } as object),
     } as Profile
   }
@@ -149,7 +152,7 @@ export class Engine {
     if (scope === 'friends') rows = all.filter((p) => p.address === address || me.friends.includes(p.address))
     rows = [...rows].sort((a, b) => b.weekXp - a.weekXp || b.xp - a.xp)
     const list = rows.map((p, i) => ({
-      rank: i + 1, address: p.address, name: p.name, avatar: p.avatar, weekXp: p.weekXp, level: levelFor(p.xp).level, me: p.address === address,
+      rank: i + 1, address: p.address, name: p.name, avatar: p.avatar, frame: p.frame ?? '', weekXp: p.weekXp, level: levelFor(p.xp).level, me: p.address === address,
     }))
     return { scope, week: weekKey(), rows: list.slice(0, 25), me: list.find((r) => r.me) ?? null, total: rows.length }
   }
@@ -664,6 +667,7 @@ export class Engine {
     const payouts: Payout[] = []
     const jarCredit: Record<string, number> = {}
     let poolFee = 0
+    const xpBonus: Record<string, number> = {}
     const xp: Record<string, number> = {}
     const humans = m.players.filter((p) => !p.isBot)
 
@@ -708,7 +712,11 @@ export class Engine {
       const won = !draw && r.rank === 1
       const base = r.score < 0 ? 5 : won ? 60 : draw ? 30 : m.size > 2 ? [60, 40, 30, 20][Math.min(3, r.rank - 1)] : 20
       const staked = m.mode === 'play' ? 0 : 20
-      xp[r.address] = base + (r.score >= 0 ? staked : 0)
+      const raw = base + (r.score >= 0 ? staked : 0)
+      // streak and a locked jar make XP come faster; a forfeit earns no bonus
+      const pctNow = r.score >= 0 ? streakXpPct(this.streakOf(rec).streak) + lockXpPct(this.planOf(rec).lockDays, rec.jarLuna > 0 && rec.jarUnlockAt > Date.now()) : 0
+      xp[r.address] = withXpBonus(raw, pctNow)
+      if (pctNow) xpBonus[r.address] = pctNow
       rec.xp += xp[r.address]
       this.rollWeek(rec)
       rec.weekXp += xp[r.address]
@@ -728,7 +736,7 @@ export class Engine {
     }
     m.settlement = {
       winner, draw: draw || undefined, ranks: ranks.map((r) => ({ address: r.address, rank: r.rank, score: Math.max(0, r.score), time: r.time === Number.MAX_SAFE_INTEGER ? 0 : r.time })),
-      payouts, xp, jarCredit, ...(poolFee ? { fee: poolFee } : {}),
+      payouts, xp, jarCredit, ...(poolFee ? { fee: poolFee } : {}), ...(Object.keys(xpBonus).length ? { xpBonus } : {}),
       reason: allForfeit ? 'Nobody finished' : forfeit ? 'A player ran out of time and forfeited' : draw ? 'Dead heat' : 'Best score wins',
     }
     this.store.save()
@@ -831,6 +839,8 @@ export class Engine {
     p.chests = p.chests.slice(-60)
   }
 
+  weekKeyNow() { return weekKey() }
+
   devThreeWins(addr: string) {
     const p = this.must(addr)
     p.questDay = day()
@@ -839,6 +849,41 @@ export class Engine {
     this.syncChests(p)
     this.store.save()
     return { chests: (p.chests ?? []).length }
+  }
+
+  setStyle(addr: string, b: { frame?: unknown; theme?: unknown }) {
+    const p = this.must(addr)
+    const owned = unlockedCosmetics(levelFor(p.xp).level, p.cosmetics ?? [])
+    const pick = (v: unknown, kind: 'frame' | 'theme') => {
+      if (v === undefined) return undefined
+      if (v === '' || v === null) return ''
+      const id = String(v)
+      if (!id.startsWith(kind + ':') || !COSMETICS.some((c) => c.id === id)) throw bad('Unknown style')
+      if (!owned.includes(id)) throw bad('Not unlocked yet')
+      return id
+    }
+    const f = pick(b.frame, 'frame'), t = pick(b.theme, 'theme')
+    if (f !== undefined) p.frame = f
+    if (t !== undefined) p.theme = t
+    this.store.save()
+    return this.profile(addr)
+  }
+
+  /** Weekly saver board: ranked by interest earned this week, then by how much is locked and for how long. */
+  saverBoard(address: string) {
+    this.payPool()
+    const now = Date.now()
+    const wk = weekKey()
+    const rows = Object.values(this.db.profiles)
+      .map((p) => ({ p, interest: p.interestWeekKey === wk ? p.interestWeek ?? 0 : 0, locked: p.jarLuna > 0 && p.jarUnlockAt > now }))
+      .filter((r) => r.interest > 0 || r.locked)
+      .map((r) => ({ ...r, weight: r.locked ? Number(poolWeight(r.p.jarLuna, this.planOf(r.p).lockDays, 0)) : 0 }))
+      .sort((a, b) => b.interest - a.interest || b.weight - a.weight || a.p.createdAt - b.p.createdAt)
+    const list = rows.map((r, i) => ({
+      rank: i + 1, address: r.p.address, name: r.p.name, avatar: r.p.avatar, frame: r.p.frame ?? '', level: levelFor(r.p.xp).level,
+      interest: r.interest, saved: r.p.jarLuna, lockDays: this.planOf(r.p).lockDays, locked: r.locked, me: r.p.address === address,
+    }))
+    return { week: wk, rows: list.slice(0, 25), me: list.find((r) => r.me) ?? null, total: rows.length }
   }
 
   chestList(addr: string) {

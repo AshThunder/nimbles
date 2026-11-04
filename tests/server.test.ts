@@ -72,6 +72,8 @@ test('save duel: both lock stake, server-scored trivia, winner banks pot in jar'
   assert.ok(live.seed)
   assert.equal(live.seedCommit, (await import('node:crypto')).createHash('sha256').update(live.seed).digest('hex'))
   assert.equal(live.trivia.questions[0].answer, undefined, 'answers stay secret until answered')
+  // Ada arrives with a 3-day streak, so her XP grows by 10%
+  app.engine.db.profiles[A].activeDays = [1, 2, 3].map((n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10))
   // Ada answers all right, Bisi all wrong
   for (let i = 0; i < 5; i++) {
     const right = m.trivia!.questions[i].answer
@@ -85,6 +87,9 @@ test('save duel: both lock stake, server-scored trivia, winner banks pot in jar'
   assert.equal(end.settlement.winner, A)
   assert.equal(end.settlement.jarCredit[A], 392000, "pot minus the 2% saver fee")
   assert.equal(end.settlement.fee, 8000)
+  assert.equal(end.settlement.xp[A], 88, '60 win + 20 staked, +10% for a 3-day streak')
+  assert.equal(end.settlement.xpBonus[A], 10)
+  assert.equal(end.settlement.xp[B], 40, 'no streak, no bonus')
   const pa = (await call(ta, 'GET', '/me')).j
   assert.equal(pa.jarLuna, 392000)
   assert.ok(pa.jarUnlockAt > Date.now() + 29 * 864e5)

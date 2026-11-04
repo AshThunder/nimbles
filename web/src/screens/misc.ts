@@ -5,6 +5,7 @@ import { S, go, route } from '../state'
 import { FLAME, JAR, errBox, pipRow, tabs, topbar } from '../ui'
 import { friendlyWalletError } from '../wallet'
 import { GAMES, fmtNim, type GameId } from '../../../shared/types'
+import { ALL_BADGES, COSMETICS } from '../../../shared/rewards'
 import { makeSudoku } from '../../../shared/puzzles'
 import { lockText } from './home'
 
@@ -12,16 +13,31 @@ const AVATARS = ['ada', 'bisi', 'dee', 'ife', 'ivy', 'jay', 'kai', 'kemi', 'leo'
 
 // ---------------- leaderboard ----------------
 route('/rank', async (root) => {
-  let scope: 'global' | 'friends' = 'global'
+  let scope: 'global' | 'friends' | 'savers' = 'global'
+  const TABS = [['global', 'Players'], ['friends', 'Friends'], ['savers', 'Savers']] as const
+  const medal = (r: number) => (r === 1 ? 'g' : r === 2 ? 's' : r === 3 ? 'b' : 'c')
   const load = async () => {
     root.innerHTML = `${topbar('Leaderboard', 'none')}<div class="scroll center" style="justify-content:center">${pipImg('think')}</div>${tabs('Rank')}`
-    let d
-    try { d = await api.board(scope) } catch (e: any) { d = null; toast(e.message) }
-    const rows = d?.rows ?? []
+    let list = ''
+    let sub = 'This week<small>Resets Monday, UTC</small>'
+    try {
+      if (scope === 'savers') {
+        const d = await api.savers()
+        sub = 'Interest this week<small>Resets Monday, UTC</small>'
+        list = d.rows.length
+          ? `<div class="rank" style="gap:8px">${d.rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${medal(r.rank)}">${r.rank}</span><span class="avs">${avatar(r.avatar, 'av', r.frame)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>${r.locked ? r.lockDays + '-day lock' : 'Unlocked'} · ${fmtNim(r.saved)} saved</span></span><span class="am"><b>+${fmtNim(r.interest)}</b><span>interest</span></span></div>`).join('')}</div>`
+          : pipRow('sleepy', '<b>No savers yet.</b> Lock some NIM in your jar and earn a share of the pool')
+      } else {
+        const d = await api.board(scope)
+        list = d.rows.length
+          ? `<div class="rank" style="gap:8px">${d.rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${medal(r.rank)}">${r.rank}</span><span class="avs">${avatar(r.avatar, 'av', r.frame)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>Level ${r.level}</span></span><span class="am"><b>${r.weekXp}</b><span>XP</span></span></div>`).join('')}</div>`
+          : pipRow('sleepy', scope === 'friends' ? '<b>No friends yet.</b> Duel someone and they show up here' : '<b>Quiet week.</b> Play a duel to get on the board')
+      }
+    } catch (e: any) { toast(e.message) }
     root.innerHTML = `${topbar('Leaderboard', 'none')}<div class="scroll" style="gap:12px">
-      <div class="seg" style="grid-template-columns:1fr 1fr">${(['global', 'friends'] as const).map((s) => `<button class="sg ${scope === s ? 'on' : ''}" data-act="scope" data-s="${s}"><b style="font-size:15px">${s === 'global' ? 'Everyone' : 'Friends'}</b>${scope === s ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div>
-      <div class="lab" style="margin:0">This week<small>Resets Monday, UTC</small></div>
-      ${rows.length ? `<div class="rank" style="gap:8px">${rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${r.rank === 1 ? 'g' : r.rank === 2 ? 's' : r.rank === 3 ? 'b' : 'c'}">${r.rank}</span><span class="avs">${avatar(r.avatar)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>Level ${r.level}</span></span><span class="am"><b>${r.weekXp}</b><span>XP</span></span></div>`).join('')}</div>` : pipRow('sleepy', scope === 'friends' ? '<b>No friends yet.</b> Duel someone and they show up here' : '<b>Quiet week.</b> Play a duel to get on the board')}</div>${tabs('Rank')}`
+      <div class="seg" style="grid-template-columns:1fr 1fr 1fr">${TABS.map(([s, label]) => `<button class="sg ${scope === s ? 'on' : ''}" data-act="scope" data-s="${s}"><b style="font-size:15px">${label}</b>${scope === s ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div>
+      <div class="lab" style="margin:0">${sub}</div>
+      ${list}</div>${tabs('Rank')}`
   }
   await load()
   actions(root, { scope: (el) => ((scope = el.dataset.s as typeof scope), sfx('ui/select'), void load()), tab: () => sfx('ui/select', 0.4) })
@@ -173,13 +189,28 @@ route('/vault', async (root) => {
 })
 
 // ---------------- profile, settings, credits ----------------
+const styleBlock = (me: typeof S.me) => {
+  const worn = me.style ?? { frame: '', theme: '' }
+  const own = new Set(me.unlocked ?? [])
+  const group = (kind: 'frame' | 'theme', title: string, cur: string) => `<div class="lab" style="margin:0">${title}</div><div class="stl">${[{ id: '', name: 'None', color: '#1F2348', tint: '#ECE5D5', level: 0, chest: false }, ...COSMETICS.filter((c) => c.kind === kind)].map((c) => {
+    const have = c.id === '' || own.has(c.id), on = cur === c.id
+    const need = !have ? ('level' in c && c.level ? 'Level ' + c.level : 'From a chest') : ''
+    return `<button class="stc ${on ? 'on' : ''}" data-act="style" data-k="${kind}" data-id="${c.id}" ${have ? '' : 'disabled'}><span class="sw" style="background:${c.id ? c.tint : 'var(--raised)'};${kind === 'frame' ? `border-color:${c.id ? c.color : 'var(--ink)'}` : ''}">${on ? ic('check', 's16') : !have ? ic('lock', 's16') : ''}</span><b>${esc(c.name)}</b>${need ? `<small>${need}</small>` : ''}</button>`
+  }).join('')}</div>`
+  const badges = me.badges ?? []
+  return `${group('frame', 'Avatar frame', worn.frame)}${group('theme', 'Table theme', worn.theme)}
+    <div class="lab" style="margin:0">Badges<small>${badges.length} of ${ALL_BADGES().length}</small></div>
+    <div class="bgs">${ALL_BADGES().map((b) => { const got = badges.includes(b.id); return `<div class="bgc ${got ? 'got' : ''}"><img src="/badges/${b.icon}.svg" alt="" width="36" height="36"><b>${esc(b.name)}</b><small>${esc(b.why)}</small></div>` }).join('')}</div>`
+}
+
 route('/me', (root) => {
   const draw = () => {
     const me = S.me
     root.innerHTML = `${topbar('You', 'back', '<span style="width:40px"></span>')}<div class="scroll" style="gap:14px">
-      <div class="card" style="display:flex;gap:14px;align-items:center"><div class="pav" style="position:relative;width:64px;height:64px">${avatar(me.avatar)}</div><div style="flex:1"><b style="font-size:20px">${esc(me.name)}</b><div class="mono" style="font-size:12px;color:var(--muted)">${shortAddr(me.address)}</div><div style="margin-top:4px;display:flex;gap:6px;align-items:center">${lvBadge(me.level, 22)}<span style="font-size:13px;color:var(--ink2)">${me.xp} XP · ${me.wins} wins / ${me.played} played</span></div></div></div>
+      <div class="card" style="display:flex;gap:14px;align-items:center"><div class="pav" style="position:relative;width:64px;height:64px">${avatar(me.avatar, 'av', me.style?.frame)}</div><div style="flex:1"><b style="font-size:20px">${esc(me.name)}</b><div class="mono" style="font-size:12px;color:var(--muted)">${shortAddr(me.address)}</div><div style="margin-top:4px;display:flex;gap:6px;align-items:center">${lvBadge(me.level, 22)}<span style="font-size:13px;color:var(--ink2)">${me.xp} XP · ${me.wins} wins / ${me.played} played</span></div></div></div>
       <div class="lab" style="margin:0">Name</div><input id="nm" class="field" value="${esc(me.name)}" maxlength="16" autocomplete="off">
       <div class="lab" style="margin:0">Avatar</div><div style="display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px">${AVATARS.map((a) => `<button data-act="av" data-a="${a}" aria-label="${a}" style="position:relative;border-radius:50%;padding:0;${me.avatar === a ? 'outline:3px solid var(--ink);outline-offset:1px' : ''}">${avatar(a, 'av')}${me.avatar === a ? `<span class="ck" style="position:absolute;right:-2px;bottom:-2px;width:16px;height:16px;border-radius:8px;background:var(--ink);color:var(--gold);display:grid;place-items:center">${ic('check', 's12')}</span>` : ''}</button>`).join('')}</div>
+      ${styleBlock(me)}
       <div class="opt ${isMuted() ? '' : 'on'}" data-act="mute" role="switch" aria-checked="${!isMuted()}" tabindex="0" style="min-height:52px"><span class="ic" style="width:36px;height:36px">${ic(isMuted() ? 'volume-x' : 'volume-2', 's20')}</span><span class="tx"><span class="n">Sound</span><span class="m">${isMuted() ? 'Off' : 'On'}</span></span>${isMuted() ? '<span class="ring"></span>' : `<span class="ck">${ic('check')}</span>`}</div>
       <div class="card flat" style="font-size:13px;line-height:19px;color:var(--ink2)"><div class="row"><b style="color:var(--ink)">Wallet</b><span class="sp"></span><span class="mono">${S.wallet.kind === 'nimiq-pay' ? 'Nimiq Pay' : 'Preview'}</span></div><div class="row"><b style="color:var(--ink)">Network</b><span class="sp"></span><span class="mono">${esc(S.wallet.network)} (server: ${esc(S.cfg.network)}${S.cfg.mock ? ', mock chain' : ''})</span></div><div class="row"><b style="color:var(--ink)">AI</b><span class="sp"></span><span class="mono">${S.cfg.ai.gemini ? 'Gemini' : 'Built-in bank'}</span></div></div>
       <button class="btn ghost block" data-act="credits">${ic('heart', 's20')}Credits</button></div>`
@@ -197,6 +228,13 @@ route('/me', (root) => {
     av: async (el) => {
       S.me = { ...S.me, ...(await api.setMe({ avatar: el.dataset.a })) }
       sfx('ui/select')
+      draw()
+    },
+    style: async (el) => {
+      try {
+        S.me = { ...S.me, ...(await api.setStyle({ [el.dataset.k!]: el.dataset.id! })) }
+        sfx('ui/select')
+      } catch (e: any) { toast(e.message) }
       draw()
     },
     mute: () => (setMuted(!isMuted()), tap(), draw()),

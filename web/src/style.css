@@ -547,3 +547,19 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 @keyframes cin{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.chw .chimg,.chw~.chin .crw{animation:none!important}}
 .chip.gold{background:var(--gold)}
+
+/* ---- style picker and badges (rewards) ---- */
+.stl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stc{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 6px;min-height:84px;background:var(--card);border:2px solid var(--ink);border-radius:14px;box-shadow:0 3px 0 var(--ink);color:var(--ink);text-align:center;font:inherit}
+.stc b{font-size:13px;line-height:16px}
+.stc small{font-size:11px;line-height:14px;color:var(--ink2)}
+.stc .sw{width:34px;height:34px;border-radius:50%;border:2px solid var(--ink);display:grid;place-items:center;flex:none}
+.stc.on{background:var(--ink);color:var(--card)}
+.stc.on .sw{color:var(--ink)}
+.stc[disabled]{opacity:.55;box-shadow:none}
+.bgs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.bgc{display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:10px;background:var(--raised);border:2px dashed var(--muted);border-radius:14px;opacity:.6}
+.bgc.got{background:var(--card);border:2px solid var(--ink);opacity:1}
+.bgc:not(.got) img{filter:grayscale(1)}
+.bgc b{font-size:13px;line-height:16px}
+.bgc small{font-size:11px;line-height:14px;color:var(--ink2)}

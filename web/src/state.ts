@@ -1,3 +1,4 @@
+import { cosmeticOf } from '../../shared/rewards'
 import type { Profile } from '../../shared/types'
 import type { Config } from './api'
 import type { Wallet } from './wallet'
@@ -34,6 +35,9 @@ export async function render() {
     const view = document.createElement('div')
     view.className = 'view'
     root.appendChild(view)
+    // the worn table theme tints the play screens only
+    const th = S.me?.style?.theme && /^\/(m|g)\//.test(path) ? cosmeticOf(S.me.style.theme) : undefined
+    if (th) { view.style.setProperty('--bg', th.tint); view.style.background = th.tint }
     const c = await screen(view, params)
     if (my !== token) {
       if (typeof c === 'function') c()

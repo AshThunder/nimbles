@@ -110,6 +110,8 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       const b = await readBody(req, 4096)
       return send(res, 200, engine.setProfile(me, b.name, b.avatar))
     }
+    if (method === 'POST' && path === '/me/style') return send(res, 200, engine.setStyle(me, await readBody(req, 1024)))
+    if (method === 'GET' && path === '/leaderboard/savers') return send(res, 200, engine.saverBoard(me))
     if (method === 'GET' && path === '/leaderboard') return send(res, 200, engine.leaderboard(me, q.get('scope') === 'friends' ? 'friends' : 'global'))
     if (method === 'GET' && path === '/matches') return send(res, 200, engine.mine(me))
     if (method === 'POST' && path === '/matches') {

@@ -341,7 +341,7 @@ route('/m/:id', async (root, { id }) => {
       ...myPay.map((p) => `<div class="rw" style="min-height:48px"><span class="nm"><b>${p.kind === 'settle' ? 'Bill received' : 'Refund'}</b><span>${p.tx ? 'Sent ' + shortAddr(p.tx) : 'Sending…'} · ${esc(p.note ?? '')}</span></span><span class="am"><b>+${fmtNim(p.luna)}</b><span>NIM</span></span></div>`),
     ].join('')
     root.innerHTML = `${header(st.draw ? 'Draw' : win ? 'You won' : 'Result')}<div class="scroll" style="gap:12px">
-      <div class="res"><canvas class="cf" id="cf"></canvas>${pipImg(mood).replace('<img', '<img class="pipx"')}<div class="txt"><b>${headline}</b><div class="rw2"><span class="rwd">${ic('star', 's16')}+${xp} XP</span>${m.mode !== 'play' ? `<span class="rwd b">${m.mode === 'save' ? (win ? 'Pot ' + m.stake * 2 : st.draw ? 'Stake back' : 'Lost ' + m.stake) : 'Bill ' + m.stake}</span>` : ''}</div></div></div>
+      <div class="res"><canvas class="cf" id="cf"></canvas>${pipImg(mood).replace('<img', '<img class="pipx"')}<div class="txt"><b>${headline}</b><div class="rw2"><span class="rwd">${ic('star', 's16')}+${xp} XP${st.xpBonus?.[addr] ? ` (+${st.xpBonus[addr]}%)` : ''}</span>${m.mode !== 'play' ? `<span class="rwd b">${m.mode === 'save' ? (win ? 'Pot ' + m.stake * 2 : st.draw ? 'Stake back' : 'Lost ' + m.stake) : 'Bill ' + m.stake}</span>` : ''}</div></div></div>
       <div class="rank" style="gap:8px">${rows}</div>
       ${lines ? `<div class="sec"><div class="lab">Your NIM</div><div class="rank" style="gap:8px">${lines}</div></div>` : ''}
       <div class="note"><span class="paid">${ic('shield-check', 's16')}${esc(st.reason)}</span><span class="mono" style="font-size:12px;color:var(--muted)">Seed ${esc((m.seed ?? '').slice(0, 10))}…</span></div>

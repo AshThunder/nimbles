@@ -37,6 +37,8 @@ export type ProfileRec = {
   lvlSeen?: number // the highest level that has already been given its chest
   badges?: string[]
   cosmetics?: string[] // frames and themes unlocked from chests
+  frame?: string // worn avatar frame
+  theme?: string // worn table theme
   boosts?: { pct: number; until: number }[] // temporary saver pool lifts from chests
 }
 
