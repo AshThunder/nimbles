@@ -1,0 +1,32 @@
+{
+  "name": "nimbles",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Nimbles: skill games on Nimiq Pay. Play, Save or Spend, every game.",
+  "scripts": {
+    "dev": "concurrently -n web,api -c blue,green \"vite --config web/vite.config.ts --host\" \"tsx watch server/index.ts\"",
+    "dev:web": "vite --config web/vite.config.ts --host",
+    "dev:api": "tsx watch server/index.ts",
+    "build": "tsc --noEmit && vite build --config web/vite.config.ts",
+    "start": "tsx server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "e2e": "tsx tests/e2e/run.ts"
+  },
+  "dependencies": {
+    "@nimiq/core": "^2.23.0",
+    "@nimiq/mini-app-sdk": "^0.2.4",
+    "chess.js": "^1.4.0",
+    "qrcode-generator": "^2.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "concurrently": "^10.0.6",
+    "playwright": "^1.64.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}
