@@ -22,11 +22,11 @@ export function drawShares(billNim: number): [number, number] {
 
 /**
  * Luna each player must lock in escrow before a match starts.
- * Play: nothing. Save: the stake. Settle: the most they could owe, which is the loser's share.
+ * Play: nothing. Win and Save: the stake. Settle: the most they could owe, which is the loser's share.
  */
 export function escrowRequired(mode: Mode, stakeNim: number, loserPct = 100): number {
   if (mode === 'play') return 0
-  if (mode === 'save') return toLuna(stakeNim)
+  if (mode === 'save' || mode === 'win') return toLuna(stakeNim)
   return settleShares(stakeNim, loserPct).loser
 }
 

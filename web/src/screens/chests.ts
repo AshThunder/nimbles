@@ -1,7 +1,7 @@
 import { api, type ChestView } from '../api'
 import { actions, confetti, esc, ic, sfx, buzz, toast } from '../lib'
 import { S, go, route } from '../state'
-import { errBox, tabs, topbar } from '../ui'
+import { PAGE, errBox, pageRows, tabs, topbar } from '../ui'
 import { badgeOf, cosmeticOf, type Contents } from '../../../shared/rewards'
 
 const HOLD_MS = 1200
@@ -25,7 +25,9 @@ const ago = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numer
 
 route('/chests', async (root) => {
   let data = await api.chests().catch(() => null)
+  let shown = PAGE
   const draw = () => {
+    const keep = root.querySelector('.scroll')?.scrollTop ?? 0
     const open = data?.chests.filter((c) => !c.openedAt) ?? []
     const done = data?.chests.filter((c) => c.openedAt) ?? []
     const row = (c: ChestView) => `<button class="card chr ${c.openedAt ? 'done' : ''}" data-act="chest" data-id="${esc(c.id)}"><img src="/badges/chest-${c.openedAt ? 'open' : 'closed'}.svg" alt="" width="56" height="56"><span class="nm"><b>${esc(c.title)}</b><span>${esc(c.why)}</span><em>${c.contents.xp} XP${c.contents.boost ? ' · +' + c.contents.boost.pct + '% share' : ''}${c.contents.badge ? ' · badge' : ''}${c.contents.cosmetic ? ' · style' : ''}</em></span><span class="chip ${c.openedAt ? '' : 'gold'}">${c.openedAt ? 'Opened ' + ago(c.openedAt) : 'Open'}</span></button>`
@@ -36,11 +38,13 @@ route('/chests', async (root) => {
       <div class="kv"><span>From levels</span><b>+${b?.levelPct ?? 0}%</b></div><div class="kv"><span>From chests</span><b>${b?.chestPct ? '+' + b.chestPct + '%' : 'None'}</b></div></div></div>
       <div class="lab" style="margin:0">Ready to open<small>${open.length}</small></div>
       ${open.length ? open.map(row).join('') : `<div class="card flat" style="font-weight:600;line-height:22px">No chests waiting. Win a duel, keep your streak or level up to earn one. Nothing inside is random, and none of it is NIM.</div>`}
-      ${done.length ? `<div class="lab" style="margin:0">Opened<small>${done.length}</small></div>${done.slice(0, 12).map(row).join('')}` : ''}
+      ${done.length ? `<div class="lab" style="margin:0">Opened<small>${done.length}</small></div>${pageRows(done.map(row), shown, 'cmore')}` : ''}
     </div>${tabs('Play')}`
+    const sc = root.querySelector('.scroll')
+    if (sc) sc.scrollTop = keep
   }
   draw()
-  actions(root, { back: () => go('/'), chest: (el) => go('/chest/' + encodeURIComponent(el.dataset.id!)) })
+  actions(root, { cmore: () => ((shown += PAGE), draw()), back: () => go('/'), chest: (el) => go('/chest/' + encodeURIComponent(el.dataset.id!)) })
 })
 
 route('/chest/:id', async (root, p) => {

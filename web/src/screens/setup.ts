@@ -1,23 +1,29 @@
 import { api } from '../api'
-import { actions, esc, glyph, GLYPH_BG, ic, lvBadge, pipImg, sfx, tap, toast, $, $$ } from '../lib'
+import { actions, esc, glyph, GLYPH_BG, ic, lvBadge, pipImg, sfx, toast, $, $$ } from '../lib'
 import { S, go, route } from '../state'
 import { coin, errBox, topbar } from '../ui'
-import { billOf, draftBody, draftOk, newDraft, termsActions, termsForm, termsInput, type TermsDraft } from './terms'
-import { GAMES, STAKES, type GameId, type Mode, type OppKind, type PipLevel } from '../../../shared/types'
+import { billOf, draftBody, draftOk, newDraft, termsActions, termsInput, termsLine, termsSheet, type TermsDraft } from './terms'
+import { GAMES, STAKES, fmtNim, type GameId, type Mode, type OppKind, type PipLevel } from '../../../shared/types'
+import { toLuna } from '../../../shared/economy'
+import { saveFee } from '../../../shared/rewards'
 
 const TOPICS = ['Space exploration', 'Football history', '90s cartoons', 'World capitals', 'Nollywood', 'Human body']
 const MODES: [Mode, string, string, string, string][] = [
-  ['play', 'gamepad-2', 'Play', 'Free practice, earn XP, risk nothing', '#D7E9F8'],
-  ['save', 'piggy-bank', 'Save', 'Wins go into your locked savings jar', '#F4B323'],
-  ['settle', 'receipt', 'Settle', 'Friends settle a bill, the loser pays', '#F6D8D1'],
+  ['play', 'gamepad-2', 'Play', 'Free, earn XP', '#D7E9F8'],
+  ['win', 'trophy', 'Win', 'Winner takes the pot', '#F4B323'],
+  ['save', 'piggy-bank', 'Save', 'Pot to your jar', '#D3EBDD'],
+  ['settle', 'receipt', 'Settle', 'Split a bill', '#F6D8D1'],
 ]
+const OPPS: [string, string, string][] = [['invite', 'users', 'Invite'], ['join', 'scan-line', 'Code'], ['auto', 'swords', 'Match me'], ['pip', '', 'Nimo']]
+const HINT: Record<string, string> = { invite: 'Get a code, link and QR to share', join: "Enter a friend's code", auto: 'Automatic, same game and stake', pip: 'Free practice. You can pick how tough' }
+const LEVELS: Record<PipLevel, string> = { easy: 'Easy', med: 'Medium', hard: 'Hard' }
 const GCOL: Record<string, string> = GLYPH_BG
 
 type Setup = {
   mode: Mode; opp: OppKind | 'join'; pip: PipLevel; stake: number; d: TermsDraft
   topic: string; count: number; note: string; code: string; seats: number; payout: 'wta' | 'top3'
   receipt?: { items: { name: string; price: number }[]; total: number; currency: string; merchant?: string }
-  busy?: boolean; err?: string; scanning?: boolean
+  busy?: boolean; err?: string; scanning?: boolean; sheet?: boolean
 }
 
 route('/g/:id', (root, p) => {
@@ -33,11 +39,17 @@ route('/g/:id', (root, p) => {
   const pre = sessionStorage.getItem('nb:bill')
   if (pre) { st.d.bill = pre; st.mode = 'settle'; st.opp = 'invite'; sessionStorage.removeItem('nb:bill') }
   const staked = () => st.mode !== 'play'
+  const paid = () => st.mode === 'win' || st.mode === 'save'
   const pickOpp = () => {
-    if (staked() && st.opp === 'pip') st.opp = 'auto'
-    if (st.mode === 'settle' && st.opp === 'auto') st.opp = 'invite' // Settle is for friends only
-    if (royale && st.opp === 'auto') st.opp = 'invite' // Splat Royale is friends or Nimo
-    if (st.seats < 3 || st.mode !== 'save') st.payout = 'wta'
+    if (staked() && st.opp === 'pip') st.opp = 'auto' // Nimo plays free matches only
+    if (st.mode === 'settle' && st.opp !== 'invite' && st.opp !== 'join') st.opp = 'invite' // Settle is for friends only
+    if (st.seats < 3 || !paid()) st.payout = 'wta'
+  }
+  const players = () => (royale ? st.seats : 2)
+  const prize = () => {
+    const pot = toLuna(st.stake) * players()
+    const net = pot - saveFee(pot)
+    return fmtNim(royale && st.payout === 'top3' && players() >= 3 ? net - Math.floor((net * 30) / 100) - Math.floor((net * 10) / 100) : net)
   }
   const valid = () => {
     if (st.opp === 'join') return st.code.replace(/[^A-Za-z0-9]/g, '').length >= 7
@@ -48,77 +60,83 @@ route('/g/:id', (root, p) => {
   const summary = () => {
     if (st.opp === 'join') return ['Mode and stake come from the match you join', '']
     if (st.mode === 'play') return ['Free play, earns XP', 'No NIM at risk']
-    if (st.mode === 'save') return [`Stake <b>${st.stake} NIM</b> each, pot <b>${st.stake * (royale ? st.seats : 2)} NIM</b>`, royale ? (st.payout === 'top3' ? 'Top 3 split it 60/30/10 into jars (2% to savers)' : `Last one standing wins the pot (2% to savers), lose −${st.stake}`) : `Win to your jar (2% goes to savers), lose −${st.stake}`]
-    return [`Bill <b>${billOf(st.d) || 0} NIM</b>, loser pays ${st.d.pct}%`, 'Both agree before anything is locked']
+    if (paid()) {
+      const where = st.mode === 'win' ? 'paid to wallet' : 'into the jar'
+      if (royale && st.payout === 'top3' && st.seats >= 3) return [`<b>${st.stake} NIM</b> each · top 3 paid, 1st <b>${prize()}</b>`, where]
+      return [`<b>${st.stake} NIM</b> each · winner gets <b>${prize()} NIM</b>`, where]
+    }
+    return [`Bill <b>${billOf(st.d) || 0} NIM</b> · loser pays ${st.d.pct}%`, 'both agree first']
   }
   const cta = () => {
+    const n = paid() ? ` · ${st.stake} NIM` : ''
     if (st.opp === 'join') return ['Join match', 'scan-line']
-    if (st.opp === 'pip') return [`Start vs Nimo (${{ easy: 'Easy', med: 'Medium', hard: 'Hard' }[st.pip]})`, 'zap']
-    if (st.opp === 'invite') return ['Create invite', 'send']
-    return ['Find opponent', 'swords']
+    if (st.opp === 'pip') return [`Start vs Nimo (${LEVELS[st.pip]})`, 'zap']
+    if (st.opp === 'invite') return [`Create invite${n}`, 'send']
+    return [`Find opponent${n}`, 'swords']
   }
 
-  const orow = (key: string, icon: string, n: string, m: string) => {
-    const on = st.opp === key
-    return `<div class="opp ${on ? 'on' : ''}" data-act="opp" data-k="${key}" role="radio" aria-checked="${on}" tabindex="0" style="${on ? 'background:var(--ink);color:var(--bg)' : ''}"><div class="oh"><span class="ic" style="width:32px;height:32px;border-radius:8px;display:grid;place-items:center;flex:none;${on ? 'background:var(--gold);color:var(--ink)' : 'background:var(--raised)'}">${ic(icon)}</span><span class="tx"><span class="n">${n}</span><span class="m" style="${on ? 'color:#B8BBD3' : ''}">${m}</span></span>${on ? `<span class="ck" style="background:var(--gold);color:var(--ink)">${ic('check')}</span>` : '<span class="ring"></span>'}</div>${
-      on && key === 'join' ? `<div class="ex"><input class="fld" id="code" placeholder="Enter code, like NMB-XXXX" value="${esc(st.code)}" maxlength="9" autocapitalize="characters" autocomplete="off" style="border:0;outline:0;width:100%"></div>` : ''
-    }${
-      on && key === 'pip' ? `<div class="ex" style="gap:8px">${(['easy', 'med', 'hard'] as PipLevel[]).map((l) => `<button class="mb ${st.pip === l ? '' : 'ghost'}" data-act="pip" data-l="${l}">${st.pip === l ? ic('check', 's16') : ''}${{ easy: 'Easy', med: 'Medium', hard: 'Hard' }[l]}</button>`).join('')}</div>` : ''
-    }</div>`
+  const tiles = () => `<div class="mt" role="radiogroup" aria-label="Mode">${MODES.map(([m, icon, n, d, col]) => {
+    const on = st.mode === m
+    const lock = (m !== 'play' && !canStake) || (royale && m === 'settle')
+    return `<button class="t ${on ? 'on' : ''} ${lock ? 'lock' : ''}" data-act="mode" data-m="${m}" role="radio" aria-checked="${on}"><span class="h"><span class="ic" style="background:${col}">${ic(icon)}</span><span class="n">${n}</span>${m === 'win' ? '<span class="new">NEW</span>' : ''}</span><span class="m">${d}</span>${on ? `<span class="ck2">${ic('check')}</span>` : ''}</button>`
+  }).join('')}</div>`
+  const chips = () => {
+    const list = st.mode === 'settle' ? OPPS.slice(0, 2) : OPPS
+    return `<div class="oc ${st.mode === 'settle' ? 'two' : ''}" role="radiogroup" aria-label="Opponent">${list.map(([k, icon, n]) => {
+      const on = st.opp === k
+      const off = k === 'pip' && staked()
+      return `<button class="c ${on ? 'on' : ''} ${off ? 'off' : ''}" data-act="opp" data-k="${k}" role="radio" aria-checked="${on}" ${off ? 'aria-disabled="true"' : ''}>${k === 'pip' ? pipImg('cool') : ic(icon)}<span>${n}</span>${on ? `<span class="ck2">${ic('check')}</span>` : ''}</button>`
+    }).join('')}</div>`
+  }
+  const oppBlock = () => {
+    const hint = st.opp === 'join'
+      ? `<div class="field">${ic('scan-line')}<input id="code" class="field" placeholder="Enter code, like NMB-XXXX" value="${esc(st.code)}" maxlength="9" autocapitalize="characters" autocomplete="off" style="border:0;box-shadow:none;height:48px;padding:0"></div>`
+      : st.opp === 'pip' && st.mode === 'play' ? '' : `<div class="hint">${st.opp === 'auto' && royale ? 'Matched with others, starts with 2 or more' : HINT[st.opp]}</div>`
+    return `<div class="sec"><div class="lab">Opponent</div>${chips()}${hint}</div>${
+      st.opp === 'pip' && st.mode === 'play'
+        ? `<div class="sec"><div class="lab">Nimo level<small>Easy to hard</small></div><div class="lvl">${pipImg('think')}<div class="pick" role="radiogroup" aria-label="Nimo level">${(['easy', 'med', 'hard'] as PipLevel[]).map((l) => `<button class="pc ${st.pip === l ? 'on' : ''}" data-act="pip" data-l="${l}" role="radio" aria-checked="${st.pip === l}">${st.pip === l ? ic('check') : ''}${LEVELS[l]}</button>`).join('')}</div></div></div>`
+        : ''
+    }`
+  }
+  const seatsBlock = () => `<div class="sec"><div class="lab">Players<small>${st.opp === 'pip' ? 'You and Nimos' : 'Up to this many'}</small></div><div class="seatrow" role="radiogroup" aria-label="Players">${[2, 3, 4, 5, 6].map((n) => `<button class="pc ${st.seats === n ? 'on' : ''}" data-act="seats" data-n="${n}" role="radio" aria-checked="${st.seats === n}">${st.seats === n ? ic('check') : ''}${n}</button>`).join('')}</div></div>${
+    paid() && st.seats >= 3
+      ? `<div class="sec"><div class="lab">Prizes<small>after the 2% fee</small></div><div class="prz">${([['wta', 'Winner takes all'], ['top3', 'Top 3: 60/30/10']] as const).map(([k, n]) => `<button class="pc ${st.payout === k ? 'on' : ''}" data-act="payout" data-k="${k}">${st.payout === k ? ic('check') : ''}${n}</button>`).join('')}</div></div>`
+      : ''
+  }`
+  const stakeBlock = () => `<div class="sec"><div class="lab">Stake<small>NIM each</small></div><div class="stkrow" role="radiogroup" aria-label="Stake">${STAKES.map((s) => `<button class="pc stk ${st.stake === s ? 'on' : ''}" data-act="stake" data-s="${s}" role="radio" aria-checked="${st.stake === s}">${st.stake === s ? ic('check') : ''}${s}<small>NIM</small></button>`).join('')}</div></div>`
+  const settleCard = () => `<div class="sec"><div class="lab">Bill details</div><button class="bdc" data-act="bd"><span class="ic">${ic('receipt')}</span><span class="tx"><span class="n">${billOf(st.d) || 0} NIM bill</span><span class="m">${termsLine(st.d)}</span></span><span class="chip" style="background:var(--gold)">${ic('pencil', 's16')}Edit</span></button></div>`
+  const sheet = () => {
+    const r = st.receipt
+    const scan = `<button class="scan" data-act="scan" aria-label="Scan a receipt">${st.scanning ? ic('refresh-cw', 's20 spin') + '<span>Reading…</span>' : ic('camera', 's20') + '<span>Scan receipt</span>'}</button>`
+    const hint = r ? `Nimo read ${r.items.length} items${r.merchant ? ' from ' + esc(r.merchant) : ''}. Check the total` : 'Optional: Nimo can read a receipt for you'
+    return `<div class="scrim" data-act="shx"></div><div class="sheet mk" role="dialog" aria-label="Settle a bill"><div class="grab"></div>
+      <div class="sh-h" style="align-items:center"><div><div class="sh-t">Settle a bill</div><div class="sub">Both agree before anything is locked</div></div><button class="sh-x" data-act="shx" aria-label="Close">${ic('x', 's20')}</button></div>
+      ${termsSheet(st.d, scan, hint)}
+      <input type="file" id="rfile" accept="image/*" class="hide">
+      <button class="btn gold block" data-act="shdone">${ic('check', 's20')}Done</button></div>`
   }
 
   const draw = () => {
     pickOpp()
     const [c1, c2] = summary()
     const [ctaTxt, ctaIcon] = cta()
-    const modes = royale ? MODES.filter((x) => x[0] !== 'settle') : MODES
     root.innerHTML = `${topbar(g.name)}
-    <div class="scroll" style="gap:12px">
+    <div class="scroll" style="gap:16px">
       <div class="banner" style="background:${GCOL[id]};${id === 'lastbite' || id === 'sudoku' ? 'color:var(--ink)' : ''}"><div class="c" style="${id === 'lastbite' || id === 'sudoku' ? 'color:var(--ink)' : ''}"><b>${esc(g.blurb)}</b><span class="lvx">${lvBadge(g.level, 22)}<span class="xpb"><i style="width:${Math.min(100, g.level * 12)}%"></i></span></span></div><span class="art" style="display:block">${glyph(id)}</span></div>
-      <div class="sec"><div class="lab">Mode</div>${modes
-        .map(([m, icon, n, d, col]) => {
-          const on = st.mode === m
-          const locked = m !== 'play' && !canStake
-          return `<div class="opt ${on ? 'on' : ''}" data-act="mode" data-m="${m}" role="radio" aria-checked="${on}" tabindex="0" style="min-height:52px;${on ? 'background:' + col : ''};${locked ? 'opacity:.55' : ''}"><span class="ic" style="width:36px;height:36px;${on ? '' : 'background:' + col}">${ic(icon, 's20')}</span><span class="tx"><span class="n">${n}</span><span class="m">${locked ? 'Open in Nimiq Pay to stake' : d}</span></span>${on ? `<span class="ck">${ic('check')}</span>` : locked ? ic('lock', 's16') : '<span class="ring"></span>'}</div>`
-        })
-        .join('')}</div>
+      <div class="sec"><div class="lab">Mode</div>${tiles()}</div>
       ${
         id === 'trivia'
           ? `<div class="sec"><div class="lab">Topic<small>Nimo writes the questions</small></div><div class="field">${ic('search')}<input id="topic" class="field" style="border:0;box-shadow:none;height:48px;padding:0" value="${esc(st.topic)}" maxlength="60" placeholder="Any topic" autocomplete="off"></div><div class="pick">${TOPICS.map((t) => `<button class="pc ${st.topic === t ? 'on' : ''}" data-act="topic" data-t="${esc(t)}">${st.topic === t ? ic('check') : ''}${t}</button>`).join('')}</div></div>
       <div class="sec"><div class="lab">Questions<small>More questions, more XP</small></div><div class="seg">${[5, 7, 10].map((n) => `<button class="sg ${st.count === n ? 'on' : ''}" data-act="count" data-n="${n}"><b>${n}</b><small>${n * 12} XP</small>${st.count === n ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div></div>`
           : ''
       }
-      ${royale && st.opp !== 'join' ? seatsBlock() : ''}
-      <div class="sec"><div class="lab">Opponent</div>
-        ${orow('invite', 'users', 'Invite a friend', 'Get a code, link and QR to share')}
-        ${orow('join', 'scan-line', 'Join with a code', "Enter a friend's code")}
-        ${st.mode === 'settle' || royale ? '' : orow('auto', 'swords', 'Match me', 'Automatic, same game and stake')}
-        ${!staked() ? orow('pip', 'zap', royale ? 'Practice vs Nimos' : id === 'chess' || id === 'pool' ? 'Play Nimo' : 'Practice vs Nimo', 'Free, no stake. Easy, medium or hard') : ''}
-      </div>
-      ${
-        st.opp === 'join'
-          ? ''
-          : st.mode === 'save'
-            ? `<div class="sec"><div class="lab">Stake<small>${royale ? 'NIM each' : 'NIM, same for both'}</small></div><div class="pick">${STAKES.map((s) => `<button class="pc stk ${st.stake === s ? 'on' : ''}" data-act="stake" data-s="${s}">${st.stake === s ? ic('check') : ''}${s}</button>`).join('')}</div></div>`
-            : `<div class="tc">${termsForm(st.d)}${receiptBlock()}</div>`
-      }
+      ${oppBlock()}
+      ${royale && st.opp !== 'join' && st.mode !== 'settle' ? seatsBlock() : ''}
+      ${st.opp === 'join' ? '' : paid() ? stakeBlock() : st.mode === 'settle' ? settleCard() : ''}
       ${st.err ? errBox(st.err) : ''}
     </div>
-    <div class="foot" style="gap:8px;border-top:2px solid var(--ink);background:var(--bg);padding-top:12px"><div class="note" style="font-size:13px"><span id="sum1">${c1}</span><span class="mono" style="font-size:12px" id="sum2">${c2}</span></div>
-      <button class="btn gold block" data-act="go" id="go" ${valid() && !st.busy ? '' : 'disabled'}>${st.busy ? ic('refresh-cw', 's20 spin') + 'Working…' : ic(ctaIcon, 's20') + ctaTxt}</button></div>`
-  }
-  const seatsBlock = () => `<div class="sec"><div class="lab">Players<small>${st.opp === 'pip' ? 'You and Nimos' : 'Friends who join, up to this many'}</small></div><div class="pick">${[2, 3, 4, 5, 6].map((n) => `<button class="pc stk ${st.seats === n ? 'on' : ''}" data-act="seats" data-n="${n}">${st.seats === n ? ic('check') : ''}${n}</button>`).join('')}</div></div>${
-    st.mode === 'save' && st.seats >= 3
-      ? `<div class="sec"><div class="lab">Who gets paid<small>After the 2% saver share</small></div><div class="pick">${([['wta', 'Winner takes all'], ['top3', 'Top 3: 60 / 30 / 10']] as const).map(([k, n]) => `<button class="pc stk ${st.payout === k ? 'on' : ''}" data-act="payout" data-k="${k}" style="font-size:16px">${st.payout === k ? ic('check') : ''}${n}</button>`).join('')}</div></div>`
-      : ''
-  }`
-  const receiptBlock = () => {
-    const r = st.receipt
-    return `<div class="rc" style="margin-top:4px"><div class="paper"><i></i><i class="s"></i><i></i><i class="s"></i></div><div class="info">${
-      r
-        ? `<small>${esc(r.merchant || 'Receipt')}, ${r.items.length} items, read by Nimo</small><span class="tot">${r.total}<small> ${esc(r.currency || 'NIM')}</small></span><small>Check the amount above matches</small>`
-        : `<small>Optional: let Nimo read a receipt</small><button class="btn ghost sm" data-act="scan" style="min-height:36px;font-size:14px;margin-top:4px">${st.scanning ? ic('refresh-cw', 's16 spin') + 'Reading…' : ic('camera', 's16') + 'Snap a receipt'}</button>`
-    }</div><input type="file" id="rfile" accept="image/*" class="hide"></div>`
+    <div class="foot" style="gap:8px;border-top:2px solid var(--ink);background:var(--bg);padding-top:12px"><div class="sumr"><span id="sum1">${c1}</span><span class="mono" id="sum2">${c2}</span></div>
+      <button class="btn gold block" data-act="go" id="go" ${valid() && !st.busy ? '' : 'disabled'}>${st.busy ? ic('refresh-cw', 's20 spin') + 'Working…' : ic(ctaIcon, 's20') + ctaTxt}</button></div>${st.sheet && st.mode === 'settle' ? sheet() : ''}`
   }
   draw()
 
@@ -160,18 +178,19 @@ route('/g/:id', (root, p) => {
     mode: (el) => {
       const m = el.dataset.m as Mode
       if (m !== 'play' && !canStake) return toast('Open Nimbles inside Nimiq Pay to stake NIM')
+      if (royale && m === 'settle') return toast('Settle for Splat Royale is coming soon')
       sfx('ui/select')
       st.mode = m
-      if (m !== 'play' && st.opp === 'pip') st.opp = 'auto'
-      if (m === 'settle' && st.opp === 'auto') st.opp = 'invite'
       if (m === 'play' && st.opp === 'auto') st.opp = 'pip'
       draw()
     },
     opp: (el) => {
-      if ((e0(el) as HTMLElement).closest('input,button[data-act=pip]')) return
+      const k = el.dataset.k as Setup['opp']
+      if (k === 'pip' && staked()) return toast('Nimo plays free matches only')
       sfx('ui/select')
-      st.opp = el.dataset.k as Setup['opp']
+      st.opp = k
       draw()
+      if (k === 'join') ($('#code', root) as HTMLInputElement | null)?.focus()
     },
     pip: (el) => ((st.pip = el.dataset.l as PipLevel), sfx('ui/select'), draw()),
     topic: (el) => ((st.topic = el.dataset.t!), sfx('ui/select'), draw()),
@@ -180,6 +199,14 @@ route('/g/:id', (root, p) => {
     payout: (el) => ((st.payout = el.dataset.k as 'wta' | 'top3'), sfx('ui/select'), draw()),
     stake: (el) => ((st.stake = Number(el.dataset.s)), sfx('ui/select'), draw()),
     ...termsActions(st.d, () => (sfx('ui/select'), draw())),
+    bd: () => ((st.sheet = true), sfx('ui/select'), draw()),
+    shx: () => ((st.sheet = false), sfx('ui/back'), draw()),
+    shdone: () => {
+      if (!draftOk(st.d)) return toast('Check the bill and the wallet address')
+      st.sheet = false
+      sfx('ui/confirm')
+      draw()
+    },
     scan: () => $('#rfile', root)!.click(),
     go: async () => {
       if (!valid() || st.busy) return
@@ -192,7 +219,7 @@ route('/g/:id', (root, p) => {
         else {
           m = await api.create({
             game: id, mode: st.mode, opp: st.opp, pipLevel: st.opp === 'pip' ? st.pip : undefined,
-            stake: st.mode === 'save' ? st.stake : 0, terms: st.mode === 'settle' ? draftBody(st.d) : undefined,
+            stake: paid() ? st.stake : 0, terms: st.mode === 'settle' ? draftBody(st.d) : undefined,
             config: royale ? { seats: st.seats, payout: st.payout } : { topic: st.topic, count: st.count, note: st.note, receipt: st.receipt },
           })
         }
@@ -207,7 +234,6 @@ route('/g/:id', (root, p) => {
     },
   })
 })
-const e0 = (el: HTMLElement) => el
 
 async function downscale(file: File): Promise<{ b64: string; mime: string }> {
   const bmp = await createImageBitmap(file)

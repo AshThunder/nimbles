@@ -1,5 +1,5 @@
 export type GameId = 'trivia' | 'solitaire' | 'chess' | 'pool' | 'sudoku' | 'bubble' | 'word' | 'lastbite' | 'splat'
-export type Mode = 'play' | 'save' | 'settle'
+export type Mode = 'play' | 'win' | 'save' | 'settle'
 export type OppKind = 'invite' | 'auto' | 'pip'
 export type PipLevel = 'easy' | 'med' | 'hard'
 

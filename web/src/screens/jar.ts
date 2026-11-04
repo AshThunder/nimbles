@@ -1,7 +1,7 @@
 import { api, type JarInfo, type MatchView } from '../api'
 import { actions, esc, glyph, GLYPH_BG, ic, sfx, tap, toast, $ } from '../lib'
 import { S, route } from '../state'
-import { errBox, pipRow, tabs, topbar } from '../ui'
+import { PAGE, errBox, pageRows, pipRow, tabs, topbar } from '../ui'
 import { GAMES, fmtNim } from '../../../shared/types'
 import { LOCK_TIERS, LOCK_XP_PCT } from '../../../shared/rewards'
 
@@ -35,18 +35,69 @@ route('/jar', async (root) => {
   try { S.me = await api.me() } catch { /* cached */ }
   let info = await api.jar().catch(() => null)
   let hist: MatchView[] = []
-  try { hist = (await api.matches()).filter((m) => m.status === 'settled').slice(0, 8) } catch { /* ignore */ }
+  try { hist = (await api.matches()).filter((m) => m.status === 'settled').slice(0, 60) } catch { /* ignore */ }
   let err = ''
   let confirm = false
   let busy = false
 
-  const histRow = (m: MatchView) => {
+  const ORD = ['1st', '2nd', '3rd', '4th', '5th', '6th']
+  const nim = (l: number) => fmtNim(Math.abs(l))
+  type Row = { m: MatchView; mode: string; won: boolean; draw: boolean; rank: number; net: number; xp: number; label: string }
+  /** What really happened to my NIM in one finished match: everything that came to me, plus the jar credit, minus what I locked. */
+  const rowOf = (m: MatchView): Row => {
+    const me = S.wallet.address
     const st = m.settlement!
-    const won = st.winner === S.wallet.address
-    const jarc = st.jarCredit[S.wallet.address] ?? 0
-    const mine = st.payouts.filter((p) => (p.for ?? p.to) === S.wallet.address).reduce((s, p) => s + p.luna, 0)
-    return `<div class="rw" style="min-height:52px"><span class="avs" style="background:${GLYPH_BG[m.game]};border-radius:10px;padding:4px">${glyph(m.game)}</span><span class="nm"><b>${GAMES[m.game].name}</b><span>${st.draw ? 'Draw' : won ? 'Won' : 'Lost'} · ${m.mode}</span></span><span class="am"><b>${jarc ? '+' + fmtNim(jarc) : mine ? '+' + fmtNim(mine) : '0'}</b><span>NIM</span></span></div>`
+    const mode = m.mode === ('spend' as string) ? 'settle' : m.mode // older matches were saved as 'spend'
+    const mine = m.players.find((p) => p.player.address === me)
+    const locked = mine?.escrowed ?? 0
+    const pays = st.payouts.filter((p) => (p.for ?? p.to) === me)
+    const sum = (k: string) => pays.filter((p) => p.kind === k).reduce((s, p) => s + p.luna, 0)
+    const refund = sum('refund'), got = sum('settle'), prize = sum('prize'), jar = st.jarCredit[me] ?? 0
+    const net = refund + got + prize + jar - locked
+    const rank = st.ranks.find((r) => r.address === me)?.rank ?? 2
+    const won = st.winner === me
+    const out = st.draw ? 'draw' : m.players.length > 2 ? ORD[rank - 1] : won ? 'won' : 'lost'
+    const name = mode[0].toUpperCase() + mode.slice(1)
+    let label = `${name} · ${out}`
+    if (mode === 'settle') {
+      if (got > 0) label += ` · ${nim(got)} NIM reimbursed${refund ? ', ' + nim(refund) + ' returned' : ''}`
+      else if (locked > 0 && refund > 0 && refund < locked) label += ` · paid ${nim(locked - refund)} NIM, ${nim(refund)} refunded`
+      else if (refund > 0) label += ` · ${nim(refund)} NIM refunded`
+      else if (locked > 0) label += ` · paid ${nim(locked)} NIM`
+    } else if (mode === 'win' || mode === 'save') {
+      if (prize) label += ` · ${nim(prize)} NIM to wallet`
+      else if (jar) label += ` · ${nim(jar)} NIM to jar`
+      else if (st.draw || (refund && refund >= locked)) label += ' · stake back'
+      else if (locked) label += ` · ${nim(locked)} NIM staked`
+    } else label += ' · free'
+    return { m, mode, won, draw: !!st.draw, rank, net, xp: st.xp?.[me] ?? 0, label }
   }
+  const histRow = (r: Row) => {
+    const { m } = r
+    const amt = r.mode === 'play' ? `<b>+${r.xp}</b><span>XP</span>` : `<b>${r.net > 0 ? '+' : r.net < 0 ? '−' : ''}${nim(r.net)}</b><span>NIM</span>`
+    return `<div class="rw" style="min-height:52px"><span class="avs" style="background:${GLYPH_BG[m.game]};border-radius:10px;padding:4px">${glyph(m.game)}</span><span class="nm"><b>${GAMES[m.game].name}</b><span>${r.label}</span></span><span class="am ${r.net < 0 && r.mode !== 'play' ? 'neg' : ''}">${amt}</span></div>`
+  }
+  /** Repeated free games of the same title collapse into one line: "Splat Royale · Play ×7". */
+  const rowsFor = (tab: string): string[] => {
+    const rows = hist.map(rowOf).filter((r) => tab === 'all' || r.mode === tab)
+    const out: string[] = []
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
+      let j = i
+      while (r.mode === 'play' && j + 1 < rows.length && rows[j + 1].mode === 'play' && rows[j + 1].m.game === r.m.game) j++
+      if (j > i) {
+        const grp = rows.slice(i, j + 1)
+        const w = grp.filter((x) => x.won).length
+        const xp = grp.reduce((s, x) => s + x.xp, 0)
+        out.push(`<div class="rw" style="min-height:52px"><span class="avs" style="background:${GLYPH_BG[r.m.game]};border-radius:10px;padding:4px">${glyph(r.m.game)}</span><span class="nm"><b>${GAMES[r.m.game].name} · Play ×${grp.length}</b><span>${w} won · ${grp.length - w} other · free</span></span><span class="am"><b>+${xp}</b><span>XP</span></span></div>`)
+        i = j
+      } else out.push(histRow(r))
+    }
+    return out
+  }
+  let tab = 'all'
+  let shown = PAGE
+  const HTABS = [['all', 'All'], ['play', 'Play'], ['win', 'Win'], ['save', 'Save'], ['settle', 'Settle']]
 
   const draw = () => {
     const me = S.me
@@ -72,8 +123,9 @@ route('/jar', async (root) => {
       <div style="font-size:13px;line-height:19px;color:var(--ink2)">While locked, duel XP is higher: ${LOCK_TIERS.map((d) => `<b>${d} days +${LOCK_XP_PCT[d]}%`).join('</b>, ')}</b>.</div>
       ${info ? poolCard(info, locked) : ''}
       ${pipRow(locked ? 'sleepy' : 'happy', locked ? '<b>New deposits join the lock</b> without restarting it. Your date stays put' : '<b>Pick a goal and a lock.</b> Win Save duels or add to the vault to fill the jar')}
-      <div class="lab">Recent duels<small>${hist.length ? '' : 'Nothing yet'}</small></div>
-      <div class="rank" style="gap:8px">${hist.map(histRow).join('')}</div></div>${tabs('Jar')}`
+      <div class="lab">Recent games<small>${hist.length ? '' : 'Nothing yet'}</small></div>
+      ${hist.length ? `<div class="htabs" role="tablist">${HTABS.map(([k, n]) => `<button class="pc ${tab === k ? 'on' : ''}" data-act="htab" data-k="${k}" role="tab" aria-selected="${tab === k}">${tab === k ? ic('check') : ''}${n}</button>`).join('')}</div>` : ''}
+      <div class="rank" style="gap:8px">${(() => { const r = rowsFor(tab); return r.length ? pageRows(r, shown, 'hmore') : hist.length ? '<div class="sm2">Nothing in this tab yet</div>' : '' })()}</div></div>${tabs('Jar')}`
   }
 
   const refresh = async () => {
@@ -110,7 +162,10 @@ route('/jar', async (root) => {
     draw()
   }
   draw()
+  const keepScroll = (fn: () => void) => { const y = root.querySelector('.scroll')?.scrollTop ?? 0; fn(); const sc = root.querySelector('.scroll'); if (sc) sc.scrollTop = y }
   actions(root, {
+    htab: (el) => (tap(), (tab = el.dataset.k!), (shown = PAGE), keepScroll(draw)),
+    hmore: () => (tap(), (shown += PAGE), keepScroll(draw)),
     withdraw: () => withdraw(false),
     early: () => (tap(), (confirm = true), (err = ''), draw()),
     keep: () => (tap(), (confirm = false), draw()),

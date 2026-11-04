@@ -21,7 +21,7 @@ Skill-only duels for friends, built as a [Nimiq Pay mini app](https://nimiq.dev/
 | Bubble Shooter | Same board and bubble queue | Server replay of your shot log |
 | Chess Blitz | 3:00 per side, live | Server-run board and clocks |
 | 8-Ball Pool | Live turns, 60 s shot clock | Server-run physics |
-| Splat Royale | 2 to 6 players, one arena, last one standing. Twin-stick on a phone | Server-run simulation at 20 ticks a second |
+| Splat Royale | 2 to 6 players, one arena, last one standing. Twin-stick on a phone | Server-run simulation at 30 ticks a second, own blob predicted on the phone |
 
 Splat Royale is a live battle royale. The phones only send stick and dash input; the server runs the whole match with no random numbers, so the same inputs always give the same result. Save mode pays the winner (or 60 / 30 / 10 to the top three), and if a match cannot finish every stake is refunded. Settle is not offered for it, and practice matches fill empty seats with Nimos.
 

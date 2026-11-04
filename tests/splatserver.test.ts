@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { WebSocket } from 'ws'
 import { createApp } from '../server/index'
 import { splatShares } from '../shared/economy'
+import { TICK_MS } from '../shared/splat'
 
 process.env.CHAIN = 'mock'
 process.env.GEMINI_API_KEY = ''
@@ -45,7 +46,7 @@ test('top-3 split is 60/30/10 with the rounding on first place, and two players 
 test('Splat Royale rules: Play or Save only, friends or Nimo, 2 to 6 seats, no Nimo with money', async () => {
   const t = await login(addr(60), 'Host')
   assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'settle', opp: 'invite', terms: { bill: 4 } })).status, 400)
-  assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'save', stake: 2, opp: 'auto', config: { seats: 4 } })).status, 400)
+  assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'save', stake: 2, opp: 'auto', config: { seats: 4 } })).status, 200, 'auto-match is allowed now')
   assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'save', stake: 2, opp: 'pip', config: { seats: 4 } })).status, 400)
   assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'save', stake: 2, opp: 'invite', config: { seats: 7 } })).status, 400)
   assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'save', stake: 2, opp: 'invite', config: { seats: 1 } })).status, 400)
@@ -156,7 +157,7 @@ test('a restart in the middle of a match refunds everyone instead of guessing', 
   assert.equal(Object.keys(v.settlement.jarCredit).length, 0)
 })
 
-test('the websocket: bad token refused, inputs move your player, snapshots stream at 20 Hz', async () => {
+test('the websocket: bad token refused, inputs move your player, snapshots stream at 30 Hz', async () => {
   const as = [110, 111].map(addr)
   const ts = await Promise.all(as.map((a, i) => login(a, 'W' + i)))
   const c = (await call(ts[0], 'POST', '/matches', { game: 'splat', mode: 'play', opp: 'invite', config: { seats: 2 } })).j
@@ -178,7 +179,7 @@ test('the websocket: bad token refused, inputs move your player, snapshots strea
     const iv = setInterval(() => { const i = got.find((g) => g.t === 'init'); if (i) { clearInterval(iv); res(i) } }, 20)
   })
   assert.equal(init.n, 2)
-  assert.equal(init.tickMs, 50)
+  assert.equal(init.tickMs, TICK_MS)
   assert.ok(init.walls.length >= 6)
   // wait out the countdown, then hold "move right" and fire
   await new Promise((r) => setTimeout(r, Math.max(0, init.startsAt - Date.now()) + 300))

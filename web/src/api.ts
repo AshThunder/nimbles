@@ -99,6 +99,7 @@ export const api = {
   withdraw: (early = false) => call<any>('POST', '/jar/withdraw', { early }),
   chests: () => call<ChestList>('GET', '/chests'),
   openChest: (id: string) => call<{ opened: { id: string; kind: ChestKind; level?: number; contents: Contents }; profile: Profile }>('POST', '/chests/open', { id }),
+  chat: (b: { text: string; history?: { role: string; text: string }[] }) => call<{ reply: string; source: string }>('POST', '/ai/chat', b),
   receipt: (b: { imageBase64?: string; mime?: string; text?: string }) => call<any>('POST', '/ai/receipt', b),
   mockTx: (b: { from: string; to: string; luna: number; memo: string }) => call<{ hash: string }>('POST', '/dev/mock-tx', b),
 }

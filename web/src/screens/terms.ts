@@ -37,6 +37,29 @@ export function termsForm(d: TermsDraft): string {
       ${d.payee === 'other' ? `<div class="field">${ic('wallet')}<input id="t-other" class="field" style="border:0;box-shadow:none;height:48px;padding:0;font-size:14px" value="${esc(d.other)}" placeholder="NQ.. wallet address" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>${d.other && !validAddr(d.other) ? '<div class="note" style="font-size:13px;color:var(--bad,#D0432E)">That is not a Nimiq address yet</div>' : ''}` : ''}</div>`
 }
 
+/** The compact Settle form for the setup bottom sheet: bill (with a scan button), who pays, who gets the money. */
+export function termsSheet(d: TermsDraft, scanHtml: string, billHint: string): string {
+  const custom = !PRESETS.includes(d.pct)
+  const chip = (act: string, key: string, label: string, on: boolean) =>
+    `<button class="pc ${on ? 'on' : ''}" data-act="${act}" data-k="${key}" role="radio" aria-checked="${on}">${on ? ic('check') : ''}${label}</button>`
+  return `<div class="sec"><div class="lab">Bill<small>NIM, the total</small></div>
+      <div class="brow"><div class="fl"><input id="t-bill" inputmode="decimal" value="${esc(d.bill)}" placeholder="0.00" autocomplete="off" aria-label="Bill in NIM"><span class="u">NIM</span></div>${scanHtml}</div>
+      <div class="hint">${billHint}</div></div>
+    <div class="sec"><div class="lab">Who pays<small>decided by the game</small></div>
+      <div class="pick" role="radiogroup">${chip('tpct', '100', 'Loser all', d.pct === 100)}${chip('tpct', '70', '70 / 30', d.pct === 70)}${chip('tpct', 'custom', 'Custom', custom)}</div>
+      ${custom ? `<div class="stp"><button class="pc" data-act="tstep" data-d="-5" aria-label="Loser pays less">${ic('minus')}</button><b class="mono" id="t-pct">${d.pct}%</b><button class="pc" data-act="tstep" data-d="5" aria-label="Loser pays more">${ic('plus')}</button></div>` : ''}
+      <div class="hint" id="t-split">${splitText(d)}</div></div>
+    <div class="sec"><div class="lab">Who gets the money<small>paid out at the end</small></div>
+      <div class="pick" role="radiogroup">${chip('tpay', 'me', 'Me', d.payee === 'me')}${chip('tpay', 'friend', 'My friend', d.payee === 'friend')}${chip('tpay', 'other', 'Other', d.payee === 'other')}</div>
+      ${d.payee === 'other' ? `<div class="field">${ic('wallet')}<input id="t-other" class="field" style="border:0;box-shadow:none;height:48px;padding:0;font-size:14px" value="${esc(d.other)}" placeholder="NQ.. wallet address" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>${d.other && !validAddr(d.other) ? '<div class="hint" style="color:#D0432E">That is not a Nimiq address yet</div>' : ''}` : ''}</div>`
+}
+
+/** One line for the Settle card: how the bill splits and who is paid. */
+export function termsLine(d: TermsDraft): string {
+  const who = d.payee === 'me' ? 'paid to me' : d.payee === 'friend' ? 'paid to my friend' : 'paid to another wallet'
+  return `${d.pct === 100 ? 'Loser pays all' : `Loser pays ${d.pct}%`} · ${who}`
+}
+
 /** Click handlers for termsForm, to merge into a screen's `actions` map. `redraw` re-renders the form after a change. */
 export function termsActions(d: TermsDraft, redraw: () => void) {
   return {

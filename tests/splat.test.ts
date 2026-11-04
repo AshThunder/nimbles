@@ -74,9 +74,9 @@ describe('splat sim', () => {
   })
   it('the zone schedule is fixed', () => {
     expect(zoneRadius(0)).toBe(500)
-    expect(zoneRadius(600)).toBe(500)
-    expect(zoneRadius(3000)).toBe(70)
-    expect(zoneRadius(1800)).toBeCloseTo(285, 0)
+    expect(zoneRadius(900)).toBe(500)
+    expect(zoneRadius(4500)).toBe(70)
+    expect(zoneRadius(2700)).toBeCloseTo(285, 0)
   })
   it('a hit costs HP, a shield absorbs one, three hits eliminate and credit the shooter', () => {
     const s = createSim('hit', 2)
@@ -85,7 +85,7 @@ describe('splat sim', () => {
     s.spots.forEach((p) => (p.at = 1e9))
     b.shield = 1
     const aimAtB: Input = { mx: 0, my: 0, ax: 1, ay: 0, f: true, d: false }
-    for (let i = 0; i < 40 && s.players[1].alive; i++) stepSim(s, [aimAtB])
+    for (let i = 0; i < 60 && s.players[1].alive; i++) stepSim(s, [aimAtB])
     expect(b.alive).toBe(false)
     expect(a.splats).toBe(4) // shield + 3 HP
     expect(s.over).toBe(true)

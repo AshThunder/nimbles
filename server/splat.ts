@@ -1,4 +1,4 @@
-// Splat Royale runner. The server owns the match: it steps the sim at 20 Hz, takes inputs from sockets, and sends snapshots.
+// Splat Royale runner. The server owns the match: it steps the sim at 30 Hz, takes inputs from sockets, and sends snapshots.
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -8,14 +8,14 @@ import type { MatchRec } from './store'
 import type { Engine } from './engine'
 
 export const RECONNECT_GRACE_MS = 10_000
-const MAX_MSGS_PER_SEC = 40
+const MAX_MSGS_PER_SEC = 60
 const MAX_SOCKETS = 300
 
 export type Conn = { send(s: string): void; close(): void; buffered?: () => number }
 export type Run = {
   m: MatchRec; sim: Sim; level: PipLevel; startsAt: number
   seatOf: Map<string, number>; isBot: boolean[]
-  inputs: Input[]; lastSeen: number[]; conns: Map<number, Conn>; ended: boolean
+  inputs: Input[]; acks: number[]; lastSeen: number[]; conns: Map<number, Conn>; ended: boolean
 }
 
 export class SplatRuns {
@@ -36,7 +36,7 @@ export class SplatRuns {
     r = {
       m, sim, level: m.pipLevel ?? 'med', startsAt,
       seatOf: new Map(m.players.map((p, i) => [p.player.address, i])), isBot: m.players.map((p) => !!p.isBot),
-      inputs: m.players.map(() => NO_INPUT), lastSeen: m.players.map(() => startsAt), conns: new Map(), ended: false,
+      inputs: m.players.map(() => NO_INPUT), acks: m.players.map(() => 0), lastSeen: m.players.map(() => startsAt), conns: new Map(), ended: false,
     }
     this.runs.set(m.id, r)
     return r
@@ -58,7 +58,7 @@ export class SplatRuns {
     r.conns.set(seat, c)
     r.lastSeen[seat] = Date.now()
     c.send(this.initMsg(r, seat))
-    c.send(JSON.stringify({ t: 's', ...snapshot(r.sim) }))
+    c.send(JSON.stringify({ t: 's', ...snapshot(r.sim), q: r.acks }))
     return { seat }
   }
   disconnect(id: string, seat: number, c: Conn, now = Date.now()) {
@@ -69,7 +69,11 @@ export class SplatRuns {
   }
   input(id: string, seat: number, raw: unknown) {
     const r = this.runs.get(id)
-    if (r && !r.ended) r.inputs[seat] = cleanInput(raw)
+    if (r && !r.ended) {
+      r.inputs[seat] = cleanInput(raw)
+      const q = (raw as { q?: unknown })?.q
+      if (typeof q === 'number' && Number.isSafeInteger(q) && q > r.acks[seat]) r.acks[seat] = q
+    }
   }
 
   /** Move every live run up to the wall clock. Safe to call as often as you like. */
@@ -101,7 +105,7 @@ export class SplatRuns {
   }
   private send(r: Run) {
     if (!r.conns.size) return
-    const msg = JSON.stringify({ t: 's', ...snapshot(r.sim) })
+    const msg = JSON.stringify({ t: 's', ...snapshot(r.sim), q: r.acks })
     for (const c of r.conns.values()) {
       if ((c.buffered?.() ?? 0) > 512 * 1024) continue // a stuck phone must not stall the match
       try { c.send(msg) } catch { /* socket went away */ }

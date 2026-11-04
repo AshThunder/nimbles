@@ -56,7 +56,7 @@ route('/m/:id', async (root, { id }) => {
     gameRoot?.remove()
     gameRoot = undefined
   }
-  const header = (title = GAMES[m.game].name, left: 'back' | 'close' = 'close') => topbar(title, left, `<div class="coin nb">${m.mode === 'play' ? 'Free play' : m.mode === 'save' ? `Pot ${m.stake * (m.size ?? 2)}` : `Bill ${m.stake}`}</div>`)
+  const header = (title = GAMES[m.game].name, left: 'back' | 'close' = 'close') => topbar(title, left, `<div class="coin nb">${m.mode === 'play' ? 'Free play' : m.mode === 'save' || m.mode === 'win' ? `Pot ${m.stake * (m.size ?? 2)}` : `Bill ${m.stake}`}</div>`)
 
   const refresh = async () => {
     try {
@@ -117,7 +117,7 @@ route('/m/:id', async (root, { id }) => {
   function lobby() {
     const need = (m.size ?? 2) - m.players.length
     const staked = m.mode !== 'play'
-    const detail = m.mode === 'save' ? `${m.stake} NIM each` : m.mode === 'settle' ? `${m.stake} NIM bill` : 'Free play'
+    const detail = m.mode === 'save' || m.mode === 'win' ? `${m.stake} NIM each` : m.mode === 'settle' ? `${m.stake} NIM bill` : 'Free play'
     if (m.opp === 'auto') {
       root.innerHTML = `${header()}<div class="scroll" style="gap:14px">
         <div class="banner" style="background:${GLYPH_BG[m.game]}"><div class="c"><b>${esc(GAMES[m.game].name)}</b><span>${detail}</span></div><span class="art" style="display:block">${glyph(m.game)}</span></div>
@@ -150,7 +150,7 @@ route('/m/:id', async (root, { id }) => {
       const you = p.player.address === S.wallet.address
       return `<div class="rw ${you ? 'me' : ''}" style="min-height:48px"><span class="avs">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}</span><span class="nm"><b>${you ? 'You' : esc(p.player.name)}${p.player.address === m.host ? '<span class="tg2" style="background:var(--ink)">Host</span>' : ''}</b></span>${dots(i)}</div>`
     }).join('')
-    const pay = m.mode === 'save' ? (m.config.payout === 'top3' ? 'Top 3 split the pot 60 / 30 / 10' : 'Last one standing takes the pot') : 'Free play, earns XP'
+    const pay = m.mode === 'save' || m.mode === 'win' ? (royale ? (m.config.payout === 'top3' ? 'Top 3 split the pot 60 / 30 / 10' : 'Last one standing takes the pot') : 'Winner takes the pot') : 'Free play, earns XP'
     return `<div class="sec"><div class="lab">Players<small>${esc(pay)}</small></div><div class="rank" style="gap:8px">${rows}</div></div>`
   }
 
@@ -218,7 +218,11 @@ route('/m/:id', async (root, { id }) => {
       .map((p) => `<div class="rw ${p.player.address === S.wallet.address ? 'me' : ''}"><span class="avs">${avatar(p.player.avatar)}</span><span class="nm"><b>${p.player.address === S.wallet.address ? 'You' : esc(p.player.name)}</b><span>${p.funded ? (p.escrowed ? 'Locked ' + fmtNim(p.escrowed) + ' NIM' + (p.paidFrom ? ' · paid from ' + shortAddr(p.paidFrom) : '') : 'Nothing to lock') : 'Waiting to lock ' + fmtNim(p.escrowed ?? 0) + ' NIM'}</span></span><span class="okb ${p.funded ? 'on' : ''}">${p.funded ? ic('check', 's16') : ic('clock', 's16')}</span></div>`)
       .join('')
     const what =
-      m.mode === 'save'
+      m.mode === 'win'
+        ? royale
+          ? `All ${m.players.length} lock <b>${m.stake} NIM</b>. The pot is <b>${m.stake * m.players.length} NIM</b>. ${m.config.payout === 'top3' && m.players.length >= 3 ? 'The top 3 split it 60 / 30 / 10' : 'The last one standing takes it'}, paid straight to their wallets after the 2% fee. If the match cannot finish, every stake comes back`
+          : `Both lock <b>${m.stake} NIM</b>. The winner is paid <b>${(m.stake * 2 * 0.98).toFixed(2)} NIM</b> straight to their wallet after the 2% fee. A draw returns both stakes`
+        : m.mode === 'save'
         ? royale
           ? `All ${m.players.length} lock <b>${m.stake} NIM</b>. The pot is <b>${m.stake * m.players.length} NIM</b>. ${m.config.payout === 'top3' && m.players.length >= 3 ? 'The top 3 split it 60 / 30 / 10' : 'The last one standing takes it'}, into locked savings jars. If the match cannot finish, every stake comes back`
           : `Both lock <b>${m.stake} NIM</b>. Winner's <b>${m.stake * 2} NIM</b> goes into their locked savings jar. Draw returns both stakes`
@@ -349,22 +353,23 @@ route('/m/:id', async (root, { id }) => {
       return `${d.alive ? 'Last standing' : 'Out at ' + fmtTime(d.out ?? 0)} · ${d.splats} ${d.splats === 1 ? 'splat' : 'splats'}`
     }
     const jarOf = (a: string) => st.jarCredit[a] ?? 0
+    const prizeOf = (a: string) => st.payouts.filter((p) => p.kind === 'prize' && (p.for ?? p.to) === a).reduce((t, p) => t + p.luna, 0)
     const settle = m.mode === 'settle'
     const rows = st.ranks
       .map((r) => {
         const p = m.players.find((x) => x.player.address === r.address)!
         const you = r.address === addr
         const medal = r.rank === 1 ? 'g' : r.rank === 2 ? 's' : r.rank === 3 ? 'b' : 'c'
-        return `<div class="rw ${you ? 'me' : ''}"><span class="med ${medal}">${r.rank}</span><span class="avs">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}</span><span class="nm"><b>${you ? 'You' : esc(p.player.name)}</b><span>${unit(r.score, r.address)}</span></span>${m.game === 'splat' && jarOf(r.address) ? `<span class="am"><b>+${fmtNim(jarOf(r.address))}</b><span>to jar</span></span>` : ''}${settle ? `<span class="am"><b>${fmtNim(p.share ?? 0)}</b><span>${st.draw ? 'half' : r.rank === 1 ? 'winner share' : 'owes'}</span></span>` : ''}</div>`
+        return `<div class="rw ${you ? 'me' : ''}"><span class="med ${medal}">${r.rank}</span><span class="avs">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}</span><span class="nm"><b>${you ? 'You' : esc(p.player.name)}</b><span>${unit(r.score, r.address)}</span></span>${m.game === 'splat' && jarOf(r.address) ? `<span class="am"><b>+${fmtNim(jarOf(r.address))}</b><span>to jar</span></span>` : ''}${prizeOf(r.address) ? `<span class="am"><b>+${fmtNim(prizeOf(r.address))}</b><span>to wallet</span></span>` : ''}${settle ? `<span class="am"><b>${fmtNim(p.share ?? 0)}</b><span>${st.draw ? 'half' : r.rank === 1 ? 'winner share' : 'owes'}</span></span>` : ''}</div>`
       })
       .join('')
     const lines = [
       ...(jar ? [`<div class="rw" style="min-height:48px"><span class="nm"><b>${ic('piggy-bank', 's16')} Added to your jar</b><span>Joins your ${S.me.plan.lockDays}-day lock</span></span><span class="am"><b>+${fmtNim(jar)}</b><span>NIM</span></span></div>`, ...(st.fee ? [`<div class="rw" style="min-height:48px"><span class="nm"><b>${ic('coins', 's16')} Saver pool</b><span>2% of the pot, shared with savers</span></span><span class="am"><b>${fmtNim(st.fee)}</b><span>NIM</span></span></div>`] : [])] : []),
       ...(settle ? st.payouts.filter((p) => p.kind === 'settle' && (p.for ?? p.to) !== addr).map((p) => `<div class="rw" style="min-height:48px"><span class="nm"><b>Bill paid out</b><span>To ${esc(shortAddr(p.to))}${p.tx ? ' · sent ' + shortAddr(p.tx) : ' · sending…'}</span></span><span class="am"><b>${fmtNim(p.luna)}</b><span>NIM</span></span></div>`) : []),
-      ...myPay.map((p) => `<div class="rw" style="min-height:48px"><span class="nm"><b>${p.kind === 'settle' ? 'Bill received' : 'Refund'}</b><span>${p.tx ? 'Sent ' + shortAddr(p.tx) : 'Sending…'} · ${esc(p.note ?? '')}</span></span><span class="am"><b>+${fmtNim(p.luna)}</b><span>NIM</span></span></div>`),
+      ...myPay.map((p) => `<div class="rw" style="min-height:48px"><span class="nm"><b>${p.kind === 'settle' ? 'Bill received' : p.kind === 'prize' ? 'Prize' : 'Refund'}</b><span>${p.tx ? 'Sent ' + shortAddr(p.tx) : 'Sending…'} · ${esc(p.note ?? '')}</span></span><span class="am"><b>+${fmtNim(p.luna)}</b><span>NIM</span></span></div>`),
     ].join('')
     root.innerHTML = `${header(st.draw ? 'Draw' : win ? 'You won' : 'Result')}<div class="scroll" style="gap:12px">
-      <div class="res"><canvas class="cf" id="cf"></canvas>${pipImg(mood).replace('<img', '<img class="pipx"')}<div class="txt"><b>${headline}</b><div class="rw2"><span class="rwd">${ic('star', 's16')}+${xp} XP${st.xpBonus?.[addr] ? ` (+${st.xpBonus[addr]}%)` : ''}</span>${m.mode !== 'play' ? `<span class="rwd b">${m.mode === 'save' ? (win ? 'Pot ' + m.stake * 2 : st.draw ? 'Stake back' : 'Lost ' + m.stake) : 'Bill ' + m.stake}</span>` : ''}</div></div></div>
+      <div class="res"><canvas class="cf" id="cf"></canvas>${pipImg(mood).replace('<img', '<img class="pipx"')}<div class="txt"><b>${headline}</b><div class="rw2"><span class="rwd">${ic('star', 's16')}+${xp} XP${st.xpBonus?.[addr] ? ` (+${st.xpBonus[addr]}%)` : ''}</span>${m.mode !== 'play' ? `<span class="rwd b">${m.mode === 'save' || m.mode === 'win' ? (st.draw ? 'Stake back' : prizeOf(addr) || jar ? 'Won ' + fmtNim(prizeOf(addr) || jar) : 'Lost ' + m.stake) : 'Bill ' + m.stake}</span>` : ''}</div></div></div>
       <div class="rank" style="gap:8px">${rows}</div>
       ${lines ? `<div class="sec"><div class="lab">Your NIM</div><div class="rank" style="gap:8px">${lines}</div></div>` : ''}
       <div class="note"><span class="paid">${ic('shield-check', 's16')}${esc(st.reason)}</span><span class="mono" style="font-size:12px;color:var(--muted)">Seed ${esc((m.seed ?? '').slice(0, 10))}…</span></div>

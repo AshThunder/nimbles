@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { Engine, ApiError } from './engine'
 import { Store } from './store'
 import { MockChain, makeChain } from './chain'
-import { aiStatus, parseReceipt } from './ai'
+import { aiStatus, nimoChat, parseReceipt } from './ai'
 import { Challenges, addressFromProof, challengeText } from './auth'
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
@@ -161,6 +161,11 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       limit('chest:' + me, 20, 60_000)
       const b = await readBody(req, 1024)
       return send(res, 200, engine.openChest(me, String(b?.id ?? '')))
+    }
+    if (method === 'POST' && path === '/ai/chat') {
+      limit('chat:' + me, 15, 60_000)
+      const b = await readBody(req, 8_000)
+      try { return send(res, 200, await nimoChat(b ?? {})) } catch (e: any) { throw new ApiError(422, e?.message ?? 'Ask Nimo something') }
     }
     if (method === 'POST' && path === '/ai/receipt') {
       limit('ai:' + me, 8, 60_000)

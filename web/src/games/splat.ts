@@ -1,4 +1,5 @@
-import { ARENA, CX, CY, MAX_AMMO, MAX_HP, DASH_CD, PR, TICK_MS, type Snap, type Wall } from '../../../shared/splat'
+import { ARENA, CX, CY, MAX_AMMO, MAX_HP, DASH_CD, PR, SPEED, TICK_MS, walk, type Snap, type Wall } from '../../../shared/splat'
+import { nickOf } from '../../../shared/nick'
 import { $, buzz, esc, fmtTime, ic, sfx } from '../lib'
 import type { GameMod } from './common'
 
@@ -10,14 +11,21 @@ const ZONE_TINT = '#F6D8D1'
 type Init = { n: number; seat: number; cap: number; startsAt: number; walls: Wall[]; spots: { x: number; y: number; kind: 'ammo' | 'shield' }[]; players: { seat: number; name: string; avatar: string; bot: boolean }[] }
 type Stick = { x: number; y: number; on: boolean }
 
-/** Splat Royale, 2 to 6 players. The server runs the match at 20 ticks a second; the phone sends sticks and draws what comes back. */
+/** Splat Royale, 2 to 6 players. The server runs the match at 30 ticks a second; the phone sends sticks, moves its own blob right away (prediction) and draws the others a few frames behind, smoothly (interpolation). */
 export const splat: GameMod = (ctx) => {
   const id = ctx.m.id
   const token = sessionStorage.getItem('nb:token') ?? ''
   let init: Init | null = null
   let cur: Snap | null = null
-  let prev: Snap | null = null
-  let curAt = 0
+  const buf: { k: number; at: number; s: Snap }[] = []
+  let clockOff: number | null = null
+  let seq = 0
+  const pending: { q: number; mx: number; my: number }[] = []
+  let pred: { x: number; y: number } | null = null
+  let predPrev = { x: 0, y: 0 }
+  let predAt = 0
+  let skew = 0
+  let myAim: number | null = null
   let lastMsg = 0
   let dead = false
   let ws: WebSocket | null = null
@@ -46,7 +54,7 @@ export const splat: GameMod = (ctx) => {
   const cv = $('#cv', ctx.root) as HTMLCanvasElement
   const wrap = $('#wrap', ctx.root) as HTMLElement
   const g = cv.getContext('2d')!
-  const nameOf = (s: number) => (s === init?.seat ? 'You' : (init?.players[s]?.name ?? 'Player ' + (s + 1)).split(' ')[0])
+  const nameOf = (s: number) => (s === init?.seat ? 'You' : (init?.players[s]?.name ?? nickOf('seat' + s)))
 
   // ---------- network ----------
   const url = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/splat?m=${id}&t=${encodeURIComponent(token)}`
@@ -58,7 +66,7 @@ export const splat: GameMod = (ctx) => {
       let j: any
       try { j = JSON.parse(String(ev.data)) } catch { return }
       lastMsg = performance.now()
-      if (j.t === 'init') init = j
+      if (j.t === 'init') { init = j; skew = j.now - Date.now() }
       else if (j.t === 's' && init) take(j as Snap)
     }
     w.onclose = () => {
@@ -70,10 +78,45 @@ export const splat: GameMod = (ctx) => {
   }
   const take = (s: Snap) => {
     if (cur && s.k <= cur.k) return
-    prev = cur
     cur = s
-    curAt = performance.now()
+    const now = performance.now()
+    buf.push({ k: s.k, at: now, s })
+    if (buf.length > 10) buf.shift()
+    // the server clock in our own time: follow the fastest arrivals closely, the slow ones gently
+    const sample = now - s.k * TICK_MS
+    clockOff = clockOff === null ? sample : clockOff + (sample - clockOff) * (sample < clockOff ? 0.3 : 0.02)
     for (const e of s.e) onEvent(e)
+    reconcile(s)
+  }
+  const live = () => !!init && !!cur && !cur.over && Date.now() + skew >= init.startsAt
+  /** Replay the inputs the server has not seen yet on top of where it says we are. */
+  const reconcile = (s: Snap) => {
+    if (!init) return
+    const me = s.p[init.seat]
+    if (!me) return
+    while (pending.length && pending[0].q <= (s.q?.[init.seat] ?? 0)) pending.shift()
+    const dashing = me[8] >= DASH_CD
+    if (!me[6] || dashing || !pred) {
+      predPrev = pred ?? { x: me[0], y: me[1] }
+      pred = { x: me[0], y: me[1] }
+      predAt = performance.now()
+      if (!me[6]) pending.length = 0
+      return
+    }
+    let t = { x: me[0], y: me[1] }
+    for (const p of pending) t = walk(t.x, t.y, p.mx * SPEED, p.my * SPEED, init.walls)
+    const err = Math.hypot(t.x - pred.x, t.y - pred.y)
+    if (err > 60) { predPrev = t; pred = t; predAt = performance.now() }
+    else if (err > 0.5) {
+      predPrev = drawnPred()
+      pred = { x: pred.x + (t.x - pred.x) * 0.3, y: pred.y + (t.y - pred.y) * 0.3 }
+      predAt = performance.now()
+    }
+  }
+  const drawnPred = () => {
+    if (!pred) return { x: 0, y: 0 }
+    const a = Math.min(1, (performance.now() - predAt) / TICK_MS)
+    return { x: predPrev.x + (pred.x - predPrev.x) * a, y: predPrev.y + (pred.y - predPrev.y) * a }
   }
   let lastHitSfx = 0
   const onEvent = (e: Snap['e'][number]) => {
@@ -101,12 +144,26 @@ export const splat: GameMod = (ctx) => {
     let ay = aim.y
     let f = aim.on && Math.hypot(ax, ay) > 0.3
     if (!aim.on && mouseAim && cur) {
-      const me = cur.p[init.seat]
-      ax = mouseAim.x - me[0]
-      ay = mouseAim.y - me[1]
+      const me = pred ?? { x: cur.p[init.seat][0], y: cur.p[init.seat][1] }
+      ax = mouseAim.x - (Array.isArray(me) ? me[0] : me.x)
+      ay = mouseAim.y - (Array.isArray(me) ? me[1] : me.y)
       f = mouseFire
     }
-    ws.send(JSON.stringify({ t: 'i', mx: +mx.toFixed(2), my: +my.toFixed(2), ax: +ax.toFixed(2), ay: +ay.toFixed(2), f, d: dashLatch }))
+    const q = ++seq
+    const px = +mx.toFixed(2)
+    const py = +my.toFixed(2)
+    ws.send(JSON.stringify({ t: 'i', q, mx: px, my: py, ax: +ax.toFixed(2), ay: +ay.toFixed(2), f, d: dashLatch }))
+    myAim = Math.hypot(ax, ay) > 0.3 ? Math.atan2(ay, ax) : null
+    if (live() && pred && cur?.p[init.seat]?.[6] && (cur.p[init.seat][8] ?? 0) < DASH_CD && !dashLatch) {
+      // walk our own blob now, the same way the server will
+      const ml = Math.hypot(px, py)
+      const k = ml > 1 ? 1 / ml : 1
+      pending.push({ q, mx: px * k, my: py * k })
+      if (pending.length > 90) pending.shift()
+      predPrev = drawnPred()
+      pred = walk(pred.x, pred.y, px * k * SPEED, py * k * SPEED, init.walls)
+      predAt = performance.now()
+    } else pending.length = 0
     dashLatch = false
   }
   const sender = setInterval(sendInput, TICK_MS)
@@ -188,7 +245,17 @@ export const splat: GameMod = (ctx) => {
     g.fillStyle = PAPER
     g.fillRect(0, 0, cv.width, cv.height)
     if (!init || !cur) return
-    const a = prev ? Math.min(1, (performance.now() - curAt) / TICK_MS) : 1
+    // others are drawn two and a half ticks behind the newest snapshot and blended between two snapshots
+    const rk = clockOff === null ? cur.k : (performance.now() - clockOff) / TICK_MS - 2.5
+    let lo = buf[0]
+    let hi = buf[0]
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i].k <= rk) lo = buf[i]
+      if (buf[i].k >= rk) { hi = buf[i]; break }
+      hi = buf[i]
+    }
+    const a = hi.k === lo.k ? 1 : Math.max(0, Math.min(1, (rk - lo.k) / (hi.k - lo.k)))
+    const view = a < 0.5 ? lo.s : hi.s
     // zone: outside the circle is tinted
     g.fillStyle = ZONE_TINT
     g.beginPath()
@@ -224,7 +291,14 @@ export const splat: GameMod = (ctx) => {
     g.fillStyle = INK
     for (const w of init.walls) g.fillRect(w.x * k, w.y * k, w.w * k, w.h * k)
     // bullets
-    for (const b of cur.b) {
+    for (const b0 of view.b) {
+      // find the same bullet in the other snapshot (same owner, nearest) and blend
+      const other = (view === hi.s ? lo.s : hi.s).b
+      let near: number[] | null = null
+      let nd = 28 * 28
+      for (const o of other) if (o[2] === b0[2]) { const d = (o[0] - b0[0]) ** 2 + (o[1] - b0[1]) ** 2; if (d < nd) { nd = d; near = o } }
+      const t = view === hi.s ? 1 - a : a // how far from `view` towards `near`
+      const b = near ? [lerp(b0[0], near[0], t), lerp(b0[1], near[1], t), b0[2]] : b0
       g.beginPath()
       g.arc(b[0] * k, b[1] * k, Math.max(3.5, 7 * k * 1.2), 0, Math.PI * 2)
       g.fillStyle = SEAT_COL[b[2] % SEAT_COL.length]
@@ -235,18 +309,38 @@ export const splat: GameMod = (ctx) => {
     }
     // players
     const R = Math.max(10, PR * k)
-    cur.p.forEach((p, i) => {
-      if (!p[6]) return
-      const q = prev?.p[i]
-      const x = (q && q[6] ? lerp(q[0], p[0], a) : p[0]) * k
-      const y = (q && q[6] ? lerp(q[1], p[1], a) : p[1]) * k
+    const meSeat = init.seat
+    const tagRef: { v: { x: number; y: number } | null } = { v: null }
+    cur.p.forEach((pc, i) => {
+      if (!pc[6]) return
+      const mine = i === meSeat
+      const q = lo.s.p[i]
+      const n = hi.s.p[i]
+      const p = pc
+      let wx = q && n && q[6] && n[6] ? lerp(q[0], n[0], a) : pc[0]
+      let wy = q && n && q[6] && n[6] ? lerp(q[1], n[1], a) : pc[1]
+      if (mine && pred) { const d = drawnPred(); wx = d.x; wy = d.y }
+      const x = wx * k
+      const y = wy * k
       const col = SEAT_COL[i % SEAT_COL.length]
+      const aim = mine && myAim !== null ? myAim : (a < 0.5 ? (q ?? p)[2] : (n ?? p)[2])
+      if (mine) {
+        // a thick white ring inside a dark one so your blob stands out on any colour
+        g.beginPath()
+        g.arc(x, y, R + 7, 0, Math.PI * 2)
+        g.fillStyle = INK
+        g.fill()
+        g.beginPath()
+        g.arc(x, y, R + 4, 0, Math.PI * 2)
+        g.fillStyle = '#fff'
+        g.fill()
+      }
       g.lineCap = 'round'
       g.strokeStyle = INK
       g.lineWidth = Math.max(4, R * 0.5)
       g.beginPath()
       g.moveTo(x, y)
-      g.lineTo(x + Math.cos(p[2]) * (R + 6), y + Math.sin(p[2]) * (R + 6))
+      g.lineTo(x + Math.cos(aim) * (R + (mine ? 12 : 6)), y + Math.sin(aim) * (R + (mine ? 12 : 6)))
       g.stroke()
       g.beginPath()
       g.arc(x, y, R, 0, Math.PI * 2)
@@ -257,33 +351,75 @@ export const splat: GameMod = (ctx) => {
       g.stroke()
       if (p[4] > 0) {
         g.beginPath()
-        g.arc(x, y, R + 4, 0, Math.PI * 2)
+        g.arc(x, y, R + (mine ? 10 : 4), 0, Math.PI * 2)
         g.lineWidth = 3
         g.strokeStyle = '#1F78C4'
         g.stroke()
       }
-      if (i === init!.seat) {
-        g.beginPath()
-        g.arc(x, y, R * 0.45, 0, Math.PI * 2)
-        g.fillStyle = PAPER
-        g.fill()
-      } else {
-        g.fillStyle = col === '#F4B323' || col === '#F29AAE' ? INK : '#fff'
-        g.font = `800 ${Math.round(R * 1.1)}px system-ui, sans-serif`
-        g.textAlign = 'center'
-        g.textBaseline = 'middle'
-        g.fillText((nameOf(i)[0] ?? '?').toUpperCase(), x, y + 1)
-      }
+      g.fillStyle = col === '#F4B323' || col === '#F29AAE' ? INK : '#fff'
+      g.font = `800 ${Math.round(R * 1.1)}px system-ui, sans-serif`
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText((nameOf(i)[0] ?? '?').toUpperCase(), x, y + 1)
       // hit points as little squares above the player
       for (let h = 0; h < MAX_HP; h++) {
         g.fillStyle = h < p[3] ? '#D0432E' : PAPER
         g.strokeStyle = INK
         g.lineWidth = 1.5
         const hx = x + (h - 1) * 7 - 3
-        g.fillRect(hx, y - R - 11, 6, 6)
-        g.strokeRect(hx, y - R - 11, 6, 6)
+        g.fillRect(hx, y - R - 11 - (mine ? 7 : 0), 6, 6)
+        g.strokeRect(hx, y - R - 11 - (mine ? 7 : 0), 6, 6)
+      }
+      const fs = Math.max(Math.round(11 * (cv.width / Math.max(1, wrap.clientWidth))), Math.round(R * 0.6))
+      g.font = `800 ${fs}px system-ui, sans-serif`
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      if (mine) {
+        // YOU tag above the blob
+        const tw = g.measureText('YOU').width + 12
+        const ty = Math.max(fs / 2 + 4, y - R - 28 - (mine ? 7 : 0))
+        const tx = Math.max(tw / 2 + 2, Math.min(cv.width - tw / 2 - 2, x))
+        g.fillStyle = INK
+        g.beginPath()
+        g.roundRect(tx - tw / 2, ty - fs / 2 - 3, tw, fs + 6, 6)
+        g.fill()
+        g.fillStyle = '#fff'
+        g.fillText('YOU', tx, ty + 1)
+        tagRef.v = { x, y }
+      } else {
+        // nickname under the blob, with a paper halo so it reads on every background
+        const nm = nameOf(i)
+        const ny = Math.min(cv.height - fs / 2 - 2, y + R + fs * 0.9)
+        const nx = Math.max(g.measureText(nm).width / 2 + 2, Math.min(cv.width - g.measureText(nm).width / 2 - 2, x))
+        g.lineJoin = 'round'
+        g.lineWidth = 4
+        g.strokeStyle = PAPER
+        g.strokeText(nm, nx, ny)
+        g.fillStyle = col === '#F4B323' || col === '#F29AAE' ? INK : col
+        g.fillText(nm, nx, ny)
       }
     })
+    // off-screen arrow: if your blob is ever outside the view, point to it from the edge
+    const tag = tagRef.v
+    if (tag && (tag.x < 0 || tag.y < 0 || tag.x > cv.width || tag.y > cv.height)) {
+      const ex = Math.max(16, Math.min(cv.width - 16, tag.x))
+      const ey = Math.max(16, Math.min(cv.height - 16, tag.y))
+      const ang = Math.atan2(tag.y - ey, tag.x - ex)
+      g.save()
+      g.translate(ex, ey)
+      g.rotate(ang)
+      g.fillStyle = INK
+      g.strokeStyle = '#fff'
+      g.lineWidth = 3
+      g.beginPath()
+      g.moveTo(12, 0)
+      g.lineTo(-8, -9)
+      g.lineTo(-8, 9)
+      g.closePath()
+      g.stroke()
+      g.fill()
+      g.restore()
+    }
     hud()
   }
 

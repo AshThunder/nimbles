@@ -1,9 +1,12 @@
-// Splat Royale: a deterministic top-down arena sim. The server runs it at 20 Hz and clients only send inputs.
+// Splat Royale: a deterministic top-down arena sim. The server runs it at 30 Hz and clients only send inputs.
 // Same seed, same map, same loadouts for everyone. Nothing in here is random once the seed is fixed.
 import { rng } from './rng'
 import type { PipLevel } from './types'
 
-export const TICK_MS = 50
+export const HZ = 30
+export const TICK_MS = 1000 / HZ
+const K = 20 / HZ // every per-tick number below was tuned at 20 Hz; K keeps real-time speeds the same at 30 Hz
+const T = HZ / 20 // ticks per old tick
 export const ARENA = 1000
 export const CX = 500
 export const CY = 500
@@ -11,20 +14,20 @@ export const ZONE_R0 = 500
 export const ZONE_R1 = 70
 export const PR = 24 // player radius
 export const BR = 7 // bullet radius
-export const SPEED = 10 // units per tick (200/s)
-export const DASH_SPEED = 32
-export const DASH_TICKS = 6
-export const DASH_CD = 60
-export const BULLET_SPEED = 20
-export const BULLET_LIFE = 40
-export const FIRE_CD = 8
+export const SPEED = 10 * K // units per tick (200/s)
+export const DASH_SPEED = 32 * K
+export const DASH_TICKS = Math.round(6 * T)
+export const DASH_CD = Math.round(60 * T)
+export const BULLET_SPEED = 20 * K
+export const BULLET_LIFE = Math.round(40 * T)
+export const FIRE_CD = Math.round(8 * T)
 export const MAX_HP = 3
 export const MAX_AMMO = 5
-export const AMMO_EVERY = 20
+export const AMMO_EVERY = Math.round(20 * T)
 export const PICK_R = 20
-export const PICK_RESPAWN = 300
+export const PICK_RESPAWN = Math.round(300 * T)
 export const SPAWN_R = 400
-export const DEFAULT_CAP_TICKS = 3600 // 3 minutes
+export const DEFAULT_CAP_TICKS = 180 * HZ // 3 minutes
 
 export type Input = { mx: number; my: number; ax: number; ay: number; f: boolean; d: boolean }
 export const NO_INPUT: Input = { mx: 0, my: 0, ax: 0, ay: 0, f: false, d: false }
@@ -122,7 +125,7 @@ export function cleanInput(raw: any): Input {
   return { mx: num(raw?.mx, -1, 1), my: num(raw?.my, -1, 1), ax: num(raw?.ax, -1, 1), ay: num(raw?.ay, -1, 1), f: raw?.f === true || raw?.f === 1, d: raw?.d === true || raw?.d === 1 }
 }
 
-function pushOut(p: SPlayer, w: Wall) {
+function pushOut(p: { x: number; y: number }, w: Wall) {
   const px = clamp(p.x, w.x, w.x + w.w)
   const py = clamp(p.y, w.y, w.y + w.h)
   let dx = p.x - px
@@ -213,6 +216,15 @@ export function aliveCount(s: Sim) {
   return s.players.reduce((n, p) => n + (p.alive ? 1 : 0), 0)
 }
 
+/** One tick of walking: the same maths the server uses, so a phone can predict its own blob. */
+export function walk(x: number, y: number, vx: number, vy: number, walls: Wall[]): { x: number; y: number } {
+  const p = { x: clamp(x + vx, PR, ARENA - PR), y: clamp(y + vy, PR, ARENA - PR) }
+  for (let k = 0; k < 2; k++) for (const w of walls) pushOut(p, w)
+  p.x = clamp(p.x, PR, ARENA - PR)
+  p.y = clamp(p.y, PR, ARENA - PR)
+  return p
+}
+
 /** Advance one tick. inputs[seat] may be missing, which means standing still. */
 export function stepSim(s: Sim, inputs: (Input | undefined)[]): void {
   if (s.over) return
@@ -238,11 +250,9 @@ export function stepSim(s: Sim, inputs: (Input | undefined)[]): void {
     if (p.dashT > 0) { p.vx = p.dx * DASH_SPEED; p.vy = p.dy * DASH_SPEED; p.dashT-- }
     else { p.vx = mx * SPEED; p.vy = my * SPEED }
     if (p.dashCd > 0 && p.dashT <= 0) p.dashCd--
-    p.x = clamp(p.x + p.vx, PR, ARENA - PR)
-    p.y = clamp(p.y + p.vy, PR, ARENA - PR)
-    for (let k = 0; k < 2; k++) for (const w of s.walls) pushOut(p, w)
-    p.x = clamp(p.x, PR, ARENA - PR)
-    p.y = clamp(p.y, PR, ARENA - PR)
+    const np = walk(p.x, p.y, p.vx, p.vy, s.walls)
+    p.x = np.x
+    p.y = np.y
     // ammo refills one every second
     if (p.ammo < MAX_AMMO) { if (++p.ammoT >= AMMO_EVERY) { p.ammo++; p.ammoT = 0 } } else p.ammoT = 0
     if (p.fireCd > 0) p.fireCd--
@@ -298,7 +308,7 @@ export function stepSim(s: Sim, inputs: (Input | undefined)[]): void {
   for (const p of s.players) {
     if (!p.alive) continue
     if (Math.hypot(p.x - CX, p.y - CY) > zr) {
-      if (++p.zoneT >= 20) { p.zoneT = 0; p.hp -= 1; s.events.push({ t: 'hit', seat: p.seat }); if (p.hp <= 0) eliminate(s, p) }
+      if (++p.zoneT >= HZ) { p.zoneT = 0; p.hp -= 1; s.events.push({ t: 'hit', seat: p.seat }); if (p.hp <= 0) eliminate(s, p) }
     } else p.zoneT = 0
   }
   s.tick++
@@ -339,7 +349,7 @@ export function botInput(s: Sim, seat: number, level: PipLevel = 'med'): Input {
   const me = s.players[seat]
   if (!me || !me.alive) return NO_INPUT
   const sd = SEEDN(s)
-  const zr = zoneRadius(s.tick + 40, s.cap)
+  const zr = zoneRadius(s.tick + Math.round(40 * T), s.cap)
   let foe: SPlayer | undefined
   let fd = Infinity
   for (const p of s.players) {
@@ -361,15 +371,15 @@ export function botInput(s: Sim, seat: number, level: PipLevel = 'med'): Input {
     const tx = foe.x + foe.vx * lead * (level === 'easy' ? 0 : 1)
     const ty = foe.y + foe.vy * lead * (level === 'easy' ? 0 : 1)
     const base = Math.atan2(ty - me.y, tx - me.x)
-    const err = (h32(sd, seat * 977 + Math.floor(s.tick / 6), 1) - 0.5) * 2 * ERR[level]
+    const err = (h32(sd, seat * 977 + Math.floor(s.tick / Math.round(6 * T)), 1) - 0.5) * 2 * ERR[level]
     aimX = Math.cos(base + err)
     aimY = Math.sin(base + err)
     const [ux, uy] = unit(foe.x - me.x, foe.y - me.y)
-    const side = (Math.floor(s.tick / (24 + Math.floor(h32(sd, seat, 2) * 30))) + seat) % 2 ? 1 : -1
+    const side = (Math.floor(s.tick / Math.round((24 + Math.floor(h32(sd, seat, 2) * 30)) * T)) + seat) % 2 ? 1 : -1
     if (fd > 330) { mx = ux; my = uy } else if (fd < 130) { mx = -ux; my = -uy }
     mx += -uy * side * 0.9
     my += ux * side * 0.9
-    fire = s.tick > 60 && fd < FIRE_RANGE[level] && clearLine(s, me.x, me.y, foe.x, foe.y) && h32(sd, seat * 31 + s.tick, 3) < FIRE_P[level]
+    fire = s.tick > Math.round(60 * T) && fd < FIRE_RANGE[level] && clearLine(s, me.x, me.y, foe.x, foe.y) && h32(sd, seat * 31 + s.tick, 3) < FIRE_P[level]
   }
   // low on ammo: go to the nearest live ammo spot
   if (me.ammo < 2) {
@@ -396,6 +406,7 @@ export type Snap = {
   b: [number, number, number][] // x y owner
   u: number[] // pickup available flags
   e: SEvent[]
+  q?: number[] // last input number the server has seen from each seat, for client prediction
 }
 export function snapshot(s: Sim): Snap {
   return {

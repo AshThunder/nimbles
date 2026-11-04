@@ -2,7 +2,7 @@ import { api, type MatchView } from '../api'
 import { board } from '../games/sudoku'
 import { actions, avatar, confetti, esc, glyph, GLYPH_BG, ic, isMuted, lvBadge, pipImg, setMuted, sfx, shortAddr, tap, toast, $ } from '../lib'
 import { S, go, route } from '../state'
-import { FLAME, JAR, errBox, pipRow, tabs, topbar } from '../ui'
+import { FLAME, JAR, PAGE, errBox, pageRows, pipRow, tabs, topbar } from '../ui'
 import { friendlyWalletError } from '../wallet'
 import { GAMES, fmtNim, type GameId } from '../../../shared/types'
 import { ALL_BADGES, COSMETICS } from '../../../shared/rewards'
@@ -14,9 +14,11 @@ const AVATARS = ['ada', 'bisi', 'dee', 'ife', 'ivy', 'jay', 'kai', 'kemi', 'leo'
 // ---------------- leaderboard ----------------
 route('/rank', async (root) => {
   let scope: 'global' | 'friends' | 'savers' = 'global'
+  let shown = PAGE
   const TABS = [['global', 'Players'], ['friends', 'Friends'], ['savers', 'Savers']] as const
   const medal = (r: number) => (r === 1 ? 'g' : r === 2 ? 's' : r === 3 ? 'b' : 'c')
   const load = async () => {
+    const keep = root.querySelector('.scroll')?.scrollTop ?? 0
     root.innerHTML = `${topbar('Leaderboard', 'none')}<div class="scroll center" style="justify-content:center">${pipImg('think')}</div>${tabs('Rank')}`
     let list = ''
     let sub = 'This week<small>Resets Monday, UTC</small>'
@@ -25,12 +27,12 @@ route('/rank', async (root) => {
         const d = await api.savers()
         sub = 'Interest this week<small>Resets Monday, UTC</small>'
         list = d.rows.length
-          ? `<div class="rank" style="gap:8px">${d.rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${medal(r.rank)}">${r.rank}</span><span class="avs">${avatar(r.avatar, 'av', r.frame)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>${r.locked ? r.lockDays + '-day lock' : 'Unlocked'} · ${fmtNim(r.saved)} saved</span></span><span class="am"><b>+${fmtNim(r.interest)}</b><span>interest</span></span></div>`).join('')}</div>`
+          ? `<div class="rank" style="gap:8px">${pageRows(d.rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${medal(r.rank)}">${r.rank}</span><span class="avs">${avatar(r.avatar, 'av', r.frame)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>${r.locked ? r.lockDays + '-day lock' : 'Unlocked'} · ${fmtNim(r.saved)} saved</span></span><span class="am"><b>+${fmtNim(r.interest)}</b><span>interest</span></span></div>`), shown, 'rmore')}</div>`
           : pipRow('sleepy', '<b>No savers yet.</b> Lock some NIM in your jar and earn a share of the pool')
       } else {
         const d = await api.board(scope)
         list = d.rows.length
-          ? `<div class="rank" style="gap:8px">${d.rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${medal(r.rank)}">${r.rank}</span><span class="avs">${avatar(r.avatar, 'av', r.frame)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>Level ${r.level}</span></span><span class="am"><b>${r.weekXp}</b><span>XP</span></span></div>`).join('')}</div>`
+          ? `<div class="rank" style="gap:8px">${pageRows(d.rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${medal(r.rank)}">${r.rank}</span><span class="avs">${avatar(r.avatar, 'av', r.frame)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>Level ${r.level}</span></span><span class="am"><b>${r.weekXp}</b><span>XP</span></span></div>`), shown, 'rmore')}</div>`
           : pipRow('sleepy', scope === 'friends' ? '<b>No friends yet.</b> Duel someone and they show up here' : '<b>Quiet week.</b> Play a duel to get on the board')
       }
     } catch (e: any) { toast(e.message) }
@@ -38,29 +40,49 @@ route('/rank', async (root) => {
       <div class="seg" style="grid-template-columns:1fr 1fr 1fr">${TABS.map(([s, label]) => `<button class="sg ${scope === s ? 'on' : ''}" data-act="scope" data-s="${s}"><b style="font-size:15px">${label}</b>${scope === s ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div>
       <div class="lab" style="margin:0">${sub}</div>
       ${list}</div>${tabs('Rank')}`
+    const sc = root.querySelector('.scroll')
+    if (sc) sc.scrollTop = keep
   }
   await load()
-  actions(root, { scope: (el) => ((scope = el.dataset.s as typeof scope), sfx('ui/select'), void load()), tab: () => sfx('ui/select', 0.4) })
+  actions(root, { scope: (el) => ((scope = el.dataset.s as typeof scope), (shown = PAGE), sfx('ui/select'), void load()), rmore: () => ((shown += PAGE), sfx('ui/select'), void load()), tab: () => sfx('ui/select', 0.4) })
 })
 
-// ---------------- Nimo: receipt helper ----------------
+// ---------------- Nimo: assistant, chat and receipt reader ----------------
 route('/pip', async (root) => {
+  type Msg = { role: 'me' | 'nimo'; text: string; link?: [string, string] }
   let receipt: { items: { name: string; price: number }[]; total: number; currency: string; merchant?: string } | null = null
   let n = 2
   let busy = false
+  let thinking = false
   let err = ''
   let text = ''
+  let typed = false
+  let q = ''
+  const msgs: Msg[] = []
+  const CHIPS: [string, string][] = [['trophy', 'How do I win more?'], ['receipt', 'Start a Settle'], ['piggy-bank', 'My savings plan'], ['book-open', 'Explain the rules']]
+  const planText = () => {
+    const me = S.me
+    const goal = fmtNim(me.plan.goalLuna)
+    const jar = fmtNim(me.jarLuna)
+    const left = me.jarLuna > 0 && me.jarUnlockAt > Date.now() ? `locked for ${Math.max(1, Math.ceil((me.jarUnlockAt - Date.now()) / 864e5))} more days` : me.jarLuna > 0 ? 'unlocked and ready to withdraw' : 'empty, the lock starts with your first deposit'
+    return `Your goal is ${goal} NIM with a ${me.plan.lockDays}-day lock. The jar holds ${jar} NIM, ${left}. Win Save matches to fill it.`
+  }
+  const bubbles = () => msgs.map((m) => `<div class="nb ${m.role}">${m.role === 'nimo' ? pipImg('happy') : ''}<div class="bb">${esc(m.text)}${m.link ? `<button class="btn gold sm" data-act="lnk" data-to="${m.link[1]}" style="margin-top:8px">${esc(m.link[0])}</button>` : ''}</div></div>`).join('') + (thinking ? `<div class="nb nimo">${pipImg('think')}<div class="bb dots"><i></i><i></i><i></i></div></div>` : '')
   const draw = () => {
+    const keep = root.querySelector('.scroll')?.scrollTop ?? 0
     root.innerHTML = `${topbar('Nimo', 'none')}<div class="scroll" style="gap:12px">
-      ${pipRow('wink', '<b>Hand me a receipt.</b> I read it and work out the split')}
-      <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      ${pipRow('wink', `<b>Hi ${esc((S.me.name || 'there').split(' ')[0])}, I am Nimo.</b> Ask me about the games, your savings or splitting a bill`)}
+      <div class="qc" role="group" aria-label="Quick actions">${CHIPS.map(([i, t]) => `<button class="pc" data-act="chip" data-q="${esc(t)}">${ic(i, 's16')}${esc(t)}</button>`).join('')}</div>
+      ${msgs.length || thinking ? `<div class="chat" id="chat">${bubbles()}</div>` : ''}
+      <div class="row" style="gap:8px"><input id="q" class="field" placeholder="Ask Nimo anything" aria-label="Ask Nimo" maxlength="300" autocomplete="off" value="${esc(q)}" style="flex:1;min-width:0;height:48px"><button class="btn gold sm" data-act="ask" aria-label="Send" ${thinking || q.trim().length < 2 ? 'disabled' : ''} style="flex:none;width:48px;padding:0">${ic('send', 's20')}</button></div>
+      <div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="row" style="gap:8px"><b style="font-size:17px">${ic('receipt', 's20')} Receipt reader</b><span class="sp"></span><button class="pc" data-act="typed">${typed ? ic('check') : ''}Type lines</button></div>
         <button class="btn gold block" data-act="snap" ${busy ? 'disabled' : ''}>${busy ? ic('refresh-cw', 's20 spin') + 'Reading…' : ic('camera', 's20') + 'Snap or pick a receipt'}</button>
         <input type="file" id="rf" accept="image/*" class="hide">
-        <div class="lab" style="margin:0;font-size:14px">Or type the lines</div>
-        <textarea id="rt" class="field" rows="3" placeholder="Pizza 12.5&#10;Drinks 6&#10;Dessert 4" style="min-height:auto;padding:10px">${esc(text)}</textarea>
-        <button class="btn ghost block" data-act="parse" ${busy || text.trim().length < 3 ? 'disabled' : ''}>${ic('sparkles', 's20')}Read the lines</button></div>
-      ${err ? errBox(err) : ''}
-      ${receipt ? resultCard() : ''}</div>${tabs('Nimo')}`
+        ${typed ? `<textarea id="rt" class="field" rows="3" placeholder="Pizza 12.5&#10;Drinks 6&#10;Dessert 4" style="min-height:auto;padding:10px">${esc(text)}</textarea><button class="btn ghost block" data-act="parse" ${busy || text.trim().length < 3 ? 'disabled' : ''}>${ic('sparkles', 's20')}Read the lines</button>` : ''}
+        ${err ? errBox(err) : ''}${receipt ? resultCard() : ''}</div></div>${tabs('Nimo')}`
+    const sc = root.querySelector('.scroll')
+    if (sc) sc.scrollTop = keep
+    if (q || thinking) { const el = $('#q', root) as HTMLInputElement | null; if (el && !thinking) el.focus() }
   }
   const resultCard = () => {
     const r = receipt!
@@ -72,6 +94,34 @@ route('/pip', async (root) => {
     <button class="btn gold block" data-act="duel">${ic('swords', 's20')}Settle the bill with a friend</button>`
   }
   draw()
+  const ask = async (text0: string) => {
+    const t = text0.trim()
+    if (t.length < 2 || thinking) return
+    msgs.push({ role: 'me', text: t })
+    q = ''
+    if (t === 'Start a Settle') {
+      msgs.push({ role: 'nimo', text: 'Easy. Invite a friend, agree the bill and who pays, then play Last Bite. Whoever loses pays their share. Got a receipt? Read it below first and I will fill in the total.', link: ['Open Settle', '/g/lastbite'] })
+      return draw()
+    }
+    if (t === 'My savings plan') {
+      msgs.push({ role: 'nimo', text: planText(), link: ['Open my jar', '/jar'] })
+      return draw()
+    }
+    thinking = true
+    draw()
+    try {
+      const hist = msgs.slice(0, -1).map((m) => ({ role: m.role, text: m.text }))
+      const r = await api.chat({ text: t, history: hist })
+      msgs.push({ role: 'nimo', text: r.reply })
+    } catch (e: any) {
+      msgs.push({ role: 'nimo', text: e.message || 'I lost my train of thought. Try again in a moment.' })
+    }
+    thinking = false
+    draw()
+    const c = $('#chat', root)
+    const sc = root.querySelector('.scroll')
+    if (c && sc) sc.scrollTop = c.offsetTop + c.offsetHeight
+  }
   const run = async (b: { imageBase64?: string; mime?: string; text?: string }) => {
     busy = true
     err = ''
@@ -94,6 +144,14 @@ route('/pip', async (root) => {
       const b = root.querySelector<HTMLButtonElement>('[data-act=parse]')
       if (b) b.disabled = busy || text.trim().length < 3
     }
+    if (t.id === 'q') {
+      q = t.value
+      const b = root.querySelector<HTMLButtonElement>('[data-act=ask]')
+      if (b) b.disabled = thinking || q.trim().length < 2
+    }
+  })
+  root.addEventListener('keydown', (e) => {
+    if ((e.target as HTMLElement).id === 'q' && (e as KeyboardEvent).key === 'Enter') void ask(q)
   })
   root.addEventListener('change', async (e) => {
     const t = e.target as HTMLInputElement
@@ -107,6 +165,10 @@ route('/pip', async (root) => {
     void run({ imageBase64: cv.toDataURL('image/jpeg', 0.82).split(',')[1], mime: 'image/jpeg' })
   })
   actions(root, {
+    chip: (el) => (sfx('ui/select'), void ask(el.dataset.q!)),
+    ask: () => void ask(q),
+    lnk: (el) => go(el.dataset.to!),
+    typed: () => ((typed = !typed), sfx('ui/select'), draw()),
     snap: () => $('#rf', root)!.click(),
     parse: () => void run({ text }),
     n: (el) => ((n = Number(el.dataset.n)), sfx('ui/select'), draw()),

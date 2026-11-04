@@ -39,3 +39,8 @@ export const gameCard = (id: string, g: { name: string; blurb: string; tag?: str
 export const pipRow = (mood: string, text: string) => `<div class="pipr">${pipImg(mood)}<div class="bubble">${text}</div></div>`
 export const errBox = (msg: string) => `<div class="err" role="alert">${ic('triangle-alert', 's20')}<span>${esc(msg)}</span></div>`
 export { avatar }
+
+/** Show the first `shown` rows with a "Show more" button when there are more. Pages are 5 rows. */
+export const PAGE = 5
+export const pageRows = (rows: string[], shown: number, act: string) =>
+  rows.slice(0, shown).join('') + (rows.length > shown ? `<button class="btn ghost block more" data-act="${act}">Show more<small>${rows.length - shown} left</small></button>` : '')
