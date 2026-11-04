@@ -6,8 +6,12 @@ import { billShares, escrowRequired, toLuna } from '../shared/economy'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { sevensOf, scoreWords, wordRack } from '../shared/words'
+import { chessMove, chessResign, chessScore, chessTick, chessTimeUp, initChess, type ChessLive } from '../shared/chessgame'
+import { initPool, poolResign, poolScore, poolShot, poolTick, poolTimeUp, type PoolLive } from '../shared/poolgame'
 import { ENGINE_GAMES, GAME_DURATION_MS, PIP_ADDRESS, PIP_NAMES, PIP_TRIVIA, pipScore } from '../shared/pip'
 import { rng } from '../shared/rng'
+import { replaySolitaire } from '../shared/solitaire'
+import { replayBubble } from '../shared/bubblesim'
 import { makeSudoku } from '../shared/puzzles'
 import {
   GAMES, LUNA, STAKES, levelFor,
@@ -43,6 +47,10 @@ const wordDict = () => (DICT ??= new Set(readFileSync(fileURLToPath(new URL('../
 
 export class Engine {
   lockDays = Number(process.env.JAR_LOCK_DAYS ?? 30)
+  /** Per-match cap in NIM. Mainnet defaults to a small cap until it is raised on purpose. */
+  get maxStakeNim() {
+    return Number(process.env.MAX_STAKE_NIM ?? (this.chain.kind === 'nimiq' && this.chain.network === 'mainnet' ? 25 : 1000))
+  }
   constructor(public store: Store, public chain: Chain) {}
   get db() {
     return this.store.db
@@ -135,7 +143,7 @@ export class Engine {
 
   // ---------------- matches ----------------
 
-  private view(m: MatchRec, viewer?: string): PublicMatch & Record<string, unknown> {
+  private view(m: MatchRec, viewer?: string, seenShot?: number): PublicMatch & Record<string, unknown> {
     const showSeed = m.status === 'playing' || m.status === 'settled'
     const out: any = { ...m }
     delete out.size
@@ -149,6 +157,11 @@ export class Engine {
       progress: p.progress, result: m.status === 'settled' ? p.result : p.result ? { score: 0, time: 0, done: true } : undefined,
     }))
     out.serverNow = Date.now()
+    if (m.live?.kind === 'pool' && m.live.last) {
+      // the ball paths are big: send them once, to whoever has not seen that shot yet
+      const last = m.live.last
+      out.live = { ...m.live, last: { ...last, frames: seenShot !== undefined && seenShot < last.no ? last.frames : [] } }
+    }
     out.fundBy = m.fundBy
     out.settlement = m.settlement
     if (m.trivia && (m.status === 'playing' || m.status === 'settled')) {
@@ -166,12 +179,12 @@ export class Engine {
     return out
   }
 
-  get(id: string, viewer: string) {
+  get(id: string, viewer: string, seenShot?: number) {
     const m = this.db.matches[id]
     if (!m) throw bad('Match not found', 404)
     if (!m.players.some((p) => p.player.address === viewer)) throw bad('Not your match', 403)
     this.tick(m)
-    return this.view(m, viewer)
+    return this.view(m, viewer, seenShot)
   }
 
   mine(address: string) {
@@ -211,6 +224,7 @@ export class Engine {
       stake = Math.round(Number(b.stake) * 100) / 100
       if (!(stake >= 0.5 && stake <= 1000)) throw bad('A bill must be between 0.5 and 1000 NIM')
     }
+    if (stake > this.maxStakeNim) throw bad(`The limit on this server is ${this.maxStakeNim} NIM per match`)
     const size = game === 'lastbite' && opp !== 'auto' ? Math.max(2, Math.min(4, Math.floor(Number(b.size)) || 2)) : 2
     if (opp === 'auto') {
       const cfgTopic = game === 'trivia' ? String(b.config?.topic || 'General knowledge').slice(0, 60) : ''
@@ -387,6 +401,7 @@ export class Engine {
     if (!m || !pl) throw bad('Match not found', 404)
     this.tick(m)
     if (m.game === 'trivia') throw bad('Trivia is scored by the server')
+    if (m.live) throw bad('This game is played live, moves go through the relay')
     if (m.status !== 'playing') throw bad(m.status === 'settled' ? 'Already settled' : 'The round is not live')
     if (pl.result) return this.view(m, addr)
     const score = Math.max(0, Number(b.score) || 0)
@@ -400,15 +415,91 @@ export class Engine {
       if (JSON.stringify(b.detail.grid) !== JSON.stringify(pz.solution)) throw bad('That grid does not solve this puzzle')
     }
     let finalScore = score
+    let finalTime = time
+    let detail = b.detail
+    // Solitaire and Bubble: the client sends its move log, the server replays it from the match seed and scores it itself.
+    if (m.game === 'solitaire' || m.game === 'bubble') {
+      const limitMs = GAME_DURATION_MS[m.game] + GRACE_MS
+      const r = m.game === 'solitaire' ? replaySolitaire(m.seed, b.detail?.moves, limitMs) : replayBubble(m.seed, b.detail?.shots, limitMs)
+      if (r.ok) {
+        finalScore = r.score
+        if ('lastAt' in r) finalTime = Math.max(time, r.lastAt)
+        detail = { verified: true, ...('moves' in r ? { moves: r.moves } : { shots: r.shots, popped: r.popped }) }
+      } else {
+        finalScore = 0
+        detail = { verified: false, reason: r.reason }
+      }
+    }
     if (m.game === 'word') {
       const d = wordDict()
       finalScore = scoreWords(b.detail?.words, wordRack(m.seed, sevensOf([...d])), d).score
     }
-    pl.result = { score: finalScore, time, detail: b.detail }
+    pl.result = { score: finalScore, time: finalTime, detail }
     pl.progress = finalScore
     this.maybeSettle(m)
     this.store.save()
     return this.view(m, addr)
+  }
+
+  // ---------------- live head-to-head (chess, pool) ----------------
+
+  /** Chess and pool between two people run on the server, so the result cannot be reported by a client. */
+  private isLive(m: MatchRec) {
+    return ENGINE_GAMES.includes(m.game) && m.players.length === 2 && m.players.every((p) => !p.isBot)
+  }
+
+  private seatOf(m: MatchRec, addr: string): 0 | 1 {
+    return m.players.findIndex((p) => p.player.address === addr) === 0 ? 0 : 1
+  }
+
+  move(addr: string, id: string, b: any) {
+    const m = this.db.matches[id]
+    if (!m || !m.players.some((p) => p.player.address === addr)) throw bad('Match not found', 404)
+    this.tick(m)
+    if (!m.live) throw bad(m.status === 'settled' ? 'Already settled' : 'This match is not live')
+    if (m.status !== 'playing') throw bad('The match is over')
+    const seat = this.seatOf(m, addr)
+    const now = Date.now()
+    try {
+      if (b?.resign) {
+        if (m.live.kind === 'chess') chessResign(m.live, seat)
+        else poolResign(m.live, seat)
+      } else if (m.live.kind === 'chess') chessMove(m.live, seat, b ?? {}, now)
+      else poolShot(m.live, seat, b ?? {}, now)
+    } catch (e) {
+      throw bad(e instanceof Error ? e.message : 'Bad move')
+    }
+    this.syncLive(m, now)
+    this.store.save()
+    return this.view(m, addr, -1)
+  }
+
+  /** Clocks, match timer, and turning a finished game into results. */
+  private syncLive(m: MatchRec, now: number) {
+    const l = m.live as ChessLive | PoolLive | undefined
+    if (!l || m.status !== 'playing') return
+    if (!l.over) {
+      if (l.kind === 'chess') chessTick(l, now)
+      else poolTick(l, now)
+    }
+    if (!l.over && m.startsAt && now >= m.startsAt + GAME_DURATION_MS[m.game]) {
+      if (l.kind === 'chess') chessTimeUp(l)
+      else poolTimeUp(l)
+    }
+    if (!l.over) return
+    const elapsed = Math.max(0, Math.min(GAME_DURATION_MS[m.game], now - (m.startsAt ?? now)))
+    m.players.forEach((p, i) => {
+      if (p.result) return
+      const score = l.kind === 'chess' ? chessScore(l, i as 0 | 1) : poolScore(l, i as 0 | 1)
+      p.result = { score, time: elapsed, detail: { live: true, reason: l.over!.reason } }
+      p.progress = score
+    })
+    this.maybeSettle(m)
+    if (m.settlement) {
+      const o = l.over
+      const why: Record<string, string> = { checkmate: 'Checkmate', timeout: 'Won on time', resign: 'Resigned', eight: 'Sank the 8-ball', idle: 'Opponent left the table', time: 'Time up' }
+      m.settlement.reason = o.winner === null ? (o.reason === 'stalemate' ? 'Stalemate' : 'Draw') : (why[o.reason] ?? 'Best score wins')
+    }
   }
 
   // ---------------- lifecycle ----------------
@@ -420,7 +511,10 @@ export class Engine {
     else if (m.status === 'ready' && m.startsAt && now >= m.startsAt) {
       m.status = 'playing'
       m.endsAt = m.startsAt + GAME_DURATION_MS[m.game] + GRACE_MS
+      if (this.isLive(m)) m.live = m.game === 'chess' ? initChess(m.seed, m.startsAt) : initPool(m.seed, m.startsAt)
       this.store.save()
+    } else if (m.status === 'playing' && m.live && !m.live.over) {
+      this.syncLive(m, now)
     } else if (m.status === 'playing' && m.endsAt && now > m.endsAt + FORFEIT_AFTER) {
       this.settle(m, true)
     }

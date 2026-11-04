@@ -1,3 +1,5 @@
+import type { ChessLive } from '../shared/chessgame'
+import type { PoolLive } from '../shared/poolgame'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Payout, PublicMatch, Result, Settlement } from '../shared/types'
@@ -49,6 +51,7 @@ export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
   }
   settlement?: Settlement
   settled?: boolean
+  live?: ChessLive | PoolLive
 }
 
 export type DB = {

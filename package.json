@@ -13,6 +13,7 @@
     "start": "tsx server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
+    "wallet:mainnet": "tsx scripts/mainnet-wallet.ts",
     "e2e": "tsx tests/e2e/run.ts"
   },
   "dependencies": {

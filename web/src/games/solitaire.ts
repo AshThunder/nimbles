@@ -1,4 +1,5 @@
 import { dealKlondike, canStack, canFound, cardId, type Card } from '../../../shared/puzzles'
+import { applyMove, solScore, SOL_MAX_SCORE, type SolMove } from '../../../shared/solitaire'
 import { GAME_DURATION_MS } from '../../../shared/pip'
 import { sfx, buzz, $ } from '../lib'
 import { clock, strip, setScores, finishBtn, wireFinish, type GameMod } from './common'
@@ -11,8 +12,14 @@ export const solitaire: GameMod = (ctx) => {
   const total = GAME_DURATION_MS.solitaire
   let sel: Sel | null = null
   let done = false
-  let moves = 0
-  const score = () => g.found.reduce((s, p) => s + p.length, 0) * 10
+  const log: SolMove[] = []
+  const t0 = Date.now()
+  const mv = (k: number, a = 0, b = 0, c = 0): boolean => {
+    if (!applyMove(g, k, a, b, c)) return false
+    log.push([k, a, b, c, Math.max(Date.now() - t0, (log[log.length - 1]?.[4] ?? -90) + 90)])
+    return true
+  }
+  const score = () => solScore(g)
   ctx.root.innerHTML = `<div class="top"><span style="width:40px"></span><div class="ttl">Solitaire Duel</div><span class="tmr" id="tm">3:00</span></div>
   <div class="scroll" style="gap:10px">${strip(m0, ctx.me)}<div class="tbar"><div class="pbar"><i id="tb" style="width:100%"></i></div></div><div class="sol" id="sol"></div>${finishBtn()}</div>`
   const clk = clock(m0, $('#tm', ctx.root), $('#tb', ctx.root), () => void end(), total)
@@ -43,45 +50,26 @@ export const solitaire: GameMod = (ctx) => {
   }
 
   const cardsOf = (s: Sel): Card[] => (s.from === 'waste' ? [g.waste[g.waste.length - 1]] : g.tab[s.col].slice(s.idx).map((t) => t.card))
-  const take = (s: Sel) => {
-    if (s.from === 'waste') g.waste.pop()
-    else {
-      g.tab[s.col].splice(s.idx)
-      const t = g.tab[s.col][g.tab[s.col].length - 1]
-      if (t && !t.up) t.up = true
-    }
-  }
   const afterMove = () => {
-    moves++
     sel = null
     const s = score()
     setScores(ctx.root, m0, ctx.me, { [ctx.me]: s })
     ctx.progress(s)
     draw()
-    if (s >= 520) void end()
+    if (s >= SOL_MAX_SCORE) void end()
   }
   const toTab = (col: number): boolean => {
     if (!sel) return false
-    const cs = cardsOf(sel)
-    if (!cs[0]) return false
-    const t = g.tab[col]
-    const topc = t.length ? t[t.length - 1] : undefined
-    if (topc && !topc.up) return false
     if (sel.from === 'tab' && sel.col === col) return false
-    if (!canStack(topc?.card, cs[0])) return false
-    const s = sel
-    take(s)
-    for (const c of cs) g.tab[col].push({ card: c, up: true })
+    if (!(sel.from === 'waste' ? mv(1, col) : mv(3, sel.col, sel.idx, col))) return false
     sfx('game/card-place', 0.5)
     afterMove()
     return true
   }
   const toFound = (p: number): boolean => {
     if (!sel) return false
-    const cs = cardsOf(sel)
-    if (cs.length !== 1 || !cs[0] || !canFound(g.found[p], cs[0])) return false
-    take(sel)
-    g.found[p].push(cs[0])
+    if (sel.from === 'tab' && sel.idx !== g.tab[sel.col].length - 1) return false
+    if (!(sel.from === 'waste' ? mv(2, p) : mv(4, sel.col, p))) return false
     sfx('reward/coin', 0.35)
     buzz(15)
     afterMove()
@@ -104,11 +92,7 @@ export const solitaire: GameMod = (ctx) => {
     const a = t.dataset.a
     if (a === 'stock') {
       sel = null
-      if (g.stock.length) g.waste.push(g.stock.pop()!)
-      else if (g.waste.length) {
-        g.stock = g.waste.reverse()
-        g.waste = []
-      }
+      mv(0)
       sfx('game/card-slide', 0.4)
       return draw()
     }
@@ -156,8 +140,8 @@ export const solitaire: GameMod = (ctx) => {
     done = true
     clk.stop()
     const s = score()
-    sfx(s >= 520 ? 'reward/win-big' : 'reward/lose')
-    await ctx.finish({ score: s, time: total - clk.left(), detail: { moves } })
+    sfx(s >= SOL_MAX_SCORE ? 'reward/win-big' : 'reward/lose')
+    await ctx.finish({ score: s, time: total - clk.left(), detail: { moves: log } })
   }
   return {
     update: (m) => setScores(ctx.root, m, ctx.me, { [ctx.me]: score() }),

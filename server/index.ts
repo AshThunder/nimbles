@@ -49,7 +49,7 @@ function limit(key: string, max: number, windowMs: number) {
 
 export async function createApp(opts: { dataDir?: string; persist?: boolean } = {}) {
   loadEnv()
-  const dataDir = opts.dataDir ?? join(ROOT, 'data')
+  const dataDir = opts.dataDir ?? (process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(ROOT, 'data'))
   const store = new Store(dataDir, opts.persist ?? true)
   const chain = await makeChain(dataDir)
   const engine = new Engine(store, chain)
@@ -111,7 +111,10 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
     }
     if ((m = path.match(/^\/matches\/([a-f0-9]+)(?:\/(\w+))?$/))) {
       const [, id, action] = m
-      if (method === 'GET' && !action) return send(res, 200, engine.get(id, me))
+      if (method === 'GET' && !action) {
+        const shot = new URL(req.url ?? '/', 'http://x').searchParams.get('shot')
+        return send(res, 200, engine.get(id, me, shot === null ? undefined : Number(shot)))
+      }
       if (method === 'POST') {
         const b = await readBody(req, 65536)
         if (action === 'fund') return send(res, 200, await engine.fund(me, id, b.txHash))
@@ -119,6 +122,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
         if (action === 'answer') return send(res, 200, engine.answer(me, id, b))
         if (action === 'progress') return send(res, 200, engine.progress(me, id, Number(b.score)))
         if (action === 'result') return send(res, 200, engine.result(me, id, b))
+        if (action === 'move') return send(res, 200, engine.move(me, id, b))
       }
     }
     if (method === 'POST' && path === '/vault/solve') return send(res, 200, engine.vaultSolve(me, (await readBody(req, 4096)).grid))

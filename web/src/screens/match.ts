@@ -1,6 +1,6 @@
 import qrcode from 'qrcode-generator'
 import { api, serverNow, type MatchView } from '../api'
-import { MODS } from '../games'
+import { LIVE_MODS, MODS } from '../games'
 import { meOf, others, type GameInst } from '../games/common'
 import { actions, avatar, confetti, esc, fmtTime, glyph, GLYPH_BG, ic, pipImg, shortAddr, sfx, buzz, toast, tap, $ } from '../lib'
 import { S, go, route } from '../state'
@@ -231,7 +231,7 @@ route('/m/:id', async (root, { id }) => {
   }
 
   function play() {
-    const mod = MODS[m.game]
+    const mod = m.live ? LIVE_MODS[m.game] : MODS[m.game]
     if (!mod) {
       root.innerHTML = `${header()}<div class="scroll" style="gap:14px">${pipRow('sleepy', `<b>${GAMES[m.game].name} is not built yet.</b> Cancel and pick another game`)}</div>`
       return
@@ -241,7 +241,7 @@ route('/m/:id', async (root, { id }) => {
     gameRoot = document.createElement('div')
     gameRoot.className = 'view'
     root.appendChild(gameRoot)
-    game = mod({ root: gameRoot, m, me: S.wallet.address, finish, progress })
+    game = mod({ root: gameRoot, m, me: S.wallet.address, finish, progress, sync: (nm) => { m = nm; onMatch() } })
   }
 
   function waiting() {
@@ -345,7 +345,7 @@ route('/m/:id', async (root, { id }) => {
     if (m.status === 'settled') {
       if (tail++ >= 10 || !m.settlement!.payouts.some((p) => !p.tx && p.luna >= 1)) return
     }
-    poll = setTimeout(loop, m.status === 'playing' || m.status === 'ready' ? 1200 : 2000)
+    poll = setTimeout(loop, m.live && m.status === 'playing' ? 700 : m.status === 'playing' || m.status === 'ready' ? 1200 : 2000)
   }
   onMatch()
   poll = setTimeout(loop, 1200)

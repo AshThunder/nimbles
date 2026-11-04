@@ -9,7 +9,7 @@ export const GAMES: Record<GameId, { name: string; blurb: string; tag?: 'Hot' | 
   trivia: { name: 'AI Trivia Duel', blurb: 'Any topic', tag: 'Hot', minutes: '2 min', level: 5, maxPlayers: 2 },
   solitaire: { name: 'Solitaire Duel', blurb: 'Same deal', minutes: '3 min', level: 4, maxPlayers: 2 },
   chess: { name: 'Chess Blitz', blurb: '3 min', minutes: '3 min', level: 2, maxPlayers: 2 },
-  pool: { name: '8-Ball Pool', blurb: 'Best of 3', tag: 'New', minutes: '3 min', level: 1, maxPlayers: 2 },
+  pool: { name: '8-Ball Pool', blurb: 'Live duel', tag: 'New', minutes: '3 min', level: 1, maxPlayers: 2 },
   sudoku: { name: 'Sudoku', blurb: 'Race a grid', minutes: '3 min', level: 6, maxPlayers: 2 },
   bubble: { name: 'Bubble Shooter', blurb: '90 sec', tag: 'Hot', minutes: '90 sec', level: 3, maxPlayers: 2 },
   word: { name: 'Word Rush', blurb: 'Same letters', tag: 'New', minutes: '1 min', level: 1, maxPlayers: 2 },

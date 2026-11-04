@@ -5,7 +5,7 @@ import { join } from 'node:path'
 export type DepositCheck = { ok: true } | { ok: false; reason: string; pending?: boolean }
 
 export interface Chain {
-  readonly kind: 'mock' | 'testnet'
+  readonly kind: 'mock' | 'nimiq'
   readonly network: 'testnet' | 'mainnet'
   readonly escrowAddress: string
   /** Look the tx up on chain and check sender, recipient, value, memo, execution result and finality. */
@@ -58,36 +58,48 @@ export class MockChain implements Chain {
   }
 }
 
-// ---------------- testnet chain (Nimiq TestAlbatross over JSON-RPC, tx built offline with @nimiq/core) ----------------
+// ---------------- Nimiq chain (testnet or mainnet over JSON-RPC, txs built and signed offline with @nimiq/core) ----------------
 
-const TEST_ALBATROSS = 5 // networkId reported by testnet transactions
+export type Network = 'testnet' | 'mainnet'
+const NETWORK_ID: Record<Network, number> = { testnet: 5, mainnet: 24 } // TestAlbatross / Albatross, as reported by transactions
+const DEFAULT_RPC: Record<Network, string> = { testnet: 'https://rpc.testnet.nimiqwatch.com/', mainnet: 'https://rpc.nimiqwatch.com/' }
 
-export class TestnetChain implements Chain {
-  readonly kind = 'testnet' as const
-  readonly network = 'testnet' as const
+/** Escrow key sources, in order: ESCROW_PRIVATE_KEY (hex), ESCROW_KEY_FILE, data/escrow.<network>.key.
+ *  Testnet may generate a throwaway key. Mainnet never does: the key must already exist, or the server refuses to start. */
+export function loadEscrowKey(network: Network, dataDir: string): { hex: string; source: string } | null {
+  const env = (process.env.ESCROW_PRIVATE_KEY || '').trim()
+  if (env) return { hex: env, source: 'env' }
+  const files = [process.env.ESCROW_KEY_FILE, join(dataDir, `escrow.${network}.key`), ...(network === 'testnet' ? [join(dataDir, 'escrow.key')] : [])].filter(Boolean) as string[]
+  for (const f of files) if (existsSync(f)) return { hex: readFileSync(f, 'utf8').trim(), source: f }
+  return null
+}
+
+export class NimiqChain implements Chain {
+  readonly kind = 'nimiq' as const
   escrowAddress = ''
   private Nimiq: any
   private key: any
-  private rpcUrl = process.env.NIMIQ_RPC_URL || 'https://rpc.testnet.nimiqwatch.com/'
+  private rpcUrl: string
   private minConfirmations = Number(process.env.MIN_CONFIRMATIONS ?? 2)
   private sendQueue: Promise<unknown> = Promise.resolve()
 
-  constructor(private dataDir: string) {}
+  constructor(private dataDir: string, readonly network: Network = 'testnet') {
+    this.rpcUrl = process.env.NIMIQ_RPC_URL || DEFAULT_RPC[network]
+  }
 
   async start() {
     const N = (this.Nimiq = await import('@nimiq/core'))
-    // Escrow key: env first, then data/escrow.key (git-ignored), otherwise generate a fresh testnet-only key.
-    let hex = (process.env.ESCROW_PRIVATE_KEY || '').trim()
-    const file = join(this.dataDir, 'escrow.key')
-    if (!hex && existsSync(file)) hex = readFileSync(file, 'utf8').trim()
-    if (!hex) {
+    let found = loadEscrowKey(this.network, this.dataDir)
+    if (!found) {
+      if (this.network === 'mainnet') throw new Error('No mainnet escrow key. Set ESCROW_PRIVATE_KEY or ESCROW_KEY_FILE (run `npm run wallet:mainnet` to create one). Mainnet never auto-generates a key.')
       mkdirSync(this.dataDir, { recursive: true })
-      hex = randomBytes(32).toString('hex')
-      writeFileSync(file, hex, { mode: 0o600 })
+      const hex = randomBytes(32).toString('hex')
+      writeFileSync(join(this.dataDir, `escrow.${this.network}.key`), hex, { mode: 0o600 })
+      found = { hex, source: 'generated' }
     }
-    this.key = N.KeyPair.derive(N.PrivateKey.fromHex(hex))
+    this.key = N.KeyPair.derive(N.PrivateKey.fromHex(found.hex))
     this.escrowAddress = this.key.toAddress().toUserFriendlyAddress()
-    console.log('[chain] testnet escrow', this.escrowAddress, 'rpc', this.rpcUrl)
+    console.log(`[chain] ${this.network} escrow ${this.escrowAddress} (key from ${found.source === 'env' ? 'env' : found.source === 'generated' ? 'new file' : 'file'}), rpc ${this.rpcUrl}`)
   }
 
   private async rpc(method: string, params: unknown[]): Promise<any> {
@@ -112,7 +124,7 @@ export class TestnetChain implements Chain {
     }
     if (!t || t.blockNumber == null) return { ok: false, reason: 'Waiting for the block', pending: true }
     if (t.executionResult === false) return { ok: false, reason: 'Transaction failed on chain' }
-    if (t.networkId !== TEST_ALBATROSS) return { ok: false, reason: 'Wrong network' }
+    if (t.networkId !== NETWORK_ID[this.network]) return { ok: false, reason: 'Wrong network' }
     if (!sameAddr(t.from, e.from)) return { ok: false, reason: 'Sent from a different wallet' }
     if (!sameAddr(t.to, this.escrowAddress)) return { ok: false, reason: 'Not sent to the escrow address' }
     if (Number(t.value) < e.luna) return { ok: false, reason: 'Amount is too low' }
@@ -133,7 +145,7 @@ export class TestnetChain implements Chain {
         BigInt(luna),
         0n,
         height,
-        TEST_ALBATROSS,
+        NETWORK_ID[this.network],
       )
       tx.sign(this.key)
       const hex = Buffer.from(tx.serialize()).toString('hex')
@@ -152,16 +164,34 @@ export class TestnetChain implements Chain {
   }
 }
 
+/** Kept for the testnet scripts. */
+export class TestnetChain extends NimiqChain {
+  constructor(dataDir: string) {
+    super(dataDir, 'testnet')
+  }
+}
+
+/** CHAIN=mock (default) | nimiq, with NETWORK=testnet (default) | mainnet. `CHAIN=testnet|mainnet` still works as shorthand. */
+export function resolveChainConfig(env: NodeJS.ProcessEnv = process.env): { kind: 'mock' | 'nimiq'; network: Network } {
+  const raw = (env.CHAIN || 'mock').toLowerCase()
+  const net = (env.NETWORK || '').toLowerCase()
+  if (net && net !== 'testnet' && net !== 'mainnet') throw new Error('NETWORK must be testnet or mainnet')
+  if (raw === 'mock') return { kind: 'mock', network: 'testnet' }
+  if (raw === 'testnet' || raw === 'mainnet') {
+    if (net && net !== raw) throw new Error(`CHAIN=${raw} conflicts with NETWORK=${net}`)
+    return { kind: 'nimiq', network: raw }
+  }
+  if (raw === 'nimiq') return { kind: 'nimiq', network: (net || 'testnet') as Network }
+  throw new Error('CHAIN must be mock or nimiq')
+}
+
 export async function makeChain(dataDir: string): Promise<Chain> {
-  const kind = (process.env.CHAIN || 'mock').toLowerCase()
-  if (kind === 'mainnet') {
-    if (process.env.ALLOW_MAINNET !== 'yes') throw new Error('CHAIN=mainnet is blocked. Nimbles only runs on testnet until it is deliberately enabled.')
-    throw new Error('Mainnet chain adapter is not implemented yet.')
+  const { kind, network } = resolveChainConfig()
+  if (kind === 'mock') return new MockChain()
+  if (network === 'mainnet' && process.env.ALLOW_MAINNET !== 'yes') {
+    throw new Error('Mainnet moves real NIM. Set ALLOW_MAINNET=yes to start it deliberately.')
   }
-  if (kind === 'testnet') {
-    const c = new TestnetChain(dataDir)
-    await c.start()
-    return c
-  }
-  return new MockChain()
+  const c = new NimiqChain(dataDir, network)
+  await c.start()
+  return c
 }

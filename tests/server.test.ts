@@ -133,12 +133,12 @@ test('spend duel: loser pays the larger share to the payer, the rest is refunded
 
 test('Pip: play only, free, scores from the shared seed', async () => {
   const ta = await login(A, 'Ada')
-  assert.equal((await call(ta, 'POST', '/matches', { game: 'solitaire', mode: 'save', stake: 2, opp: 'pip' })).status, 400)
-  const c = (await call(ta, 'POST', '/matches', { game: 'solitaire', mode: 'play', opp: 'pip', pipLevel: 'easy' })).j
+  assert.equal((await call(ta, 'POST', '/matches', { game: 'chess', mode: 'save', stake: 2, opp: 'pip' })).status, 400)
+  const c = (await call(ta, 'POST', '/matches', { game: 'chess', mode: 'play', opp: 'pip', pipLevel: 'easy' })).j
   assert.equal(c.status, 'ready')
   app.engine.db.matches[c.id].startsAt = Date.now() - 1
   await call(ta, 'GET', `/matches/${c.id}`)
-  const r = (await call(ta, 'POST', `/matches/${c.id}/result`, { score: 400, time: 100000 })).j
+  const r = (await call(ta, 'POST', `/matches/${c.id}/result`, { score: 1, time: 100000 })).j
   assert.equal(r.status, 'settled')
   assert.equal(r.settlement.winner, A)
   assert.equal(r.settlement.payouts.length, 0)

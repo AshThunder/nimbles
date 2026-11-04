@@ -4,7 +4,7 @@ import { avatar, esc, fmtTime } from '../lib'
 import { GAME_DURATION_MS } from '../../../shared/pip'
 
 export type FinishArg = { score: number; time: number; detail?: unknown }
-export type GameCtx = { root: HTMLElement; m: MatchView; me: string; finish: (r: FinishArg) => Promise<void>; progress: (score: number) => void }
+export type GameCtx = { root: HTMLElement; m: MatchView; me: string; finish: (r: FinishArg) => Promise<void>; progress: (score: number) => void; sync: (m: MatchView) => void }
 export type GameInst = { update(m: MatchView): void; destroy(): void }
 export type GameMod = (ctx: GameCtx) => GameInst
 

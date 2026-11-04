@@ -1,3 +1,5 @@
+import type { ChessLive } from '../../shared/chessgame'
+import type { PoolLive } from '../../shared/poolgame'
 import type { Profile, PublicMatch } from '../../shared/types'
 
 let token = sessionStorage.getItem('nb:token') ?? ''
@@ -32,7 +34,9 @@ async function call<T = any>(method: string, path: string, body?: unknown): Prom
   return j as T
 }
 
-export type Config = { chain: 'mock' | 'testnet' | 'mainnet'; network: 'testnet' | 'mainnet'; escrow: string; lockDays: number; ai: { gemini: boolean; model: string | null }; mock: boolean; serverNow: number }
+/** Last pool shot number each match has already animated, so the server only sends the ball paths once */
+export const liveSeen: Record<string, number> = {}
+export type Config = { chain: 'mock' | 'nimiq'; network: 'testnet' | 'mainnet'; escrow: string; lockDays: number; ai: { gemini: boolean; model: string | null }; mock: boolean; serverNow: number }
 export type Row = { rank: number; address: string; name: string; avatar: string; weekXp: number; level: number; me: boolean }
 export type MatchView = Omit<PublicMatch, 'players'> & {
   size?: number
@@ -40,6 +44,7 @@ export type MatchView = Omit<PublicMatch, 'players'> & {
   serverNow?: number
   pending?: boolean
   pendingReason?: string
+  live?: ChessLive | PoolLive
   trivia?: {
     topic: string; source?: string; verified?: boolean; count?: number; qMs?: number
     questions?: { q: string; options: string[]; category: string; answer?: number; fact?: string }[]
@@ -58,7 +63,8 @@ export const api = {
   matches: () => call<MatchView[]>('GET', '/matches'),
   create: (b: unknown) => call<MatchView>('POST', '/matches', b),
   join: (code: string) => call<MatchView>('POST', '/matches/join', { code }),
-  match: (id: string) => call<MatchView>('GET', '/matches/' + id),
+  match: (id: string) => call<MatchView>('GET', `/matches/${id}?shot=${liveSeen[id] ?? 0}`),
+  move: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/move`, b),
   fund: (id: string, txHash: string) => call<MatchView>('POST', `/matches/${id}/fund`, { txHash }),
   cancel: (id: string) => call<MatchView>('POST', `/matches/${id}/cancel`, {}),
   answer: (id: string, q: number, choice: number, ms: number) => call<any>('POST', `/matches/${id}/answer`, { q, choice, ms }),

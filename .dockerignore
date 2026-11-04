@@ -1,0 +1,17 @@
+.git
+node_modules
+dist
+data
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.secret
+secrets
+tests/e2e/out
+test-results
+sheets
+tools
+*.log
+.DS_Store
