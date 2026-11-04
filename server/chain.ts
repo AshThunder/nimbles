@@ -2,15 +2,17 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** `wrongSender` is set when the deposit is otherwise valid (to escrow, right memo, enough value, final) but signed by another wallet */
-export type DepositCheck = { ok: true } | { ok: false; reason: string; pending?: boolean; wrongSender?: { from: string; luna: number } }
+/** A good deposit says who paid (`from`) and which ordinary wallet address that payer stands for (`owner`).
+ *  Nimiq Pay can pay out of a contract account (an HTLC funded by the user's wallet). Money can't be sent back to a
+ *  contract, so `owner` is the wallet behind it. `related` lists every address the tx touches. */
+export type DepositCheck = { ok: true; from: string; owner: string | null; related: string[] } | { ok: false; reason: string; pending?: boolean }
 
 export interface Chain {
   readonly kind: 'mock' | 'nimiq'
   readonly network: 'testnet' | 'mainnet'
   readonly escrowAddress: string
   /** Look the tx up on chain and check sender, recipient, value, memo, execution result and finality. */
-  verifyDeposit(tx: string, expect: { from: string; luna: number; memo: string }): Promise<DepositCheck>
+  verifyDeposit(tx: string, expect: { luna: number; memo: string }): Promise<DepositCheck>
   /** Pay out of escrow. Returns the tx hash. */
   pay(to: string, luna: number, memo: string): Promise<string>
   balance(): Promise<number>
@@ -22,7 +24,8 @@ export const isNimiqAddress = (a: string) => /^NQ\d{2}( ?[0-9A-HJ-NP-Z]{4}){8}$/
 
 // ---------------- mock chain (tests, offline dev) ----------------
 
-type MockTx = { from: string; to: string; luna: number; memo: string }
+/** `contract` + `owner` mimic Nimiq Pay paying out of an HTLC that a wallet account funded */
+type MockTx = { from: string; to: string; luna: number; memo: string; contract?: boolean; owner?: string }
 
 export class MockChain implements Chain {
   readonly kind = 'mock' as const
@@ -38,14 +41,14 @@ export class MockChain implements Chain {
     return hash
   }
 
-  async verifyDeposit(tx: string, e: { from: string; luna: number; memo: string }): Promise<DepositCheck> {
+  async verifyDeposit(tx: string, e: { luna: number; memo: string }): Promise<DepositCheck> {
     const t = this.txs.get(tx)
     if (!t) return { ok: false, reason: 'Transaction not found' }
     if (!sameAddr(t.to, this.escrowAddress)) return { ok: false, reason: 'Not sent to the escrow address' }
     if (t.luna < e.luna) return { ok: false, reason: 'Amount is too low' }
     if (t.memo !== e.memo) return { ok: false, reason: 'Memo does not match this match' }
-    if (!sameAddr(t.from, e.from)) return { ok: false, reason: 'Sent from a different wallet', wrongSender: { from: t.from, luna: t.luna } }
-    return { ok: true }
+    const owner = t.contract ? t.owner ?? null : t.from
+    return { ok: true, from: t.from, owner, related: [t.from, ...(owner ? [owner] : [])] }
   }
 
   async pay(to: string, luna: number, memo: string): Promise<string> {
@@ -115,7 +118,7 @@ export class NimiqChain implements Chain {
     return j.result?.data
   }
 
-  async verifyDeposit(txHash: string, e: { from: string; luna: number; memo: string }): Promise<DepositCheck> {
+  async verifyDeposit(txHash: string, e: { luna: number; memo: string }): Promise<DepositCheck> {
     if (!/^[0-9a-f]{64}$/i.test(txHash)) return { ok: false, reason: 'Bad transaction hash' }
     let t: any
     try {
@@ -131,13 +134,30 @@ export class NimiqChain implements Chain {
     const memo = Buffer.from(String(t.recipientData || ''), 'hex').toString('utf8')
     if (memo !== e.memo) return { ok: false, reason: 'Memo does not match this match' }
     if ((t.confirmations ?? 0) < this.minConfirmations) return { ok: false, reason: 'Waiting for confirmations', pending: true }
-    if (!sameAddr(t.from, e.from)) return { ok: false, reason: 'Sent from a different wallet', wrongSender: { from: String(t.from), luna: Number(t.value) } }
-    return { ok: true }
+    const from = String(t.from)
+    const related: string[] = Array.isArray(t.relatedAddresses) ? t.relatedAddresses.map(String) : []
+    return { ok: true, from, owner: await this.ownerOf(from, t.fromType), related }
+  }
+
+  /** The ordinary wallet address behind a payer. A basic account is its own owner. For an HTLC it is the account that
+   *  funded it, for a vesting contract the owner. Anything else is unknown (null). */
+  private async ownerOf(from: string, fromType: unknown): Promise<string | null> {
+    if (fromType === 0 || fromType === undefined) return from
+    try {
+      const a = await this.rpc('getAccountByAddress', [from])
+      if (a?.type === 'basic') return from
+      if (a?.type === 'htlc' && isNimiqAddress(String(a.sender))) return String(a.sender)
+      if (a?.type === 'vesting' && isNimiqAddress(String(a.owner))) return String(a.owner)
+    } catch { /* unknown */ }
+    return null
   }
 
   pay(to: string, luna: number, memo: string): Promise<string> {
     const run = async () => {
       const N = this.Nimiq
+      // a contract account (HTLC, vesting) rejects plain transfers: the tx would confirm but fail, and the NIM stays in escrow
+      const dest = await this.rpc('getAccountByAddress', [to]).catch(() => null)
+      if (dest && dest.type && dest.type !== 'basic') throw new Error(`Cannot pay ${to}: it is a ${dest.type} contract, not a wallet`)
       const height: number = await this.rpc('getBlockNumber', [])
       const tx = N.TransactionBuilder.newBasicWithData(
         this.key.toAddress(),

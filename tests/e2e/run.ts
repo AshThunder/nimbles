@@ -501,20 +501,22 @@ try {
     await shot(pa, 'wallet-locked-with-signer')
     log('wallet connects without a reload (late provider, error, empty list) and uses the signing account')
 
-    // (b) a wallet that cannot prove its signer and pays from another account: clear message, money goes back
+    // (b) Nimiq Pay pays from another account than the one it signs with: the payment counts, a small note says where from
     const pb = await flaky({ sender: ADDR.ada.replace(/2$/, '9'), accounts: [ADDR.tobi], canSign: false })
     await pb.goto('/')
     await pb.waitForSelector('.gcs', { timeout: 30000 })
-    await lockScreen(pb, ADDR.ada, 2)
+    const lb = await lockScreen(pb, ADDR.ada, 2)
     const before = (await (await fetch(`${BASE}/api/dev/mock-payouts`)).json()).length
     await pb.click('[data-act="fund"]')
-    await pb.waitForSelector('.err')
-    const msg = await pb.locator('.err').innerText()
-    assert.match(msg, /Nimiq Pay paid from NQ07…0009, but you are signed in as NQ07…0003/)
-    assert.match(msg, /sent back/)
-    assert.equal((await (await fetch(`${BASE}/api/dev/mock-payouts`)).json()).length, before + 1)
+    await pb.waitForSelector('.okb.on', { timeout: 20000 })
+    assert.equal(await pb.locator('.err').count(), 0, 'no red banner')
+    const note = await pb.locator('.rw.me .nm span').innerText()
+    assert.match(note, /Locked 2 NIM · paid from NQ07…0009/)
+    assert.equal((await (await fetch(`${BASE}/api/dev/mock-payouts`)).json()).length, before, 'nothing is sent back')
+    const bm = await matchOf(pb, lb.m.id)
+    assert.equal(bm.players.find((p: any) => p.paidFrom)?.funded, true)
     await shot(pb, 'wallet-wrong-signer')
-    log('a real wrong-signer payment is explained with both wallets and refunded')
+    log('a payment from another account of the same wallet is accepted with a small "paid from" note')
   }
 
   // ---------- 7. Preview mode (no wallet): free play only ----------

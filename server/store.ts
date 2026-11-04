@@ -19,6 +19,7 @@ export type ProfileRec = {
   questWins: number
   questChestDay: string
   jarLuna: number
+  payAddr?: string // where jar withdrawals go when deposits come from a different wallet than the signed-in one
   jarUnlockAt: number
   vaultDay: string // last day the vault puzzle was solved
   vaultDeposits: number
@@ -33,6 +34,8 @@ export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
     player: { address: string; name: string; avatar: string }
     funded: boolean
     fundTx?: string
+    payTo?: string // winnings and refunds go here when the lock was paid from a different wallet than the seat's
+    paidFrom?: string // the account that actually paid the lock
     escrowed: number
     result?: Result
     progress?: number

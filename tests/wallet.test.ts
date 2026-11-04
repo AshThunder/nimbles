@@ -56,44 +56,98 @@ test('the same wallet in another spacing or case is accepted, nothing is flagged
   assert.equal(r.j.players.find((p: any) => p.player.address === A).funded, true)
 })
 
-test('a real mismatch is flagged, names both wallets, and refunds the stray sender once', async () => {
+const paidOf = () => (app.chain as any).paid as { to: string; luna: number; memo: string }[]
+const seatOf = (j: any, a: string) => j.players.find((p: any) => p.player.address === a)
+
+test('a payment from another wallet is accepted, the seat is bound to the payer, and refunds go to the payer', async () => {
   const { A, ta, m } = await twoPlayerMatch()
   const OTHER = addr(9)
-  const tx = deposit(OTHER, 200000, m.escrow.memo)
-  const paidBefore = (app.chain as any).paid.length
+  const before = paidOf().length
+  const r = await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: deposit(OTHER, 200000, m.escrow.memo) })
+  assert.equal(r.status, 200, JSON.stringify(r.j))
+  const seat = seatOf(r.j, A)
+  assert.equal(seat.funded, true)
+  assert.equal(seat.paidFrom, OTHER, 'the player is told which account paid')
+  assert.equal(paidOf().length, before, 'nothing is refunded away, the payment counts')
+  // the player is still the same person: the seat is found by the signed-in address
+  assert.equal((await call(ta, 'GET', `/matches/${m.id}`)).status, 200)
+  // cancelling returns the stake to the account that paid, not to the signed-in address
+  assert.equal((await call(ta, 'POST', `/matches/${m.id}/cancel`)).status, 200)
+  await new Promise((r) => setTimeout(r, 50))
+  const back = paidOf().slice(before)
+  assert.equal(back.length, 1)
+  assert.equal(back[0].to.replace(/ /g, ''), OTHER.replace(/ /g, '').toUpperCase())
+  assert.equal(back[0].luna, 200000)
+})
+
+test('a payment out of a contract account goes back to the wallet behind it, never to the contract', async () => {
+  const { A, ta, m } = await twoPlayerMatch()
+  const HTLC = addr(7)
+  const tx = (app.chain as any).register({ from: HTLC, to: app.chain.escrowAddress, luna: 200000, memo: m.escrow.memo, contract: true, owner: A })
+  const before = paidOf().length
+  const r = await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: tx })
+  assert.equal(r.status, 200, JSON.stringify(r.j))
+  assert.equal(seatOf(r.j, A).paidFrom, HTLC)
+  assert.equal((await call(ta, 'POST', `/matches/${m.id}/cancel`)).status, 200)
+  await new Promise((r) => setTimeout(r, 50))
+  const back = paidOf().slice(before)
+  assert.equal(back.length, 1)
+  assert.equal(back[0].to, A, 'refund goes to the wallet account, not the contract')
+})
+
+test('a contract payer we cannot trace to a wallet is not counted', async () => {
+  const { ta, m } = await twoPlayerMatch()
+  const tx = (app.chain as any).register({ from: addr(7), to: app.chain.escrowAddress, luna: 200000, memo: m.escrow.memo, contract: true })
   const r = await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: tx })
   assert.equal(r.status, 400)
-  const short = (a: string) => { const n = a.replace(/ /g, ''); return n.slice(0, 4) + '…' + n.slice(-4) }
-  assert.match(r.j.error, /Nimiq Pay paid from/)
-  assert.ok(r.j.error.includes(short(OTHER)) && r.j.error.includes(short(A)), r.j.error)
-  const paid = (app.chain as any).paid.slice(paidBefore)
-  assert.equal(paid.length, 1)
-  assert.equal(paid[0].to, OTHER)
-  assert.equal(paid[0].luna, 200000)
-  // the same tx can neither be refunded twice nor counted
-  assert.equal((await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: tx })).status, 400)
-  assert.equal((app.chain as any).paid.length, paidBefore + 1)
-  // and the player is still able to lock in with the right wallet
-  const ok = await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: deposit(A, 200000, m.escrow.memo) })
-  assert.equal(ok.status, 200)
+  assert.match(r.j.error, /Nothing was counted/)
 })
 
-test('a deposit from the other player in the same match is not refunded away from them', async () => {
-  const { A, B, ta, m } = await twoPlayerMatch()
-  const before = (app.chain as any).paid.length
+test('a payment from the other player\'s wallet in the same match is blocked', async () => {
+  const { B, ta, m } = await twoPlayerMatch()
+  const before = paidOf().length
   const r = await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: deposit(B, 200000, m.escrow.memo) })
   assert.equal(r.status, 400)
-  assert.equal((app.chain as any).paid.length, before)
-  assert.ok(A)
+  assert.match(r.j.error, /another player/)
+  assert.equal(paidOf().length, before)
 })
 
-test('a wrong memo or amount is not reported as a sender problem and is never refunded', async () => {
+test('the other player cannot lock in with a payer who already holds a seat', async () => {
+  const { A, B, ta, tb, m } = await twoPlayerMatch()
+  const P = addr(9)
+  assert.equal((await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: deposit(P, 200000, m.escrow.memo) })).status, 200)
+  const r = await call(tb, 'POST', `/matches/${m.id}/fund`, { txHash: deposit(P, 200000, m.escrow.memo) })
+  assert.equal(r.status, 400)
+  assert.match(r.j.error, /another player/)
+  assert.ok(A && B)
+})
+
+test('the same payment can never be used twice', async () => {
+  const { ta, tb, m } = await twoPlayerMatch()
+  const tx = deposit(addr(9), 200000, m.escrow.memo)
+  assert.equal((await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: tx })).status, 200)
+  const r = await call(tb, 'POST', `/matches/${m.id}/fund`, { txHash: tx })
+  assert.equal(r.status, 400)
+})
+
+test('a wrong memo or amount is still refused, and nothing is paid out', async () => {
   const { ta, m } = await twoPlayerMatch()
-  const before = (app.chain as any).paid.length
+  const before = paidOf().length
   const r = await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: deposit(addr(8), 200000, 'nb:other') })
   assert.equal(r.status, 400)
-  assert.doesNotMatch(r.j.error, /paid from/)
-  assert.equal((app.chain as any).paid.length, before)
+  assert.match(r.j.error, /Memo/)
+  assert.equal(paidOf().length, before)
+})
+
+test('a vault deposit from another wallet counts for the signed-in jar, and withdrawals follow the payer', async () => {
+  const A = addr(31), P = addr(32)
+  const ta = (await call(null, 'POST', '/session', { address: A })).j.token
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  assert.equal((await call(ta, 'POST', '/vault/solve', { grid: app.engine.vaultPuzzle().solution })).status, 200)
+  const r = await call(ta, 'POST', '/vault/deposit', { txHash: deposit(P, 50000, 'nb:vault:' + day), amount: 0.5 })
+  assert.equal(r.status, 200, JSON.stringify(r.j))
+  assert.ok(((await call(ta, 'GET', '/me')).j.jarLuna ?? 0) >= 50000, 'the jar of the signed-in profile was credited')
+  assert.equal((app.engine as any).must(A).payAddr, P.toUpperCase())
 })
 
 // ---- wallet ownership proof -------------------------------------------------------------------------------------

@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { Store, type MatchRec, type ProfileRec } from './store'
 import { isNimiqAddress, sameAddr, type Chain } from './chain'
+
+const normAddr = (a: string) => a.replace(/\s+/g, ' ').trim().toUpperCase()
 import { generateTrivia } from './ai'
 import { billShares, escrowRequired, toLuna } from '../shared/economy'
 import { readFileSync } from 'node:fs'
@@ -154,7 +156,7 @@ export class Engine {
     out.size = m.size
     out.players = m.players.map((p) => ({
       player: p.player, funded: p.funded, escrowed: p.escrowed, payer: p.payer, share: p.share, isBot: p.isBot,
-      progress: p.progress, result: m.status === 'settled' ? p.result : p.result ? { score: 0, time: 0, done: true } : undefined,
+      progress: p.progress, paidFrom: viewer && p.player.address === viewer ? p.paidFrom : undefined, result: m.status === 'settled' ? p.result : p.result ? { score: 0, time: 0, done: true } : undefined,
     }))
     out.serverNow = Date.now()
     if (m.live?.kind === 'pool' && m.live.last) {
@@ -310,14 +312,22 @@ export class Engine {
     if (typeof txHash !== 'string' || txHash.length > 100) throw bad('Bad transaction hash')
     if (this.db.usedTx[txHash]) throw bad('That transaction was already used')
     const need = pl.escrowed
-    const check = await this.chain.verifyDeposit(txHash, { from: addr, luna: need, memo: m.escrow.memo })
+    const check = await this.chain.verifyDeposit(txHash, { luna: need, memo: m.escrow.memo })
     if (!check.ok) {
       if (check.pending) return { ...this.view(m, addr), pending: true, pendingReason: check.reason }
-      if (check.wrongSender) throw await this.wrongSender(addr, txHash, check.wrongSender, m.id, m.players.map((p) => p.player.address))
       throw bad(check.reason)
     }
+    // Whoever really paid is who gets paid back. Nimiq Pay may pay from another account of the same person (or from a
+    // contract account its wallet funded), so the payer is accepted and the seat's payouts follow it.
+    const owner = check.owner ?? (check.related.some((a) => sameAddr(a, addr)) ? addr : null)
+    if (!owner) throw bad('That payment came from an account type we cannot send winnings back to. Nothing was counted')
+    const rival = m.players.some((o) => o !== pl && !o.isBot && [o.player.address, o.payTo, o.paidFrom].some((a) => a && (sameAddr(a, owner) || sameAddr(a, check.from))))
+    if (rival) throw bad('That payment came from another player\'s wallet in this match, so it was not counted')
     if (this.db.usedTx[txHash]) throw bad('That transaction was already used')
     this.db.usedTx[txHash] = m.id
+    pl.paidFrom = sameAddr(check.from, addr) ? undefined : normAddr(check.from)
+    pl.payTo = sameAddr(owner, addr) ? undefined : normAddr(owner)
+    this.must(addr).payAddr = pl.payTo
     pl.funded = true
     pl.fundTx = txHash
     if (m.status === 'funding' && m.players.every((p) => p.funded || p.escrowed === 0)) this.beginCountdown(m)
@@ -325,24 +335,9 @@ export class Engine {
     return this.view(m, addr)
   }
 
-  /** A valid deposit arrived from a wallet other than the signed-in one. It is not credited. If the sender is not
-   *  one of the players it goes straight back to the sender (once), so a mix-up never strands funds. */
-  private async wrongSender(addr: string, txHash: string, w: { from: string; luna: number }, ref: string, keep: string[] = []) {
-    const short = (a: string) => { const n = a.replace(/\s+/g, '').toUpperCase(); return `${n.slice(0, 4)}…${n.slice(-4)}` }
-    const from = w.from.replace(/\s+/g, ' ').trim().toUpperCase()
-    const isPlayer = keep.some((a) => sameAddr(a, from))
-    const head = `Nimiq Pay paid from ${short(from)}, but you are signed in as ${short(addr)}.`
-    if (isPlayer || !isNimiqAddress(from)) return bad(`${head} That payment was not counted.`)
-    this.db.usedTx[txHash] = 'refunded:' + ref
-    this.store.save()
-    try {
-      await this.chain.pay(from, w.luna, 'nb:refund')
-    } catch {
-      delete this.db.usedTx[txHash]
-      this.store.save()
-      return bad(`${head} That payment was not counted and the refund did not go through yet, tap Lock in again in a minute.`)
-    }
-    return bad(`${head} It was not counted and the ${w.luna / 1e5} NIM has been sent back to ${short(from)}. Switch to ${short(addr)} in Nimiq Pay and lock in again.`)
+  /** Where a seat's money goes: the account that paid its lock, or the seat's own address. `for` keeps the seat findable. */
+  private dest(p: MatchRec['players'][number]): { to: string; for?: string } {
+    return p.payTo ? { to: p.payTo, for: p.player.address } : { to: p.player.address }
   }
 
   async cancel(addr: string, id: string) {
@@ -358,7 +353,7 @@ export class Engine {
     m.status = 'cancelled'
     const payouts: Payout[] = m.players
       .filter((p) => p.funded && p.escrowed > 0 && !p.isBot)
-      .map((p) => ({ to: p.player.address, luna: p.escrowed, kind: 'refund' as const, note: 'Match cancelled' }))
+      .map((p) => ({ ...this.dest(p), luna: p.escrowed, kind: 'refund' as const, note: 'Match cancelled' }))
     m.settlement = { ranks: [], payouts, xp: {}, jarCredit: {}, reason }
     this.store.save()
     this.runPayouts(m)
@@ -592,7 +587,7 @@ export class Engine {
     const humans = m.players.filter((p) => !p.isBot)
 
     if (m.mode === 'save' && !allForfeit) {
-      if (draw) for (const p of humans) payouts.push({ to: p.player.address, luna: p.escrowed, kind: 'refund', note: 'Draw, stake returned' })
+      if (draw) for (const p of humans) payouts.push({ ...this.dest(p), luna: p.escrowed, kind: 'refund', note: 'Draw, stake returned' })
       else jarCredit[winner!] = m.players.reduce((s, p) => s + p.escrowed, 0)
     } else if (m.mode === 'spend' && !allForfeit) {
       const payer = m.players.find((p) => p.payer)!
@@ -605,12 +600,12 @@ export class Engine {
         const share = p.share ?? 0
         toPayer += share
         const back = p.escrowed - share
-        if (back > 0) payouts.push({ to: p.player.address, luna: back, kind: 'refund', note: 'Unused part of your deposit' })
+        if (back > 0) payouts.push({ ...this.dest(p), luna: back, kind: 'refund', note: 'Unused part of your deposit' })
       }
-      if (toPayer > 0) payouts.push({ to: payer.player.address, luna: toPayer, kind: 'settle', note: 'Your friends settled the bill' })
+      if (toPayer > 0) payouts.push({ ...this.dest(payer), luna: toPayer, kind: 'settle', note: 'Your friends settled the bill' })
     } else if (allForfeit || forfeit) {
       // nobody finished: give everything back
-      for (const p of humans) if (p.escrowed > 0 && m.mode !== 'play') payouts.push({ to: p.player.address, luna: p.escrowed, kind: 'refund', note: 'Match did not finish' })
+      for (const p of humans) if (p.escrowed > 0 && m.mode !== 'play') payouts.push({ ...this.dest(p), luna: p.escrowed, kind: 'refund', note: 'Match did not finish' })
     }
 
     for (const r of ranks) {
@@ -684,7 +679,7 @@ export class Engine {
     p.jarLuna = 0 // zero first so a double tap can't pay twice
     this.store.save()
     try {
-      const tx = await this.chain.pay(addr, luna, 'nb:jar:withdraw')
+      const tx = await this.chain.pay(p.payAddr ?? addr, luna, 'nb:jar:withdraw')
       return { tx, luna, profile: this.profile(addr) }
     } catch (e) {
       p.jarLuna += luna
@@ -726,13 +721,15 @@ export class Engine {
     if (![0.5, 1, 2].includes(amountNim)) throw bad('Pick 0.5, 1 or 2 NIM')
     if (this.db.usedTx[txHash]) throw bad('That transaction was already used')
     const memo = 'nb:vault:' + today.replace(/-/g, '')
-    const check = await this.chain.verifyDeposit(txHash, { from: addr, luna: toLuna(amountNim), memo })
+    const check = await this.chain.verifyDeposit(txHash, { luna: toLuna(amountNim), memo })
     if (!check.ok) {
       if (check.pending) return { pending: true, reason: check.reason }
-      if (check.wrongSender) throw await this.wrongSender(addr, txHash, check.wrongSender, 'vault')
       throw bad(check.reason)
     }
+    if (this.db.usedTx[txHash]) throw bad('That transaction was already used')
     this.db.usedTx[txHash] = 'vault'
+    // the jar is the signed-in profile's; if a different wallet paid, withdrawals go back to that wallet
+    p.payAddr = check.owner && !sameAddr(check.owner, addr) ? normAddr(check.owner) : undefined
     this.creditJar(p, toLuna(amountNim))
     p.vaultDeposits++
     this.store.save()

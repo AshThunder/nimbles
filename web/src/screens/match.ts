@@ -142,7 +142,7 @@ route('/m/:id', async (root, { id }) => {
     const required = mine?.escrowed ?? 0
     const need = !mine.funded && required > 0
     const rows = m.players
-      .map((p) => `<div class="rw ${p.player.address === S.wallet.address ? 'me' : ''}"><span class="avs">${avatar(p.player.avatar)}</span><span class="nm"><b>${p.player.address === S.wallet.address ? 'You' : esc(p.player.name)}${p.payer ? '<span class="tg2">Paid the bill</span>' : ''}</b><span>${p.funded ? (p.escrowed ? 'Locked ' + fmtNim(p.escrowed) + ' NIM' : 'Nothing to lock') : 'Waiting to lock ' + fmtNim(p.escrowed ?? 0) + ' NIM'}</span></span><span class="okb ${p.funded ? 'on' : ''}">${p.funded ? ic('check', 's16') : ic('clock', 's16')}</span></div>`)
+      .map((p) => `<div class="rw ${p.player.address === S.wallet.address ? 'me' : ''}"><span class="avs">${avatar(p.player.avatar)}</span><span class="nm"><b>${p.player.address === S.wallet.address ? 'You' : esc(p.player.name)}${p.payer ? '<span class="tg2">Paid the bill</span>' : ''}</b><span>${p.funded ? (p.escrowed ? 'Locked ' + fmtNim(p.escrowed) + ' NIM' + (p.paidFrom ? ' · paid from ' + shortAddr(p.paidFrom) : '') : 'Nothing to lock') : 'Waiting to lock ' + fmtNim(p.escrowed ?? 0) + ' NIM'}</span></span><span class="okb ${p.funded ? 'on' : ''}">${p.funded ? ic('check', 's16') : ic('clock', 's16')}</span></div>`)
       .join('')
     const what =
       m.mode === 'save'
@@ -261,7 +261,7 @@ route('/m/:id', async (root, { id }) => {
     const headline = st.draw ? 'Dead heat' : n > 2 ? `${ORD[rank - 1]} place` : win ? 'Victory' : 'Defeat'
     const mood = st.draw ? 'love' : win ? 'cheer' : rank === 2 && n > 2 ? 'happy' : 'sad'
     const xp = st.xp[addr] ?? 0
-    const myPay = st.payouts.filter((p) => p.to === addr)
+    const myPay = st.payouts.filter((p) => (p.for ?? p.to) === addr)
     const jar = st.jarCredit[addr] ?? 0
     const unit = (s: number) => (m.game === 'trivia' ? `${s} pts` : m.game === 'solitaire' ? `${s / 10} cards` : `${s} pts`)
     const spend = m.mode === 'spend'

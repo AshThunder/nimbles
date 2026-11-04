@@ -40,7 +40,7 @@ export type PublicMatch = {
   stake: number // NIM per player (Spend: the whole bill in NIM)
   status: MatchStatus
   host: string
-  players: { player: Player; funded: boolean; result?: Result; progress?: number; payer?: boolean; share?: number }[]
+  players: { player: Player; funded: boolean; result?: Result; progress?: number; payer?: boolean; share?: number; paidFrom?: string }[]
   seedCommit: string // sha256(seed), published before play
   seed?: string // revealed once playing
   config: Record<string, unknown>
@@ -51,7 +51,8 @@ export type PublicMatch = {
   createdAt: number
 }
 
-export type Payout = { to: string; luna: number; kind: 'prize' | 'refund' | 'settle' | 'jar'; tx?: string; note?: string }
+/** `for` is the seat the money belongs to, when it was paid out to a different address than the seat's own */
+export type Payout = { to: string; for?: string; luna: number; kind: 'prize' | 'refund' | 'settle' | 'jar'; tx?: string; note?: string }
 
 export type Settlement = {
   winner?: string

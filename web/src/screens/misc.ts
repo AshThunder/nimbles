@@ -33,7 +33,7 @@ route('/jar', async (root) => {
     const st = m.settlement!
     const won = st.winner === S.wallet.address
     const jarc = (st.jarCredit[S.wallet.address] ?? 0) / 1
-    const mine = st.payouts.filter((p) => p.to === S.wallet.address).reduce((s, p) => s + p.luna, 0)
+    const mine = st.payouts.filter((p) => (p.for ?? p.to) === S.wallet.address).reduce((s, p) => s + p.luna, 0)
     return `<div class="rw" style="height:52px"><span class="avs" style="background:${GLYPH_BG[m.game]};border-radius:10px;padding:4px">${glyph(m.game)}</span><span class="nm"><b>${GAMES[m.game].name}</b><span>${st.draw ? 'Draw' : won ? 'Won' : 'Lost'} · ${m.mode}</span></span><span class="am"><b>${jarc ? '+' + fmtNim(jarc) : mine ? '+' + fmtNim(mine) : '0'}</b><span>NIM</span></span></div>`
   }
   draw()
