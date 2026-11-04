@@ -60,7 +60,7 @@ export function board(host: HTMLElement, size: 4 | 9, puzzle: number[], solution
         return `<div class="${cls.filter(Boolean).join(' ')}" data-i="${i}" role="gridcell" aria-label="row ${r + 1} column ${c + 1}${v ? ' ' + v : ' empty'}">${v || ''}</div>`
       })
       .join('')}</div>
-      <div class="pad n${size}">${Array.from({ length: size }, (_, k) => `<button class="key" data-n="${k + 1}">${k + 1}</button>`).join('')}<button class="key" data-n="0" aria-label="Erase">${ic('delete', 's20')}</button></div>`
+      <div class="pad n${size}">${Array.from({ length: size }, (_, k) => `<button class="key" data-n="${k + 1}">${k + 1}</button>`).join('')}<button class="key" data-n="0" aria-label="Erase">${ic('eraser', 's20')}</button></div>`
   }
   draw()
   host.onclick = (e) => {

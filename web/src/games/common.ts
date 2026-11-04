@@ -33,7 +33,7 @@ export function setScores(root: HTMLElement, m: MatchView, me: string, override:
 export function clock(m: MatchView, el: HTMLElement | null, bar: HTMLElement | null, onEnd: () => void, totalMs = GAME_DURATION_MS[m.game]) {
   const end = (m.startsAt ?? serverNow()) + totalMs
   let done = false
-  const t = setInterval(() => {
+  const tick = () => {
     const left = Math.max(0, end - serverNow())
     if (el) el.textContent = fmtTime(left)
     if (bar) bar.style.width = (left / totalMs) * 100 + '%'
@@ -42,13 +42,15 @@ export function clock(m: MatchView, el: HTMLElement | null, bar: HTMLElement | n
       clearInterval(t)
       onEnd()
     }
-  }, 250)
+  }
+  const t = setInterval(tick, 250)
+  tick()
   return { stop: () => clearInterval(t), left: () => Math.max(0, end - serverNow()), end }
 }
 
 /** "Finish round" with a two-tap confirm, so a stray tap never ends your run. */
-export const finishBtn = () => `<button class="btn ghost sm block" data-fin style="height:40px;font-size:14px">Finish round</button>`
-export function wireFinish(root: HTMLElement, onConfirm: () => void) {
+export const finishBtn = (label = 'Finish round') => `<button class="btn ghost sm block" data-fin style="height:40px;font-size:14px">${label}</button>`
+export function wireFinish(root: HTMLElement, onConfirm: () => void, label = 'Finish round', armedLabel = 'Tap again to finish') {
   const b = root.querySelector<HTMLButtonElement>('[data-fin]')
   if (!b) return
   let armed: ReturnType<typeof setTimeout> | undefined
@@ -57,10 +59,10 @@ export function wireFinish(root: HTMLElement, onConfirm: () => void) {
       clearTimeout(armed)
       return onConfirm()
     }
-    b.textContent = 'Tap again to finish'
+    b.textContent = armedLabel
     armed = setTimeout(() => {
       armed = undefined
-      b.textContent = 'Finish round'
+      b.textContent = label
     }, 2500)
   })
 }

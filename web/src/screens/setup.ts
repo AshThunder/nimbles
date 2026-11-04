@@ -31,6 +31,7 @@ route('/g/:id', (root, p) => {
   }
   const pre = sessionStorage.getItem('nb:bill')
   if (pre && id === 'lastbite') { st.bill = pre; sessionStorage.removeItem('nb:bill') }
+  const engine = id === 'chess' || id === 'pool'
   const staked = () => st.mode !== 'play'
   const pickOpp = () => {
     if (staked() && st.opp === 'pip') st.opp = 'auto'
@@ -72,7 +73,7 @@ route('/g/:id', (root, p) => {
     pickOpp()
     const [c1, c2] = summary()
     const [ctaTxt, ctaIcon] = cta()
-    const modes = MODES.filter(([m]) => (id === 'lastbite' ? m === 'spend' : true))
+    const modes = MODES.filter(([m]) => (id === 'lastbite' ? m === 'spend' : engine ? m === 'play' : true))
     root.innerHTML = `${topbar(g.name)}
     <div class="scroll" style="gap:12px">
       <div class="banner" style="background:${GCOL[id]};${id === 'lastbite' || id === 'sudoku' ? 'color:var(--ink)' : ''}"><div class="c" style="${id === 'lastbite' || id === 'sudoku' ? 'color:var(--ink)' : ''}"><b>${esc(g.blurb)}</b><span class="lvx">${lvBadge(g.level, 22)}<span class="xpb"><i style="width:${Math.min(100, g.level * 12)}%"></i></span></span></div><span class="art" style="display:block">${glyph(id)}</span></div>
@@ -90,10 +91,11 @@ route('/g/:id', (root, p) => {
           : ''
       }
       <div class="sec"><div class="lab">Opponent</div>
-        ${orow('invite', 'users', 'Invite a friend', 'Get a code, link and QR to share')}
-        ${orow('join', 'scan-line', 'Join with a code', "Enter a friend's code")}
-        ${id === 'lastbite' ? '' : orow('auto', 'swords', 'Match me', 'Automatic, same game and stake')}
-        ${!staked() ? orow('pip', 'zap', 'Practice vs Pip', 'Free, no stake. Easy, medium or hard') : ''}
+        ${engine ? '' : orow('invite', 'users', 'Invite a friend', 'Get a code, link and QR to share')}
+        ${engine ? '' : orow('join', 'scan-line', 'Join with a code', "Enter a friend's code")}
+        ${id === 'lastbite' || engine ? '' : orow('auto', 'swords', 'Match me', 'Automatic, same game and stake')}
+        ${!staked() ? orow('pip', 'zap', engine ? 'Play Pip' : 'Practice vs Pip', 'Free, no stake. Easy, medium or hard') : ''}
+        ${engine ? '<div style="font-size:13px;color:var(--ink2);padding:2px 4px">Live head-to-head with friends needs a move relay, so staked ' + esc(g.name) + ' is coming later. Skill games with a shared seed are open for stakes today.</div>' : ''}
       </div>
       ${
         st.opp === 'join'

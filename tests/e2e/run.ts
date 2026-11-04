@@ -2,11 +2,12 @@
 // The real @nimiq/mini-app-sdk runs against the mock, the server runs on the in-memory mock chain.
 // Usage: npm run build && npm run e2e         (E2E_AI=1 to use live Gemini instead of the question bank)
 import { chromium, devices, type Browser, type BrowserContext, type Page } from 'playwright'
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
+import { canMake } from '../../shared/words'
 
 process.env.CHAIN = 'mock'
 if (!process.env.E2E_AI) delete process.env.GEMINI_API_KEY
@@ -231,6 +232,88 @@ try {
   await c.locator('[data-fin]').click()
   await c.waitForSelector('.res', { timeout: 15000 })
   log('sudoku 9x9 vs Pip played to a result')
+
+  // ---------- 5b. Word Rush, Bubble Shooter, Chess, Pool vs Pip ----------
+  await c.goto('/#/g/word')
+  await c.waitForSelector('#go')
+  await c.locator('#go').click()
+  await c.waitForSelector('.wt', { timeout: 15000 })
+  const rackLetters = (await c.locator('.wt').allInnerTexts()).map((x) => x.toLowerCase())
+  const dict = new Set(readFileSync(new URL('../../assets/words/dict.txt', import.meta.url), 'utf8').split('\n').filter(Boolean))
+  const seven = [...dict].find((w) => w.length === 7 && canMake(w, rackLetters))
+  assert.ok(seven, 'rack has a 7-letter word')
+  const tapWord = async (w: string) => {
+    const used = new Set<number>()
+    for (const ch of w) {
+      const i = rackLetters.findIndex((l, k) => l === ch && !used.has(k))
+      used.add(i)
+      await c.locator(`.wt[data-i="${i}"]`).click()
+    }
+    await c.locator('[data-w=enter]').click()
+  }
+  await tapWord(seven!)
+  await c.locator('[data-w=enter]').click()
+  await c.waitForSelector('.wf')
+  await shot(c, 'word-rush')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  const wm = await c.evaluate(async () => (await (await fetch('/api/me')).json()))
+  log(`word rush: ${seven} accepted client-side, finished vs Pip (${wm.address ? 'me ok' : ''})`)
+
+  await c.goto('/#/g/bubble')
+  await c.waitForSelector('#go')
+  await c.locator('#go').click()
+  await c.waitForSelector('#cv', { timeout: 15000 })
+  const box = (await c.locator('#cv').boundingBox())!
+  for (const fx of [0.25, 0.5, 0.75, 0.4, 0.6, 0.5]) {
+    await c.mouse.move(box.x + box.width / 2, box.y + box.height - 34)
+    await c.mouse.down()
+    await c.mouse.move(box.x + box.width * fx, box.y + 60, { steps: 3 })
+    await c.mouse.up()
+    await c.waitForTimeout(1300)
+  }
+  await shot(c, 'bubble')
+  const popped = await c.locator('#pp').innerText()
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  log(`bubble shooter: 6 shots fired (${popped}), finished vs Pip`)
+
+  await c.goto('/#/g/chess')
+  await c.waitForSelector('#go')
+  assert.equal(await c.locator('[data-act=mode]').count(), 1, 'chess is Play only')
+  assert.equal(await c.locator('[data-act=opp][data-k=invite]').count(), 0, 'no invite for engine games')
+  await shot(c, 'setup-chess')
+  await c.locator('#go').click()
+  await c.waitForSelector('.sqr[data-s=e2]', { timeout: 15000 })
+  await c.locator('.sqr[data-s=e2]').click()
+  await shot(c, 'chess-selected')
+  await c.locator('.sqr[data-s=e4]').click()
+  await c.waitForSelector('.sqr.lm img[src*="/b-"]', { timeout: 10000 })
+  await shot(c, 'chess')
+  log('chess: legal move highlighted and played, Pip replied')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+
+  await c.goto('/#/g/pool')
+  await c.waitForSelector('#go')
+  assert.equal(await c.locator('[data-act=mode]').count(), 1, 'pool is Play only')
+  await c.locator('#go').click()
+  await c.waitForSelector('#cv', { timeout: 15000 })
+  const pb = (await c.locator('#cv').boundingBox())!
+  await c.mouse.click(pb.x + pb.width / 2, pb.y + pb.height * 0.2)
+  await shot(c, 'pool-aim')
+  await c.locator('#sh').click()
+  await c.waitForFunction(() => !/Rolling/.test(document.querySelector('#cst')?.textContent ?? ''), null, { timeout: 30000 })
+  await c.waitForTimeout(500)
+  await shot(c, 'pool-after-break')
+  const pst = await c.locator('#cst').innerText()
+  log(`pool: break shot rolled and settled, status "${pst}"`)
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
 
   // ---------- 6. Vault, rank, pip, me, credits ----------
   await c.goto('/#/vault')

@@ -24,7 +24,7 @@ route('/jar', async (root) => {
     root.innerHTML = `${topbar('Savings jar', 'none')}<div class="scroll" style="gap:14px">
       <div class="card" style="display:flex;gap:16px;align-items:center"><div style="width:84px;flex:none">${JAR}</div><div style="flex:1"><div class="lab" style="margin:0">Saved</div><div style="font-size:38px;line-height:42px;font-weight:800">${fmtNim(me.jarLuna)}<small style="font-size:15px;color:var(--muted)"> NIM</small></div><div class="bar" style="margin-top:6px"><i style="width:${Math.min(100, (jar / jarGoal(jar)) * 100)}%"></i></div><div class="m" style="margin-top:6px;display:flex;gap:6px;align-items:center;font-size:13px;color:var(--ink2)">${ic('lock', 's16')}${lockText(me.jarLuna, me.jarUnlockAt)}</div></div></div>
       ${err ? errBox(err) : ''}
-      <button class="btn gold block" data-act="withdraw" ${can ? '' : 'disabled'}>${ic('arrow-down-to-line', 's20')}Withdraw to wallet</button>
+      <button class="btn gold block" data-act="withdraw" ${can ? '' : 'disabled'}>${ic('wallet', 's20')}Withdraw to wallet</button>
       ${pipRow(locked ? 'sleepy' : 'happy', locked ? `<b>Locked on purpose.</b> Wins in Save mode lock for ${S.cfg.lockDays} days, so winnings turn into savings` : '<b>Win Save duels</b> or drop a small vault deposit to fill the jar')}
       <div class="lab">Recent duels<small>${hist.length ? '' : 'Nothing yet'}</small></div>
       <div class="rank" style="gap:8px">${hist.map(histRow).join('')}</div></div>${tabs('Jar')}`
@@ -65,7 +65,7 @@ route('/rank', async (root) => {
     try { d = await api.board(scope) } catch (e: any) { d = null; toast(e.message) }
     const rows = d?.rows ?? []
     root.innerHTML = `${topbar('Leaderboard', 'none')}<div class="scroll" style="gap:12px">
-      <div class="seg">${(['global', 'friends'] as const).map((s) => `<button class="sg ${scope === s ? 'on' : ''}" data-act="scope" data-s="${s}"><b style="font-size:15px">${s === 'global' ? 'Everyone' : 'Friends'}</b>${scope === s ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div>
+      <div class="seg" style="grid-template-columns:1fr 1fr">${(['global', 'friends'] as const).map((s) => `<button class="sg ${scope === s ? 'on' : ''}" data-act="scope" data-s="${s}"><b style="font-size:15px">${s === 'global' ? 'Everyone' : 'Friends'}</b>${scope === s ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div>
       <div class="lab" style="margin:0">This week<small>Resets Monday, UTC</small></div>
       ${rows.length ? `<div class="rank" style="gap:8px">${rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${r.rank === 1 ? 'g' : r.rank === 2 ? 's' : r.rank === 3 ? 'b' : 'c'}">${r.rank}</span><span class="avs">${avatar(r.avatar)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>Level ${r.level}</span></span><span class="am"><b>${r.weekXp}</b><span>XP</span></span></div>`).join('')}</div>` : pipRow('sleepy', scope === 'friends' ? '<b>No friends yet.</b> Duel someone and they show up here' : '<b>Quiet week.</b> Play a duel to get on the board')}</div>${tabs('Rank')}`
   }
@@ -157,19 +157,18 @@ route('/vault', async (root) => {
   const t0 = Date.now()
   const draw = () => {
     if (phase === 'play') {
-      root.innerHTML = `${topbar('Streak vault')}<div class="scroll" style="gap:14px">${pipRow('think', `<b>Day ${S.me.streak + 1}.</b> Fill every row, column and box with 1 to 4`)}<div id="bd" style="display:flex;flex-direction:column;gap:14px"></div>${err ? errBox(err) : ''}</div>`
+      root.innerHTML = `${topbar('Streak vault')}<div class="scroll" style="gap:14px">${pipRow('think', `<b>Today's vault.</b> Fill every row, column and box with 1 to 4`)}<div id="bd" style="display:flex;flex-direction:column;gap:14px"></div>${err ? errBox(err) : ''}</div>`
       board($('#bd', root)!, 4, pz.puzzle, undefined, (b) => {
         if (b.solved()) void solved(b.grid)
       })
       return
     }
-    root.innerHTML = `${topbar('Streak vault')}<div class="scroll center" style="gap:14px"><canvas class="cf" id="cf" style="height:160px;position:relative"></canvas><div class="flame" style="width:84px">${FLAME}</div><b style="font-size:26px">${S.me.streak}-day streak</b>${gotXp ? `<span class="rwd">${ic('star', 's16')}+${gotXp} XP</span>` : ''}
+    root.innerHTML = `${topbar('Streak vault')}<div class="scroll center" style="gap:14px"><div class="flame" style="width:84px">${FLAME}</div><b style="font-size:26px">${S.me.streak}-day streak</b>${gotXp ? `<span class="rwd">${ic('star', 's16')}+${gotXp} XP</span>` : ''}
       <div class="card" style="width:100%;display:flex;flex-direction:column;gap:10px"><div class="lab" style="margin:0">Drop a little into your jar<small>Optional</small></div>
       ${S.wallet.kind === 'preview' && !S.cfg.mock ? '<div style="font-size:14px;color:var(--ink2)">Open Nimbles inside Nimiq Pay to add NIM.</div>' : deposited ? '<div style="font-weight:700">Added to your jar.</div>' : `<div class="pick">${[0.5, 1, 2].map((a) => `<button class="pc stk" data-act="dep" data-a="${a}" ${busy ? 'disabled' : ''}>${a} NIM</button>`).join('')}</div>`}
       ${busy ? `<div style="font-weight:700">${esc(busy)}</div>` : ''}${err ? errBox(err) : ''}</div></div>
       <div class="foot"><button class="btn gold block" data-act="home">Done</button></div>`
-    const cv = $('#cf', root) as HTMLCanvasElement | null
-    if (cv && gotXp) confetti(60, cv.parentElement!)
+    if (gotXp) confetti(80)
   }
   const solved = async (grid: number[]) => {
     try {
@@ -257,6 +256,7 @@ route('/credits', (root) => {
     <div class="card flat credit"><b>Chess piece icons</b><span>Skoll, from game-icons.net, licensed <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener">CC BY 3.0</a>. Recoloured and outlined for Nimbles</span></div>
     <div class="card flat credit"><b>Sounds and music</b><span>Kenney (kenney.nl), Cleyton Kauffman and congusbongus via OpenGameArt, all CC0</span></div>
     <div class="card flat credit"><b>Icons</b><span>Lucide, ISC licence</span></div>
+    <div class="card flat credit"><b>Word list</b><span>Word Rush uses SCOWL, Kevin Atkinson and contributors, permissive licence</span></div>
     <div class="card flat credit"><b>Fonts</b><span>Bricolage Grotesque and DM Mono, SIL Open Font License 1.1</span></div>
     <div class="card flat credit"><b>Everything else</b><span>Cards, Pip, avatars, badges and UI art drawn for Nimbles, MIT licence</span></div>
     <div class="card flat credit"><b>Built on</b><span>Nimiq Pay mini app SDK (@nimiq/mini-app-sdk), @nimiq/core, Vite, chess.js, qrcode-generator. AI by Google Gemini</span></div>

@@ -10,11 +10,12 @@
 | CC0 1.0 | Kenney audio packs (UI, interface, digital, casino, impact, music jingles) and two OpenGameArt music loops | None |
 | CC BY 3.0 | Chess piece silhouettes by Skoll from game-icons.net, restyled | **Credit required**: "Chess piece icons by Skoll, game-icons.net, CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)" in the app credits screen. Changes made: recoloured, outlined, white and navy variants |
 | ISC | Lucide icons (some derive from Feather, MIT) | Keep `icons/LICENSE-lucide.txt` |
+| SCOWL (permissive, copyright notice kept) | Word Rush dictionary, `words/dict.txt` (filtered SCOWL list, 3 to 7 letters) | Keep `words/SCOWL-Copyright.txt` |
 | SIL OFL 1.1 | Bricolage Grotesque, DM Mono | Keep the OFL text; fonts may not be sold on their own |
 
 ## Attribution text for the app credits screen
 
-> Chess piece icons by Skoll from game-icons.net (CC BY 3.0). Sounds and music: Kenney (kenney.nl), Cleyton Kauffman and congusbongus via OpenGameArt (CC0). Icons: Lucide (ISC). Fonts: Bricolage Grotesque and DM Mono (SIL OFL 1.1).
+> Chess piece icons by Skoll from game-icons.net (CC BY 3.0, https://creativecommons.org/licenses/by/3.0/). Sounds and music: Kenney (kenney.nl), Cleyton Kauffman and congusbongus via OpenGameArt (CC0). Icons: Lucide (ISC). Word list: SCOWL by Kevin Atkinson and contributors. Fonts: Bricolage Grotesque and DM Mono (SIL OFL 1.1).
 
 ## Palette
 

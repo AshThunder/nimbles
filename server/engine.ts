@@ -3,6 +3,9 @@ import { Store, type MatchRec, type ProfileRec } from './store'
 import { isNimiqAddress, sameAddr, type Chain } from './chain'
 import { generateTrivia } from './ai'
 import { billShares, escrowRequired, toLuna } from '../shared/economy'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { sevensOf, scoreWords, wordRack } from '../shared/words'
 import { ENGINE_GAMES, GAME_DURATION_MS, PIP_ADDRESS, PIP_NAMES, PIP_TRIVIA, pipScore } from '../shared/pip'
 import { rng } from '../shared/rng'
 import { makeSudoku } from '../shared/puzzles'
@@ -34,6 +37,9 @@ const GRACE_MS = 25000
 const LOBBY_TTL = 15 * 60_000
 const FUND_TTL = 3 * 60_000
 const FORFEIT_AFTER = 45_000
+
+let DICT: Set<string> | undefined
+const wordDict = () => (DICT ??= new Set(readFileSync(fileURLToPath(new URL('../assets/words/dict.txt', import.meta.url)), 'utf8').split('\n').filter(Boolean)))
 
 export class Engine {
   lockDays = Number(process.env.JAR_LOCK_DAYS ?? 30)
@@ -393,8 +399,13 @@ export class Engine {
       const pz = makeSudoku(m.seed, 4)
       if (JSON.stringify(b.detail.grid) !== JSON.stringify(pz.solution)) throw bad('That grid does not solve this puzzle')
     }
-    pl.result = { score, time, detail: b.detail }
-    pl.progress = score
+    let finalScore = score
+    if (m.game === 'word') {
+      const d = wordDict()
+      finalScore = scoreWords(b.detail?.words, wordRack(m.seed, sevensOf([...d])), d).score
+    }
+    pl.result = { score: finalScore, time, detail: b.detail }
+    pl.progress = finalScore
     this.maybeSettle(m)
     this.store.save()
     return this.view(m, addr)
