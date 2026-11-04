@@ -2,7 +2,7 @@ import { TW, TH, RAIL, BR, POCKETS, COL, NAVY, type Ball } from '../../../shared
 
 export type TableOpts = { guide: { aim: number; power: number } | null; place: boolean }
 
-/** Canvas table renderer shared by the practice game (vs Pip) and the live duel. */
+/** Canvas table renderer shared by the practice game (vs Nimo) and the live duel. */
 export function createTable(cv: HTMLCanvasElement, wrap: HTMLElement) {
   const g = cv.getContext('2d')!
   const availW = Math.min(wrap.clientWidth || 358, 360)

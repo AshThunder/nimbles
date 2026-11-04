@@ -153,7 +153,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       try {
         return send(res, 200, await parseReceipt(b))
       } catch (e: any) {
-        throw new ApiError(422, e?.message?.startsWith('Pip') || e?.message?.startsWith('Send') ? e.message : 'Pip could not read that receipt. Try a clearer photo or enter the total')
+        throw new ApiError(422, e?.message?.startsWith('Nimo') || e?.message?.startsWith('Send') ? e.message : 'Nimo could not read that receipt. Try a clearer photo or enter the total')
       }
     }
     throw new ApiError(404, 'Not found')

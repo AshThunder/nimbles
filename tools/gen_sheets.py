@@ -58,7 +58,7 @@ def sheet_words():
     return page('Words, trivia, Last Bite',b,'s_words')
 def sheet_chars():
     pip=ls('pip/*.svg'); av=ls('avatars/*.svg')
-    b=sec('Pip',len(pip),row(pip,80,86))+sec('Avatars',len(av),row(av,72,72))
+    b=sec('Nimo',len(pip),row(pip,80,86))+sec('Avatars',len(av),row(av,72,72))
     bd=[x for x in ls('badges/*.svg')]; b+=sec('Badges, medals, rewards',len(bd),row(bd,80,80))
     lv=ls('badges/levels/*.svg'); b+=sec('Levels',len(lv),row(lv,44,50)); lg=ls('badges/leagues/*.svg'); b+=sec('Leagues',len(lg),row(lg,80,80))
     fx=ls('effects/*.svg'); b+=sec('Effects',len(fx),row(fx,160,160))

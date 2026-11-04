@@ -4,7 +4,7 @@ Skill-only duels for friends, built as a [Nimiq Pay mini app](https://nimiq.dev/
 
 **Modes**
 
-- **Play**: free, for XP and rank. Practice against Pip, the built-in AI, or a friend.
+- **Play**: free, for XP and rank. Practice against Nimo, the built-in AI, or a friend.
 - **Save**: both players stake NIM. The winner's pot goes into a locked savings jar.
 - **Settle**: invite a friend, agree the terms first (bill, who gets paid, loser pays all, 70/30 or custom), both lock their share, the game decides who pays what, and the payee is paid on-chain. A draw splits it evenly.
 
@@ -22,7 +22,7 @@ Skill-only duels for friends, built as a [Nimiq Pay mini app](https://nimiq.dev/
 | Chess Blitz | 3:00 per side, live | Server-run board and clocks |
 | 8-Ball Pool | Live turns, 60 s shot clock | Server-run physics |
 
-Chess and pool against a friend are fully server-authoritative: the phones only send a move or a shot, and the server runs the rules and the clocks. Against Pip they are Play mode only.
+Chess and pool against a friend are fully server-authoritative: the phones only send a move or a shot, and the server runs the rules and the clocks. Against Nimo they are Play mode only.
 
 ## Fairness and trust
 
@@ -82,7 +82,7 @@ See [.env.example](.env.example). Highlights:
 | `ESCROW_PRIVATE_KEY`, `ESCROW_KEY_FILE` | Escrow wallet key. Mainnet needs one of them |
 | `MAX_STAKE_NIM` | Stake cap per player (default 25 on mainnet) |
 | `MIN_CONFIRMATIONS`, `NIMIQ_RPC_URL` | Deposit confirmations, RPC override |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Pip trivia and receipt reading. Without a key a built-in bank is used |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Nimo trivia and receipt reading. Without a key a built-in bank is used |
 | `JAR_LOCK_DAYS` | Jar lock length (default 30) |
 
 Secrets live in `.env`, `data/` and key files, all git-ignored. Nothing secret is committed.

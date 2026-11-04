@@ -144,7 +144,7 @@ try {
   await shot(c, 'home')
   log('home renders, wallet connected through the SDK')
 
-  // ---------- 2. Trivia vs Pip (Play) ----------
+  // ---------- 2. Trivia vs Nimo (Play) ----------
   await c.locator('.gc[data-id=trivia]').click()
   await c.waitForSelector('#go')
   await shot(c, 'setup-trivia')
@@ -163,7 +163,7 @@ try {
   }
   await c.waitForSelector('.res', { timeout: 20000 })
   await shot(c, 'trivia-result-pip')
-  log('trivia vs Pip: played 5 questions to the result screen')
+  log('trivia vs Nimo: played 5 questions to the result screen')
   await c.locator('[data-act=home]').click()
   await c.waitForSelector('.gcs')
 
@@ -282,7 +282,7 @@ try {
   const paid = (await (await fetch(`${BASE}/api/dev/mock-payouts`)).json()) as { to: string; luna: number }[]
   assert.ok(paid.some((p) => p.to.replace(/\s/g, '') === ADDR.tobi.replace(/\s/g, '') && p.luna === 9 * 1e5), 'the payee received the whole bill')
 
-  // ---------- 5. Solitaire vs Pip + Sudoku vs Pip ----------
+  // ---------- 5. Solitaire vs Nimo + Sudoku vs Nimo ----------
   await c.goto('/#/g/solitaire')
   await c.waitForSelector('#go')
   await c.locator('#go').click()
@@ -295,7 +295,7 @@ try {
   await c.locator('[data-fin]').click()
   await c.waitForSelector('.res', { timeout: 15000 })
   await shot(c, 'solitaire-result')
-  log('solitaire duel vs Pip: dealt from seed, drew cards, finished, scored')
+  log('solitaire duel vs Nimo: dealt from seed, drew cards, finished, scored')
 
   await c.goto('/#/g/sudoku')
   await c.waitForSelector('#go')
@@ -305,9 +305,9 @@ try {
   await c.locator('[data-fin]').click()
   await c.locator('[data-fin]').click()
   await c.waitForSelector('.res', { timeout: 15000 })
-  log('sudoku 9x9 vs Pip played to a result')
+  log('sudoku 9x9 vs Nimo played to a result')
 
-  // ---------- 5b. Word Rush, Bubble Shooter, Chess, Pool vs Pip ----------
+  // ---------- 5b. Word Rush, Bubble Shooter, Chess, Pool vs Nimo ----------
   await c.goto('/#/g/word')
   await c.waitForSelector('#go')
   await c.locator('#go').click()
@@ -333,7 +333,7 @@ try {
   await c.locator('[data-fin]').click()
   await c.waitForSelector('.res', { timeout: 15000 })
   const wm = await c.evaluate(async () => (await (await fetch('/api/me')).json()))
-  log(`word rush: ${seven} accepted client-side, finished vs Pip (${wm.address ? 'me ok' : ''})`)
+  log(`word rush: ${seven} accepted client-side, finished vs Nimo (${wm.address ? 'me ok' : ''})`)
 
   await c.goto('/#/g/bubble')
   await c.waitForSelector('#go')
@@ -352,7 +352,7 @@ try {
   await c.locator('[data-fin]').click()
   await c.locator('[data-fin]').click()
   await c.waitForSelector('.res', { timeout: 15000 })
-  log(`bubble shooter: 6 shots fired (${popped}), finished vs Pip`)
+  log(`bubble shooter: 6 shots fired (${popped}), finished vs Nimo`)
 
   await c.goto('/#/g/chess')
   await c.waitForSelector('#go')
@@ -365,7 +365,7 @@ try {
   await c.locator('.sqr[data-s=e4]').click()
   await c.waitForSelector('.sqr.lm img[src*="/b-"]', { timeout: 10000 })
   await shot(c, 'chess')
-  log('chess: legal move highlighted and played, Pip replied')
+  log('chess: legal move highlighted and played, Nimo replied')
   await c.locator('[data-fin]').click()
   await c.locator('[data-fin]').click()
   await c.waitForSelector('.res', { timeout: 15000 })
@@ -502,7 +502,7 @@ try {
   await c.goto('/')
   await c.waitForSelector('.gcs')
   await shot(c, 'home-after')
-  log('rank, Pip, profile, credits (CC BY credit present)')
+  log('rank, Nimo, profile, credits (CC BY credit present)')
 
   // ---------- 6b. Wallet start-up: late provider, flaky first answers, several accounts, wrong signer ----------
   {

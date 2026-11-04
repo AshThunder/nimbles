@@ -241,7 +241,7 @@ export class Engine {
     if (!['play', 'save', 'settle'].includes(mode)) throw bad('Unknown mode')
     const opp = b.opp as OppKind
     if (!['invite', 'auto', 'pip'].includes(opp)) throw bad('Unknown opponent type')
-    if (opp === 'pip' && mode !== 'play') throw bad('Pip only plays for fun. Staked matches need a real player')
+    if (opp === 'pip' && mode !== 'play') throw bad('Nimo only plays for fun. Staked matches need a real player')
     const pipLevel: PipLevel | undefined = opp === 'pip' ? (['easy', 'med', 'hard'].includes(b.pipLevel) ? b.pipLevel : 'med') : undefined
     if (mode === 'settle' && opp !== 'invite') throw bad('Settle is for friends only. Invite them with a code or link')
 

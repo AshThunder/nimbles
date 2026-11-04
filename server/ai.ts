@@ -113,7 +113,7 @@ function sane(q: any): q is Question {
   )
 }
 
-/** Generate `count` multiple-choice questions on `topic`, then ask Pip to double-check each answer. */
+/** Generate `count` multiple-choice questions on `topic`, then ask Nimo to double-check each answer. */
 export async function generateTrivia(topicIn: string, countIn: number, seed: string): Promise<TriviaSet> {
   const topic = clean(topicIn, 60) || 'General knowledge'
   const count = Math.max(3, Math.min(10, Math.floor(countIn) || 5))
@@ -204,9 +204,9 @@ const receiptSchema = {
   required: ['items', 'total'],
 }
 
-/** Read a receipt photo or pasted text into line items. Pip never invents numbers: unreadable fields stay 0. */
+/** Read a receipt photo or pasted text into line items. Nimo never invents numbers: unreadable fields stay 0. */
 export async function parseReceipt(input: { imageBase64?: string; mime?: string; text?: string }): Promise<Receipt> {
-  if (!hasKey()) throw new Error('Pip needs a Gemini key to read receipts. Enter the total by hand instead.')
+  if (!hasKey()) throw new Error('Nimo needs a Gemini key to read receipts. Enter the total by hand instead.')
   const parts: Part[] = [
     {
       text:

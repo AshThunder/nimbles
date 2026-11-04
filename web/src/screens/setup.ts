@@ -50,7 +50,7 @@ route('/g/:id', (root, p) => {
   }
   const cta = () => {
     if (st.opp === 'join') return ['Join match', 'scan-line']
-    if (st.opp === 'pip') return [`Start vs Pip (${{ easy: 'Easy', med: 'Medium', hard: 'Hard' }[st.pip]})`, 'zap']
+    if (st.opp === 'pip') return [`Start vs Nimo (${{ easy: 'Easy', med: 'Medium', hard: 'Hard' }[st.pip]})`, 'zap']
     if (st.opp === 'invite') return ['Create invite', 'send']
     return ['Find opponent', 'swords']
   }
@@ -81,7 +81,7 @@ route('/g/:id', (root, p) => {
         .join('')}</div>
       ${
         id === 'trivia'
-          ? `<div class="sec"><div class="lab">Topic<small>Pip writes the questions</small></div><div class="field">${ic('search')}<input id="topic" class="field" style="border:0;box-shadow:none;height:48px;padding:0" value="${esc(st.topic)}" maxlength="60" placeholder="Any topic" autocomplete="off"></div><div class="pick">${TOPICS.map((t) => `<button class="pc ${st.topic === t ? 'on' : ''}" data-act="topic" data-t="${esc(t)}">${st.topic === t ? ic('check') : ''}${t}</button>`).join('')}</div></div>
+          ? `<div class="sec"><div class="lab">Topic<small>Nimo writes the questions</small></div><div class="field">${ic('search')}<input id="topic" class="field" style="border:0;box-shadow:none;height:48px;padding:0" value="${esc(st.topic)}" maxlength="60" placeholder="Any topic" autocomplete="off"></div><div class="pick">${TOPICS.map((t) => `<button class="pc ${st.topic === t ? 'on' : ''}" data-act="topic" data-t="${esc(t)}">${st.topic === t ? ic('check') : ''}${t}</button>`).join('')}</div></div>
       <div class="sec"><div class="lab">Questions<small>More questions, more XP</small></div><div class="seg">${[5, 7, 10].map((n) => `<button class="sg ${st.count === n ? 'on' : ''}" data-act="count" data-n="${n}"><b>${n}</b><small>${n * 12} XP</small>${st.count === n ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div></div>`
           : ''
       }
@@ -89,7 +89,7 @@ route('/g/:id', (root, p) => {
         ${orow('invite', 'users', 'Invite a friend', 'Get a code, link and QR to share')}
         ${orow('join', 'scan-line', 'Join with a code', "Enter a friend's code")}
         ${st.mode === 'settle' ? '' : orow('auto', 'swords', 'Match me', 'Automatic, same game and stake')}
-        ${!staked() ? orow('pip', 'zap', id === 'chess' || id === 'pool' ? 'Play Pip' : 'Practice vs Pip', 'Free, no stake. Easy, medium or hard') : ''}
+        ${!staked() ? orow('pip', 'zap', id === 'chess' || id === 'pool' ? 'Play Nimo' : 'Practice vs Nimo', 'Free, no stake. Easy, medium or hard') : ''}
       </div>
       ${
         st.opp === 'join'
@@ -107,8 +107,8 @@ route('/g/:id', (root, p) => {
     const r = st.receipt
     return `<div class="rc" style="margin-top:4px"><div class="paper"><i></i><i class="s"></i><i></i><i class="s"></i></div><div class="info">${
       r
-        ? `<small>${esc(r.merchant || 'Receipt')}, ${r.items.length} items, read by Pip</small><span class="tot">${r.total}<small> ${esc(r.currency || 'NIM')}</small></span><small>Check the amount above matches</small>`
-        : `<small>Optional: let Pip read a receipt</small><button class="btn ghost sm" data-act="scan" style="min-height:36px;font-size:14px;margin-top:4px">${st.scanning ? ic('refresh-cw', 's16 spin') + 'Reading…' : ic('camera', 's16') + 'Snap a receipt'}</button>`
+        ? `<small>${esc(r.merchant || 'Receipt')}, ${r.items.length} items, read by Nimo</small><span class="tot">${r.total}<small> ${esc(r.currency || 'NIM')}</small></span><small>Check the amount above matches</small>`
+        : `<small>Optional: let Nimo read a receipt</small><button class="btn ghost sm" data-act="scan" style="min-height:36px;font-size:14px;margin-top:4px">${st.scanning ? ic('refresh-cw', 's16 spin') + 'Reading…' : ic('camera', 's16') + 'Snap a receipt'}</button>`
     }</div><input type="file" id="rfile" accept="image/*" class="hide"></div>`
   }
   draw()

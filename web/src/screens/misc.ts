@@ -73,7 +73,7 @@ route('/rank', async (root) => {
   actions(root, { scope: (el) => ((scope = el.dataset.s as typeof scope), sfx('ui/select'), void load()), tab: () => sfx('ui/select', 0.4) })
 })
 
-// ---------------- Pip: receipt helper ----------------
+// ---------------- Nimo: receipt helper ----------------
 route('/pip', async (root) => {
   let receipt: { items: { name: string; price: number }[]; total: number; currency: string; merchant?: string } | null = null
   let n = 2
@@ -81,7 +81,7 @@ route('/pip', async (root) => {
   let err = ''
   let text = ''
   const draw = () => {
-    root.innerHTML = `${topbar('Pip', 'none')}<div class="scroll" style="gap:12px">
+    root.innerHTML = `${topbar('Nimo', 'none')}<div class="scroll" style="gap:12px">
       ${pipRow('wink', '<b>Hand me a receipt.</b> I read it and work out the split')}
       <div class="card" style="display:flex;flex-direction:column;gap:10px">
         <button class="btn gold block" data-act="snap" ${busy ? 'disabled' : ''}>${busy ? ic('refresh-cw', 's20 spin') + 'Reading…' : ic('camera', 's20') + 'Snap or pick a receipt'}</button>
@@ -90,7 +90,7 @@ route('/pip', async (root) => {
         <textarea id="rt" class="field" rows="3" placeholder="Pizza 12.5&#10;Drinks 6&#10;Dessert 4" style="min-height:auto;padding:10px">${esc(text)}</textarea>
         <button class="btn ghost block" data-act="parse" ${busy || text.trim().length < 3 ? 'disabled' : ''}>${ic('sparkles', 's20')}Read the lines</button></div>
       ${err ? errBox(err) : ''}
-      ${receipt ? resultCard() : ''}</div>${tabs('Pip')}`
+      ${receipt ? resultCard() : ''}</div>${tabs('Nimo')}`
   }
   const resultCard = () => {
     const r = receipt!
@@ -258,7 +258,7 @@ route('/credits', (root) => {
     <div class="card flat credit"><b>Icons</b><span>Lucide, ISC licence</span></div>
     <div class="card flat credit"><b>Word list</b><span>Word Rush uses SCOWL, Kevin Atkinson and contributors, permissive licence</span></div>
     <div class="card flat credit"><b>Fonts</b><span>Bricolage Grotesque and DM Mono, SIL Open Font License 1.1</span></div>
-    <div class="card flat credit"><b>Everything else</b><span>Cards, Pip, avatars, badges and UI art drawn for Nimbles, MIT licence</span></div>
+    <div class="card flat credit"><b>Everything else</b><span>Cards, Nimo, avatars, badges and UI art drawn for Nimbles, MIT licence</span></div>
     <div class="card flat credit"><b>Built on</b><span>Nimiq Pay mini app SDK (@nimiq/mini-app-sdk), @nimiq/core, Vite, chess.js, qrcode-generator. AI by Google Gemini</span></div>
     <div class="mono" style="font-size:12px;color:var(--muted);text-align:center">Full list in CREDITS.md</div></div>`
   actions(root, { back: () => history.back() })

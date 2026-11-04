@@ -24,7 +24,7 @@ def credits():
     out=['# Nimbles asset credits','',f'{len(rows)} files. Every file is listed in the table at the bottom with source and licence.','',
     '## Licence summary','',
     '| Licence | What | Obligation |','|---|---|---|',
-    '| Original (MIT) | All SVG artwork drawn for Nimbles: cards, chess board, pool, sudoku, bubbles, word tiles, trivia UI, Last Bite, Pip, avatars, badges, effects, UI | None beyond the repo licence |',
+    '| Original (MIT) | All SVG artwork drawn for Nimbles: cards, chess board, pool, sudoku, bubbles, word tiles, trivia UI, Last Bite, Nimo, avatars, badges, effects, UI | None beyond the repo licence |',
     '| CC0 1.0 | Kenney audio packs (UI, interface, digital, casino, impact, music jingles) and two OpenGameArt music loops | None |',
     '| CC BY 3.0 | Chess piece silhouettes by Skoll from game-icons.net, restyled | **Credit required**: "Chess piece icons by Skoll, game-icons.net, CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)" in the app credits screen. Changes made: recoloured, outlined, white and navy variants |',
     '| ISC | Lucide icons (some derive from Feather, MIT) | Keep `icons/LICENSE-lucide.txt` |',

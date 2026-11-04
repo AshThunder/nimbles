@@ -53,7 +53,7 @@ export const pool: GameMod = (ctx) => {
     balls[0].vx = Math.cos(ang) * MAX_V * pw
     balls[0].vy = Math.sin(ang) * MAX_V * pw
     phase = 'roll'
-    status = turn === 'me' ? 'Rolling…' : 'Pip shoots…'
+    status = turn === 'me' ? 'Rolling…' : 'Nimo shoots…'
     sfx('game/pool-hit', 0.4 + pw * 0.5)
     buzz(10)
     hud()
@@ -77,7 +77,7 @@ export const pool: GameMod = (ctx) => {
     if (ev.potted.length) sfx('game/pool-pocket')
     if (j.win !== null) {
       const meWins = shooter === 'me' ? j.win : !j.win
-      status = meWins ? 'You sank the 8-ball. You win' : shooter === 'me' ? 'Lost on the 8-ball' : 'Pip sank the 8-ball'
+      status = meWins ? 'You sank the 8-ball. You win' : shooter === 'me' ? 'Lost on the 8-ball' : 'Nimo sank the 8-ball'
       hud()
       return void end(meWins ? 1 : 0, 'eight')
     }
@@ -87,12 +87,12 @@ export const pool: GameMod = (ctx) => {
     if (!balls[0].on) placeCue(...headSpot())
     let msg = ''
     if (j.foul) {
-      msg = `${shooter === 'me' ? 'Foul' : 'Pip fouled'}${ev.potted.includes(0) ? ', cue ball potted' : ev.first === null ? ', no ball hit' : ', wrong ball first'}.`
+      msg = `${shooter === 'me' ? 'Foul' : 'Nimo fouled'}${ev.potted.includes(0) ? ', cue ball potted' : ev.first === null ? ', no ball hit' : ', wrong ball first'}.`
       turn = shooter === 'me' ? 'pip' : 'me'
       if (turn === 'me') msg += ' Tap the table to place the cue ball'
-    } else if (j.again) msg = shooter === 'me' ? 'Nice. Shoot again' : 'Pip shoots again'
+    } else if (j.again) msg = shooter === 'me' ? 'Nice. Shoot again' : 'Nimo shoots again'
     else turn = shooter === 'me' ? 'pip' : 'me'
-    if (!msg) msg = turn === 'me' ? 'Your shot' : 'Pip is lining up…'
+    if (!msg) msg = turn === 'me' ? 'Your shot' : 'Nimo is lining up…'
     status = msg
     ctx.progress(balls.filter((b) => !b.on && b.n !== 0 && grp(b.n) === groups.me).length)
     phase = j.foul && turn === 'me' ? 'place' : 'aim'

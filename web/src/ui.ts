@@ -26,7 +26,7 @@ export const TABS = [
   ['gamepad-2', 'Play', '/'],
   ['piggy-bank', 'Jar', '/jar'],
   ['trophy', 'Rank', '/rank'],
-  ['message-circle', 'Pip', '/pip'],
+  ['message-circle', 'Nimo', '/pip'],
 ] as const
 export const tabs = (on: string) =>
   `<nav class="tabs">${TABS.map(([i, n, href]) => `<a class="tab ${n === on ? 'on' : ''}" href="#${href}" data-act="tab"><span class="p">${ic(i)}</span>${n}</a>`).join('')}</nav>`

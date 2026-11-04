@@ -246,7 +246,7 @@ test('settle: a player who never finishes forfeits and pays the loser share', as
   assert.equal(paid.find((p) => p.to === A)!.luna, 600000, 'Ada, the winner, owes nothing and gets her lock back')
 })
 
-test('Pip: play only, free, scores from the shared seed', async () => {
+test('Nimo: play only, free, scores from the shared seed', async () => {
   const ta = await login(A, 'Ada')
   assert.equal((await call(ta, 'POST', '/matches', { game: 'chess', mode: 'save', stake: 2, opp: 'pip' })).status, 400)
   const c = (await call(ta, 'POST', '/matches', { game: 'chess', mode: 'play', opp: 'pip', pipLevel: 'easy' })).j

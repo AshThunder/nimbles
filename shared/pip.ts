@@ -1,10 +1,10 @@
 import { rng } from './rng'
 import type { GameId, PipLevel } from './types'
 
-export const PIP_NAMES: Record<PipLevel, string> = { easy: 'Pip (Easy)', med: 'Pip (Medium)', hard: 'Pip (Hard)' }
+export const PIP_NAMES: Record<PipLevel, string> = { easy: 'Nimo (Easy)', med: 'Nimo (Medium)', hard: 'Nimo (Hard)' }
 export const PIP_ADDRESS = 'PIP-BOT'
 
-/** Chance Pip gets a trivia question right, and its answer time range in ms. */
+/** Chance Nimo gets a trivia question right, and its answer time range in ms. */
 export const PIP_TRIVIA: Record<PipLevel, { p: number; ms: [number, number] }> = {
   easy: { p: 0.45, ms: [6000, 13000] },
   med: { p: 0.7, ms: [4000, 10000] },
@@ -13,7 +13,7 @@ export const PIP_TRIVIA: Record<PipLevel, { p: number; ms: [number, number] }> =
 
 const around = (r: ReturnType<typeof rng>, mean: number, spread: number) => Math.max(0, Math.round(mean + (r.next() * 2 - 1) * spread))
 
-/** What Pip scores in score-based games, derived from the shared seed so it is stable and checkable. */
+/** What Nimo scores in score-based games, derived from the shared seed so it is stable and checkable. */
 export function pipScore(game: GameId, level: PipLevel, seed: string): { score: number; time: number } {
   const r = rng(`pip:${game}:${level}:${seed}`)
   const L = { easy: 0, med: 1, hard: 2 }[level]

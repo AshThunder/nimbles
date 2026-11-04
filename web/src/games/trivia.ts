@@ -52,7 +52,7 @@ export const trivia: GameMod = (ctx) => {
     locked = false
     t0 = Date.now()
     $('#qn', root)!.textContent = `Question ${idx + 1} of ${qs.length}`
-    $('#qa', root)!.innerHTML = `<div class="q"><div class="t">${esc(q.q)}</div><div class="src">${ic('shield-check', 's16')}${m.trivia?.verified ? 'Pip fact-checked this' : esc(m.trivia?.source === 'bank' ? 'From the Pip question bank' : 'Written by Pip')}${q.category ? ' · ' + esc(q.category) : ''}</div></div>
+    $('#qa', root)!.innerHTML = `<div class="q"><div class="t">${esc(q.q)}</div><div class="src">${ic('shield-check', 's16')}${m.trivia?.verified ? 'Nimo fact-checked this' : esc(m.trivia?.source === 'bank' ? 'From the Nimo question bank' : 'Written by Nimo')}${q.category ? ' · ' + esc(q.category) : ''}</div></div>
       <div style="display:flex;flex-direction:column;gap:10px">${q.options.map((o, i) => `<button class="ans" data-i="${i}"><span class="kc">${L[i]}</span><span>${esc(o)}</span></button>`).join('')}</div>`
     pipSay('think', idx === 0 ? '<b>Same questions, same clock.</b> Faster correct answers score more' : 'Next one. Stay sharp')
     clearInterval(timer)

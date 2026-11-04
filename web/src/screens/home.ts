@@ -56,7 +56,7 @@ route('/', async (root) => {
     <div class="gcs">${(Object.keys(GAMES) as GameId[]).map((id) => gameCard(id, GAMES[id])).join('')}</div>
   </div>${tabs('Play')}`
   actions(root, {
-    game: (el) => (tap(), BUILT.has(el.dataset.id!) ? go('/g/' + el.dataset.id) : toast('Coming soon. Pip is still setting this one up')),
+    game: (el) => (tap(), BUILT.has(el.dataset.id!) ? go('/g/' + el.dataset.id) : toast('Coming soon. Nimo is still setting this one up')),
     jar: () => (tap(), go('/jar')),
     vault: () => (tap(), go('/vault')),
     me: () => (tap(), go('/me')),

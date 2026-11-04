@@ -29,7 +29,7 @@ export const chess: GameMod = (ctx) => {
   const strips = () => {
     const mk = (side: 'w' | 'b') => {
       const mine = side === 'w'
-      return `<div class="cp ${ch.turn() === side && !done ? 'act' : ''}"><span class="cav">${mine ? '<span class="you">You</span>' : pipImg('cool')}</span><b>${mine ? 'You' : 'Pip (' + { easy: 'Easy', med: 'Medium', hard: 'Hard' }[level] + ')'}</b><span class="mono">${mine ? 'White' : 'Black'}</span><span class="clk">${fmtTime(left[side])}</span></div>`
+      return `<div class="cp ${ch.turn() === side && !done ? 'act' : ''}"><span class="cav">${mine ? '<span class="you">You</span>' : pipImg('cool')}</span><b>${mine ? 'You' : 'Nimo (' + { easy: 'Easy', med: 'Medium', hard: 'Hard' }[level] + ')'}</b><span class="mono">${mine ? 'White' : 'Black'}</span><span class="clk">${fmtTime(left[side])}</span></div>`
     }
     $('#cs-b', ctx.root)!.innerHTML = mk('b')
     $('#cs-w', ctx.root)!.innerHTML = mk('w')
@@ -59,11 +59,11 @@ export const chess: GameMod = (ctx) => {
     sel = null
     legal = []
     if (ch.isGameOver()) {
-      status = ch.isCheckmate() ? (ch.turn() === 'b' ? 'Checkmate, you win' : 'Checkmate, Pip wins') : ch.isStalemate() ? 'Stalemate, a draw' : 'Draw'
+      status = ch.isCheckmate() ? (ch.turn() === 'b' ? 'Checkmate, you win' : 'Checkmate, Nimo wins') : ch.isStalemate() ? 'Stalemate, a draw' : 'Draw'
       draw()
       return void finishGame(status)
     }
-    status = ch.inCheck() ? (ch.turn() === 'w' ? 'You are in check' : 'Pip is in check') : ch.turn() === 'w' ? 'Your move' : 'Pip is thinking…'
+    status = ch.inCheck() ? (ch.turn() === 'w' ? 'You are in check' : 'Nimo is in check') : ch.turn() === 'w' ? 'Your move' : 'Nimo is thinking…'
     draw()
   }
   const doMove = (m: { from: string; to: string; promotion?: string }) => {
@@ -122,7 +122,7 @@ export const chess: GameMod = (ctx) => {
     tickAt = now
     strips()
     if (left[side] <= 0) {
-      status = side === 'w' ? 'Out of time, Pip wins' : 'Pip ran out of time, you win'
+      status = side === 'w' ? 'Out of time, Nimo wins' : 'Nimo ran out of time, you win'
       $('#cst', ctx.root)!.textContent = status
       void end(side === 'w' ? 0 : 1, 'timeout')
     }

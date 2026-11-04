@@ -1,7 +1,7 @@
 from common import *
 from gen_games import lucide_inner
 INK=NAVY
-# ---------------- Pip
+# ---------------- Nimo
 def pip(ex):
     E={'happy':f'<circle cx="17.5" cy="25" r="2.6" fill="{INK}"/><circle cx="30.5" cy="25" r="2.6" fill="{INK}"/><circle cx="18.3" cy="24" r=".9" fill="#fff"/><circle cx="31.3" cy="24" r=".9" fill="#fff"/>',
      'cheer':f'<path d="M14.5 26q3-5 6 0M27.5 26q3-5 6 0" fill="none" stroke="{INK}" stroke-width="2.4" stroke-linecap="round"/>',
@@ -138,7 +138,7 @@ def button(col,edge,pressed):
     o+=f'<rect x="2" y="{2+dy}" width="196" height="{46 if not pressed else 46}" rx="16" fill="{col}" stroke="{NAVY}" stroke-width="2.500"/>'
     return svg(200,58,o)
 def run():
-    for e in ['happy','cheer','think','wow','sad','wink','sleepy','cool','love','angry']: save(f'pip/pip-{e}.svg',pip(e),desc=f'Pip mascot, {e}')
+    for e in ['happy','cheer','think','wow','sad','wink','sleepy','cool','love','angry']: save(f'pip/pip-{e}.svg',pip(e),desc=f'Nimo mascot, {e}')
     for k,bg,skin,hs,hc,sh,gl in AVS: save(f'avatars/{k}.svg',avatar(bg,skin,hs,hc,sh,gl),desc=f'avatar {k}')
     for t in TIERS:
         for n in (1,2,3):
