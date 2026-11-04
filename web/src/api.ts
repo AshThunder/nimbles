@@ -36,6 +36,14 @@ async function call<T = any>(method: string, path: string, body?: unknown): Prom
 
 /** Last pool shot number each match has already animated, so the server only sends the ball paths once */
 export const liveSeen: Record<string, number> = {}
+export type JarInfo = {
+  plan: { goalLuna: number; lockDays: 7 | 30 | 90; lockStartAt: number }
+  jarLuna: number; unlockAt: number; locked: boolean; canChangeLock: boolean; serverNow: number
+  early: { fee: number; pct: number; net: number }
+  pool: { luna: number; dailyCap: number; dailyPct: number; savers: number; today: number; estimate: number; nextPayoutAt: number }
+  boost: { levelPct: number; totalPct: number }
+  interest: { last: number; lastDay: string; week: number; total: number }
+}
 export type Config = { chain: 'mock' | 'nimiq'; network: 'testnet' | 'mainnet'; escrow: string; lockDays: number; ai: { gemini: boolean; model: string | null }; mock: boolean; serverNow: number }
 export type Row = { rank: number; address: string; name: string; avatar: string; weekXp: number; level: number; me: boolean }
 export type MatchView = Omit<PublicMatch, 'players'> & {
@@ -76,7 +84,9 @@ export const api = {
   vaultPuzzle: () => call<{ day: string; size: number; puzzle: number[] }>('GET', '/vault/puzzle'),
   vaultSolve: (grid: number[]) => call<any>('POST', '/vault/solve', { grid }),
   vaultDeposit: (txHash: string, amount: number) => call<any>('POST', '/vault/deposit', { txHash, amount }),
-  withdraw: () => call<any>('POST', '/jar/withdraw', {}),
+  jar: () => call<JarInfo>('GET', '/jar'),
+  setPlan: (b: { goalNim?: number; lockDays?: number }) => call<JarInfo>('POST', '/jar/plan', b),
+  withdraw: (early = false) => call<any>('POST', '/jar/withdraw', { early }),
   receipt: (b: { imageBase64?: string; mime?: string; text?: string }) => call<any>('POST', '/ai/receipt', b),
   mockTx: (b: { from: string; to: string; luna: number; memo: string }) => call<{ hash: string }>('POST', '/dev/mock-tx', b),
 }

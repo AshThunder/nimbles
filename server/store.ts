@@ -25,6 +25,13 @@ export type ProfileRec = {
   vaultDeposits: number
   friends: string[]
   createdAt: number
+  plan?: { goalLuna: number; lockDays: number } // the saver's own goal and lock length
+  lockStartAt?: number // when the current lock began
+  interestDay?: string // the last day the pool paid this saver
+  interestLast?: number
+  interestWeekKey?: string
+  interestWeek?: number
+  interestTotal?: number
 }
 
 export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
@@ -61,6 +68,7 @@ export type DB = {
   tokens: Record<string, string>
   matches: Record<string, MatchRec>
   usedTx: Record<string, string>
+  pool?: { luna: number; lastPayDay?: string; paidTotal?: number; feesTotal?: number } // the saver interest pool, held in the escrow wallet like jar balances
   version: 1
 }
 

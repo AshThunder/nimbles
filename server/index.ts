@@ -143,9 +143,12 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       const b = await readBody(req, 4096)
       return send(res, 200, await engine.vaultDeposit(me, b.txHash, Number(b.amount)))
     }
+    if (method === 'GET' && path === '/jar') return send(res, 200, engine.jarInfo(me))
+    if (method === 'POST' && path === '/jar/plan') return send(res, 200, engine.setPlan(me, await readBody(req, 1024)))
     if (method === 'POST' && path === '/jar/withdraw') {
       limit('wd:' + me, 5, 60_000)
-      return send(res, 200, await engine.withdrawJar(me))
+      const b = await readBody(req, 1024)
+      return send(res, 200, await engine.withdrawJar(me, b?.early === true))
     }
     if (method === 'POST' && path === '/ai/receipt') {
       limit('ai:' + me, 8, 60_000)

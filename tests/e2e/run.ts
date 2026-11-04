@@ -216,11 +216,28 @@ try {
   const sm = await matchOf(c, id)
   assert.equal(sm.status, 'settled')
   assert.ok(sm.settlement.winner || sm.settlement.draw)
-  if (sm.settlement.winner) assert.ok(Object.values(sm.settlement.jarCredit as Record<string, number>)[0] === 4 * 1e5, 'winner jar gets the 4 NIM pot')
-  log(`Save duel settled: ${sm.settlement.draw ? 'draw, refunds' : 'winner jar +4 NIM'}`)
+  if (sm.settlement.winner) assert.ok(Object.values(sm.settlement.jarCredit as Record<string, number>)[0] === 4 * 1e5 - 8000, 'winner jar gets the 4 NIM pot minus the 2% saver fee')
+  log(`Save duel settled: ${sm.settlement.draw ? 'draw, refunds' : 'winner jar +3.92 NIM, 0.08 to the saver pool'}`)
   await c.goto('/#/jar')
-  await c.waitForSelector('.jarart')
+  await c.waitForSelector('.ringw')
+  // the plan: pick a goal and a 90 day lock (the jar is locked by the win, so the lock stays 30 and its picker is disabled)
+  await c.locator('[data-act=goal][data-n="250"]').click()
+  await c.waitForSelector('[data-act=goal][data-n="250"].on')
+  assert.ok(await c.getByText('Saver pool').first().isVisible(), 'saver pool panel is on the jar screen')
+  // only a winner has a locked jar; a loser's empty jar can still pick its lock
+  const lockedJar = (await c.locator('[data-act=early]').count()) > 0
+  assert.equal(await c.locator('[data-act=tier]').first().isDisabled(), lockedJar, 'lock length is fixed only while the jar is locked')
   await shot(c, 'jar')
+  if (lockedJar) {
+    await c.locator('[data-act=early]').click()
+    await c.waitForSelector('[data-act=early-go]')
+    await shot(c, 'jar-early')
+    await c.locator('[data-act=keep]').click()
+  } else {
+    await c.locator('[data-act=tier][data-d="90"]').click()
+    await c.waitForSelector('[data-act=tier][data-d="90"].on')
+  }
+  log(`jar: goal set, ${lockedJar ? 'lock fixed while locked, early unlock shows its fee and can be cancelled' : 'empty jar can pick a 90 day lock'}`)
 
   // ---------- 4. Settle: ada invites chris, they agree terms (70/30, paid to a third-party wallet), play Last Bite ----------
   await a.goto('/#/g/lastbite')

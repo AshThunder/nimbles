@@ -15,6 +15,7 @@ import { rng } from '../shared/rng'
 import { replaySolitaire } from '../shared/solitaire'
 import { replayBubble } from '../shared/bubblesim'
 import { makeSudoku } from '../shared/puzzles'
+import { BOOST_TOTAL_MAX, DEFAULT_GOAL_LUNA, MAX_GOAL_NIM, POOL_DAILY_CAP, POOL_DAILY_PCT, earlyFee, isTier, levelBoostPct, poolDay, poolWeight, saveFee, type LockDays, type Plan } from '../shared/rewards'
 import {
   GAMES, LUNA, STAKES, levelFor,
   type GameId, type Mode, type OppKind, type Payee, type Payout, type PipLevel, type Profile, type PublicMatch, type Result, type Settlement, type SettleTerms,
@@ -104,7 +105,7 @@ export class Engine {
     return {
       address: p.address, name: p.name, avatar: p.avatar, xp: p.xp, level: lv.level, levelXp: lv.levelXp, nextXp: lv.nextXp,
       streak, lastStreakDay: p.activeDays[p.activeDays.length - 1] ?? '', streakDays: p.activeDays.slice(-14),
-      wins: p.wins, played: p.played, jarLuna: p.jarLuna, jarUnlockAt: p.jarUnlockAt,
+      wins: p.wins, played: p.played, jarLuna: p.jarLuna, jarUnlockAt: p.jarUnlockAt, plan: this.planOf(p),
       questWins: p.questDay === today ? p.questWins : 0, questDay: today, weekXp: p.weekXp,
       ...({ vaultToday: p.vaultDay === today, vaultDay: p.vaultDay } as object),
     } as Profile
@@ -606,6 +607,7 @@ export class Engine {
   }
 
   tickAll() {
+    this.payPool()
     for (const m of Object.values(this.db.matches)) {
       if (m.status !== 'settled' && m.status !== 'cancelled') this.tick(m)
       else if (m.settlement?.payouts.some((p) => !p.tx && (p as any).attempts < 6)) this.runPayouts(m)
@@ -652,12 +654,19 @@ export class Engine {
     const winner = draw ? undefined : ranks[0].address
     const payouts: Payout[] = []
     const jarCredit: Record<string, number> = {}
+    let poolFee = 0
     const xp: Record<string, number> = {}
     const humans = m.players.filter((p) => !p.isBot)
 
     if (m.mode === 'save' && !allForfeit) {
       if (draw) for (const p of humans) payouts.push({ ...this.dest(p), luna: p.escrowed, kind: 'refund', note: 'Draw, stake returned' })
-      else jarCredit[winner!] = m.players.reduce((s, p) => s + p.escrowed, 0)
+      else {
+        const pot = m.players.reduce((s, p) => s + p.escrowed, 0)
+        poolFee = saveFee(pot) // a small slice of every Save pot goes to the savers
+        jarCredit[winner!] = pot - poolFee
+        this.pool.luna += poolFee
+        this.pool.feesTotal = (this.pool.feesTotal ?? 0) + poolFee
+      }
     } else if (m.mode === 'settle' && m.terms && !allForfeit) {
       // the loser pays their agreed share, the winner pays the rest, a draw splits it evenly. Each player's unused lock
       // goes back to them and the bill goes to the payee the two of them agreed.
@@ -714,16 +723,33 @@ export class Engine {
     }
     m.settlement = {
       winner, draw: draw || undefined, ranks: ranks.map((r) => ({ address: r.address, rank: r.rank, score: Math.max(0, r.score), time: r.time === Number.MAX_SAFE_INTEGER ? 0 : r.time })),
-      payouts, xp, jarCredit,
+      payouts, xp, jarCredit, ...(poolFee ? { fee: poolFee } : {}),
       reason: allForfeit ? 'Nobody finished' : forfeit ? 'A player ran out of time and forfeited' : draw ? 'Dead heat' : 'Best score wins',
     }
     this.store.save()
     this.runPayouts(m)
   }
 
+  /** The saver's plan. Older jars have no stored plan, so they get the default tier and an inferred lock start. */
+  planOf(p: ProfileRec): Plan {
+    const lockDays = (isTier(p.plan?.lockDays) ? p.plan!.lockDays : isTier(this.lockDays) ? this.lockDays : 30) as LockDays
+    const legacyStart = p.jarUnlockAt > 0 ? p.jarUnlockAt - this.lockDays * 864e5 : 0
+    return { goalLuna: p.plan?.goalLuna ?? DEFAULT_GOAL_LUNA, lockDays, lockStartAt: p.lockStartAt ?? legacyStart }
+  }
+
+  /** Adds to the jar. A deposit into an empty or unlocked jar starts the lock. A deposit into a locked jar keeps the lock as it is. */
   private creditJar(p: ProfileRec, luna: number) {
+    const now = Date.now()
+    const fresh = p.jarLuna <= 0 || p.jarUnlockAt <= now
     p.jarLuna += luna
-    p.jarUnlockAt = Math.max(p.jarUnlockAt, Date.now() + this.lockDays * 864e5)
+    if (fresh) {
+      p.lockStartAt = now
+      p.jarUnlockAt = now + this.planOf(p).lockDays * 864e5
+    }
+  }
+
+  get pool() {
+    return (this.db.pool ??= { luna: 0 })
   }
 
   private runPayouts(m: MatchRec) {
@@ -747,18 +773,121 @@ export class Engine {
 
   // ---------------- jar + vault ----------------
 
-  async withdrawJar(addr: string) {
+  /** Where the jar stands: plan, lock, what an early unlock would cost right now. */
+  jarInfo(addr: string) {
+    this.payPool()
+    const p = this.must(addr)
+    const now = Date.now()
+    const plan = this.planOf(p)
+    const locked = p.jarLuna > 0 && p.jarUnlockAt > now
+    const q = locked ? earlyFee(p.jarLuna, plan.lockStartAt, p.jarUnlockAt, now) : { fee: 0, pct: 0 }
+    return {
+      plan, jarLuna: p.jarLuna, unlockAt: p.jarUnlockAt, locked,
+      early: { fee: q.fee, pct: q.pct, net: p.jarLuna - q.fee },
+      canChangeLock: !locked,
+      pool: this.poolInfo(addr),
+      boost: { levelPct: levelBoostPct(levelFor(p.xp).level), totalPct: this.boostPct(p) },
+      interest: { last: p.interestLast ?? 0, lastDay: p.interestDay ?? '', week: p.interestWeekKey === weekKey() ? p.interestWeek ?? 0 : 0, total: p.interestTotal ?? 0 },
+      serverNow: now,
+    }
+  }
+
+  setPlan(addr: string, b: { goalNim?: unknown; lockDays?: unknown }) {
+    const p = this.must(addr)
+    const cur = this.planOf(p)
+    let { goalLuna, lockDays } = cur
+    if (b.goalNim !== undefined) {
+      const g = Number(b.goalNim)
+      if (!Number.isFinite(g) || g < 1 || g > MAX_GOAL_NIM) throw bad(`A goal is between 1 and ${MAX_GOAL_NIM.toLocaleString('en-US')} NIM`)
+      goalLuna = Math.round(g * LUNA)
+    }
+    if (b.lockDays !== undefined) {
+      if (!isTier(b.lockDays)) throw bad('Pick a lock of 7, 30 or 90 days')
+      if (b.lockDays !== lockDays && p.jarLuna > 0 && p.jarUnlockAt > Date.now()) throw bad('The lock length can change when your jar is empty or unlocked')
+      lockDays = b.lockDays
+    }
+    p.plan = { goalLuna, lockDays }
+    this.store.save()
+    return this.jarInfo(addr)
+  }
+
+  /** Total saver boost, in percent: level plus chests, capped. */
+  boostPct(p: ProfileRec): number {
+    return Math.min(BOOST_TOTAL_MAX, levelBoostPct(levelFor(p.xp).level))
+  }
+
+  private weights(now = Date.now()) {
+    const w: Record<string, bigint> = {}
+    for (const p of Object.values(this.db.profiles)) {
+      if (p.jarLuna <= 0 || p.jarUnlockAt <= now) continue // only locked jars earn: the lock is the deal
+      const x = poolWeight(p.jarLuna, this.planOf(p).lockDays, this.boostPct(p))
+      if (x > 0n) w[p.address] = x
+    }
+    return w
+  }
+
+  poolInfo(addr?: string) {
+    const now = Date.now()
+    const w = this.weights(now)
+    const d = poolDay(this.pool.luna, w, this.poolCap, POOL_DAILY_PCT)
+    const mine = addr && w[addr] ? Number((BigInt(d.day) * w[addr]) / Object.values(w).reduce((s, x) => s + x, 0n)) : 0
+    const next = new Date(now)
+    return {
+      luna: this.pool.luna, dailyCap: this.poolCap, dailyPct: POOL_DAILY_PCT, savers: Object.keys(w).length,
+      today: d.day, estimate: mine, nextPayoutAt: Date.UTC(next.getUTCFullYear(), next.getUTCMonth(), next.getUTCDate() + 1),
+    }
+  }
+
+  get poolCap() {
+    return process.env.POOL_DAILY_CAP_NIM ? Math.round(Number(process.env.POOL_DAILY_CAP_NIM) * LUNA) : POOL_DAILY_CAP
+  }
+
+  /** Pays today's interest once per UTC day. The pool only moves money between claims already held in escrow. */
+  payPool(now = Date.now()) {
+    const today = day(now)
+    if (this.pool.lastPayDay === today) return { paid: 0 }
+    this.pool.lastPayDay = today
+    const d = poolDay(this.pool.luna, this.weights(now), this.poolCap, POOL_DAILY_PCT)
+    for (const [a, luna] of Object.entries(d.shares)) {
+      const p = this.db.profiles[a]
+      p.jarLuna += luna // the lock is untouched
+      p.interestDay = today
+      p.interestLast = luna
+      const wk = weekKey(now)
+      p.interestWeek = (p.interestWeekKey === wk ? p.interestWeek ?? 0 : 0) + luna
+      p.interestWeekKey = wk
+      p.interestTotal = (p.interestTotal ?? 0) + luna
+    }
+    this.pool.luna = Math.max(0, this.pool.luna - d.paid)
+    this.pool.paidTotal = (this.pool.paidTotal ?? 0) + d.paid
+    this.store.save()
+    return { paid: d.paid }
+  }
+
+  async withdrawJar(addr: string, early = false) {
     const p = this.must(addr)
     if (p.jarLuna <= 0) throw bad('Your jar is empty')
-    if (Date.now() < p.jarUnlockAt) throw bad('Your jar is still locked')
-    const luna = p.jarLuna
+    const now = Date.now()
+    const locked = now < p.jarUnlockAt
+    if (locked && !early) throw bad('Your jar is still locked')
+    const plan = this.planOf(p)
+    const fee = locked ? earlyFee(p.jarLuna, plan.lockStartAt, p.jarUnlockAt, now).fee : 0
+    const held = p.jarLuna
+    const luna = held - fee
+    const was = { unlockAt: p.jarUnlockAt, startAt: p.lockStartAt }
     p.jarLuna = 0 // zero first so a double tap can't pay twice
+    p.jarUnlockAt = 0
+    p.lockStartAt = 0
+    this.pool.luna += fee // the fee stays in escrow and goes to the savers who stay
     this.store.save()
     try {
-      const tx = await this.chain.pay(p.payAddr ?? addr, luna, 'nb:jar:withdraw')
-      return { tx, luna, profile: this.profile(addr) }
+      const tx = await this.chain.pay(p.payAddr ?? addr, luna, fee ? 'nb:jar:early' : 'nb:jar:withdraw')
+      return { tx, luna, fee, profile: this.profile(addr) }
     } catch (e) {
-      p.jarLuna += luna
+      p.jarLuna += held
+      p.jarUnlockAt = was.unlockAt
+      p.lockStartAt = was.startAt
+      this.pool.luna -= fee
       this.store.save()
       throw bad('The payout did not go through, your jar is untouched. Try again')
     }

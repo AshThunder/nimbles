@@ -77,6 +77,7 @@ export type Settlement = {
   payouts: Payout[]
   xp: Record<string, number>
   jarCredit: Record<string, number>
+  fee?: number // the saver pool's share of the pot
   reason: string
 }
 
@@ -95,6 +96,7 @@ export type Profile = {
   played: number
   jarLuna: number
   jarUnlockAt: number
+  plan: { goalLuna: number; lockDays: 7 | 30 | 90; lockStartAt: number }
   questWins: number
   questDay: string
   weekXp: number

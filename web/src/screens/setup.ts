@@ -45,7 +45,7 @@ route('/g/:id', (root, p) => {
   const summary = () => {
     if (st.opp === 'join') return ['Mode and stake come from the match you join', '']
     if (st.mode === 'play') return ['Free play, earns XP', 'No NIM at risk']
-    if (st.mode === 'save') return [`Stake <b>${st.stake} NIM</b> each, prize <b>${st.stake * 2} NIM</b>`, `Win +${st.stake * 2} to jar, lose −${st.stake}`]
+    if (st.mode === 'save') return [`Stake <b>${st.stake} NIM</b> each, prize <b>${st.stake * 2} NIM</b>`, `Win to your jar (2% goes to savers), lose −${st.stake}`]
     return [`Bill <b>${billOf(st.d) || 0} NIM</b>, loser pays ${st.d.pct}%`, 'Both agree before anything is locked']
   }
   const cta = () => {

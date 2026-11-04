@@ -83,9 +83,10 @@ test('save duel: both lock stake, server-scored trivia, winner banks pot in jar'
   const end = (await call(ta, 'GET', `/matches/${created.id}`)).j
   assert.equal(end.status, 'settled')
   assert.equal(end.settlement.winner, A)
-  assert.equal(end.settlement.jarCredit[A], 400000)
+  assert.equal(end.settlement.jarCredit[A], 392000, "pot minus the 2% saver fee")
+  assert.equal(end.settlement.fee, 8000)
   const pa = (await call(ta, 'GET', '/me')).j
-  assert.equal(pa.jarLuna, 400000)
+  assert.equal(pa.jarLuna, 392000)
   assert.ok(pa.jarUnlockAt > Date.now() + 29 * 864e5)
   assert.equal(pa.wins, 1)
   assert.equal((await call(ta, 'POST', '/jar/withdraw')).status, 400) // still locked

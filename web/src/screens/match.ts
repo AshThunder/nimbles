@@ -335,7 +335,7 @@ route('/m/:id', async (root, { id }) => {
       })
       .join('')
     const lines = [
-      ...(jar ? [`<div class="rw" style="min-height:48px"><span class="nm"><b>${ic('piggy-bank', 's16')} Added to your jar</b><span>Locked for ${S.cfg.lockDays} days</span></span><span class="am"><b>+${fmtNim(jar)}</b><span>NIM</span></span></div>`] : []),
+      ...(jar ? [`<div class="rw" style="min-height:48px"><span class="nm"><b>${ic('piggy-bank', 's16')} Added to your jar</b><span>Joins your ${S.me.plan.lockDays}-day lock</span></span><span class="am"><b>+${fmtNim(jar)}</b><span>NIM</span></span></div>`, ...(st.fee ? [`<div class="rw" style="min-height:48px"><span class="nm"><b>${ic('coins', 's16')} Saver pool</b><span>2% of the pot, shared with savers</span></span><span class="am"><b>${fmtNim(st.fee)}</b><span>NIM</span></span></div>`] : [])] : []),
       ...(settle ? st.payouts.filter((p) => p.kind === 'settle' && (p.for ?? p.to) !== addr).map((p) => `<div class="rw" style="min-height:48px"><span class="nm"><b>Bill paid out</b><span>To ${esc(shortAddr(p.to))}${p.tx ? ' · sent ' + shortAddr(p.tx) : ' · sending…'}</span></span><span class="am"><b>${fmtNim(p.luna)}</b><span>NIM</span></span></div>`) : []),
       ...myPay.map((p) => `<div class="rw" style="min-height:48px"><span class="nm"><b>${p.kind === 'settle' ? 'Bill received' : 'Refund'}</b><span>${p.tx ? 'Sent ' + shortAddr(p.tx) : 'Sending…'} · ${esc(p.note ?? '')}</span></span><span class="am"><b>+${fmtNim(p.luna)}</b><span>NIM</span></span></div>`),
     ].join('')

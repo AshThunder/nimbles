@@ -6,55 +6,9 @@ import { FLAME, JAR, errBox, pipRow, tabs, topbar } from '../ui'
 import { friendlyWalletError } from '../wallet'
 import { GAMES, fmtNim, type GameId } from '../../../shared/types'
 import { makeSudoku } from '../../../shared/puzzles'
-import { jarGoal, lockText } from './home'
+import { lockText } from './home'
 
 const AVATARS = ['ada', 'bisi', 'dee', 'ife', 'ivy', 'jay', 'kai', 'kemi', 'leo', 'max', 'me', 'mia', 'rue', 'sam', 'tobi', 'zoe']
-
-// ---------------- jar ----------------
-route('/jar', async (root) => {
-  try { S.me = await api.me() } catch { /* cached */ }
-  let hist: MatchView[] = []
-  try { hist = (await api.matches()).filter((m) => m.status === 'settled').slice(0, 8) } catch { /* ignore */ }
-  let err = ''
-  const draw = () => {
-    const me = S.me
-    const jar = me.jarLuna / 1e5
-    const locked = me.jarUnlockAt > Date.now()
-    const can = me.jarLuna > 0 && !locked
-    root.innerHTML = `${topbar('Savings jar', 'none')}<div class="scroll" style="gap:14px">
-      <div class="card" style="display:flex;gap:16px;align-items:center"><div style="width:84px;flex:none">${JAR}</div><div style="flex:1"><div class="lab" style="margin:0">Saved</div><div style="font-size:38px;line-height:42px;font-weight:800">${fmtNim(me.jarLuna)}<small style="font-size:15px;color:var(--muted)"> NIM</small></div><div class="bar" style="margin-top:6px"><i style="width:${Math.min(100, (jar / jarGoal(jar)) * 100)}%"></i></div><div class="m" style="margin-top:6px;display:flex;gap:6px;align-items:center;font-size:13px;color:var(--ink2)">${ic('lock', 's16')}${lockText(me.jarLuna, me.jarUnlockAt)}</div></div></div>
-      ${err ? errBox(err) : ''}
-      <button class="btn gold block" data-act="withdraw" ${can ? '' : 'disabled'}>${ic('wallet', 's20')}Withdraw to wallet</button>
-      ${pipRow(locked ? 'sleepy' : 'happy', locked ? `<b>Locked on purpose.</b> Wins in Save mode lock for ${S.cfg.lockDays} days, so winnings turn into savings` : '<b>Win Save duels</b> or drop a small vault deposit to fill the jar')}
-      <div class="lab">Recent duels<small>${hist.length ? '' : 'Nothing yet'}</small></div>
-      <div class="rank" style="gap:8px">${hist.map(histRow).join('')}</div></div>${tabs('Jar')}`
-  }
-  const histRow = (m: MatchView) => {
-    const st = m.settlement!
-    const won = st.winner === S.wallet.address
-    const jarc = (st.jarCredit[S.wallet.address] ?? 0) / 1
-    const mine = st.payouts.filter((p) => (p.for ?? p.to) === S.wallet.address).reduce((s, p) => s + p.luna, 0)
-    return `<div class="rw" style="min-height:52px"><span class="avs" style="background:${GLYPH_BG[m.game]};border-radius:10px;padding:4px">${glyph(m.game)}</span><span class="nm"><b>${GAMES[m.game].name}</b><span>${st.draw ? 'Draw' : won ? 'Won' : 'Lost'} · ${m.mode}</span></span><span class="am"><b>${jarc ? '+' + fmtNim(jarc) : mine ? '+' + fmtNim(mine) : '0'}</b><span>NIM</span></span></div>`
-  }
-  draw()
-  actions(root, {
-    withdraw: async () => {
-      try {
-        const r = await api.withdraw()
-        sfx('reward/coin')
-        toast('Withdrawal sent')
-        S.me = await api.me()
-        err = ''
-        void r
-      } catch (e: any) {
-        err = e.message
-        sfx('ui/error')
-      }
-      draw()
-    },
-    tab: () => sfx('ui/select', 0.4),
-  })
-})
 
 // ---------------- leaderboard ----------------
 route('/rank', async (root) => {
