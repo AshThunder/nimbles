@@ -78,6 +78,8 @@ export type DB = {
   usedTx: Record<string, string>
   pool?: { luna: number; lastPayDay?: string; paidTotal?: number; feesTotal?: number } // the saver interest pool, held in the escrow wallet like jar balances
   version: 1
+  /** Which network this database belongs to. A mainnet server refuses a database that is not stamped mainnet. */
+  network?: 'testnet' | 'mainnet'
 }
 
 const empty = (): DB => ({ profiles: {}, tokens: {}, matches: {}, usedTx: {}, version: 1 })
@@ -87,10 +89,19 @@ export class Store {
   private file: string
   private timer: NodeJS.Timeout | null = null
 
-  constructor(public dir: string, persist = true) {
+  constructor(public dir: string, persist = true, network?: 'testnet' | 'mainnet') {
     this.file = persist ? join(dir, 'db.json') : ''
     if (persist) mkdirSync(dir, { recursive: true })
     this.db = this.file && existsSync(this.file) ? { ...empty(), ...JSON.parse(readFileSync(this.file, 'utf8')) } : empty()
+    if (network) {
+      const found = this.db.network
+      const used = Object.keys(this.db.profiles).length + Object.keys(this.db.matches).length + Object.keys(this.db.usedTx).length > 0
+      // an unstamped database is an older testnet or mock one. It may continue on testnet and must never become mainnet money
+      if ((found && found !== network) || (network === 'mainnet' && !found && used)) {
+        throw new Error(`${this.file || dir} belongs to ${found ?? 'an unstamped (testnet or mock)'} data, but this server runs on ${network}. Refusing to load it. Use a fresh volume or folder for ${network}.`)
+      }
+      this.db.network = network
+    }
   }
 
   save() {

@@ -224,6 +224,10 @@ route('/vault', async (root) => {
     dep: async (el) => {
       const amt = Number(el.dataset.a)
       err = ''
+      if (S.wallet.kind === 'nimiq-pay' && S.wallet.network !== 'unknown' && S.wallet.network !== S.cfg.network) {
+        err = `Nimiq Pay is on ${S.wallet.network}, this server runs on ${S.cfg.network}. Switch networks and try again`
+        return void draw()
+      }
       try {
         busy = 'Approve the payment in Nimiq Pay…'
         draw()

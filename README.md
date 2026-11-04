@@ -80,7 +80,7 @@ fly secrets set GEMINI_API_KEY=...            # optional
 fly deploy                                    # testnet by default (fly.toml)
 ```
 
-For mainnet: `npm run wallet:mainnet` (writes a chmod 600 key file and prints only the public address), set the key as a platform secret (`ESCROW_PRIVATE_KEY`), then set `CHAIN=nimiq`, `NETWORK=mainnet`, `ALLOW_MAINNET=yes`. Fund the escrow address with a small amount first.
+For mainnet: `npm run wallet:mainnet` (writes a chmod 600 key file and prints only the public address), then follow [MAINNET.md](MAINNET.md). It uses its own app and volume (`fly.mainnet.toml`), so no testnet state carries over.
 
 ## Environment
 
@@ -90,10 +90,11 @@ See [.env.example](.env.example). Highlights:
 | --- | --- |
 | `PORT`, `DATA_DIR` | Server port, and where state and the generated testnet key live |
 | `CHAIN`, `NETWORK` | `mock` (default) or `nimiq`, plus `testnet` or `mainnet` |
-| `ALLOW_MAINNET` | Must be `yes` for mainnet |
+| `ALLOW_MAINNET`, `EXPECTED_ESCROW_ADDRESS` | Both required for mainnet. The key must derive to the pinned address |
+| `PAY_FEE_LUNA` | Network fee per payout, default 0 |
 | `ESCROW_PRIVATE_KEY`, `ESCROW_KEY_FILE` | Escrow wallet key. Mainnet needs one of them |
 | `MAX_STAKE_NIM` | Stake cap per player (default 25 on mainnet) |
-| `MIN_CONFIRMATIONS`, `NIMIQ_RPC_URL` | Deposit confirmations, RPC override |
+| `MIN_CONFIRMATIONS`, `NIMIQ_RPC_URL` | Deposit confirmations, RPC override (comma separated for failover) |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Nimo trivia and receipt reading. Without a key a built-in bank is used |
 | `JAR_LOCK_DAYS` | Jar lock length (default 30) |
 

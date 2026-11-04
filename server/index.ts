@@ -5,7 +5,7 @@ import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Engine, ApiError } from './engine'
 import { Store } from './store'
-import { MockChain, makeChain } from './chain'
+import { MockChain, makeChain, resolveChainConfig, stateDir } from './chain'
 import { aiStatus, nimoChat, parseReceipt } from './ai'
 import { Challenges, addressFromProof, challengeText } from './auth'
 
@@ -52,7 +52,8 @@ function limit(key: string, max: number, windowMs: number) {
 export async function createApp(opts: { dataDir?: string; persist?: boolean } = {}) {
   loadEnv()
   const dataDir = opts.dataDir ?? (process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(ROOT, 'data'))
-  const store = new Store(dataDir, opts.persist ?? true)
+  const net = resolveChainConfig().network
+  const store = new Store(stateDir(dataDir), opts.persist ?? true, net)
   const chain = await makeChain(dataDir)
   const engine = new Engine(store, chain)
   const challenges = new Challenges()
@@ -217,4 +218,18 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const port = Number(process.env.PORT ?? 8787)
   app.server.listen(port, '0.0.0.0', () => console.log(`[nimbles] api on :${port}, chain=${app.chain.kind}, ai=${aiStatus().gemini ? 'gemini' : 'fallback bank'}`))
   process.on('SIGINT', () => { app.close(); process.exit(0) })
+  // a real chain: say loudly if the escrow ever holds less than the jars, pool, live stakes and unsent payouts add up to
+  if (app.chain.kind === 'nimiq') {
+    const watch = async () => {
+      try {
+        const bal = await app.chain.balance()
+        const l = app.engine.liabilities()
+        const nim = (n: number) => (n / 1e5).toFixed(2)
+        console.log(`[escrow] ${app.chain.network} balance ${nim(bal)} NIM, owed ${nim(l.total)} (jars ${nim(l.jars)}, pool ${nim(l.pool)}, live stakes ${nim(l.live)}, unsent ${nim(l.unpaid)}), float ${nim(bal - l.total)}`)
+        if (bal < l.total) console.error(`[escrow] SHORTFALL of ${nim(l.total - bal)} NIM: the escrow holds less than it owes. Top it up.`)
+      } catch (e: any) { console.error('[escrow] balance check failed:', e?.message) }
+    }
+    void watch()
+    setInterval(watch, 5 * 60_000).unref()
+  }
 }

@@ -31,7 +31,8 @@ type MockTx = { from: string; to: string; luna: number; memo: string; contract?:
 
 export class MockChain implements Chain {
   readonly kind = 'mock' as const
-  readonly network = 'testnet' as const
+  /** MOCK_NETWORK=mainnet lets the offline mock present itself as mainnet, to rehearse the mainnet UI without touching a chain. */
+  readonly network: 'testnet' | 'mainnet' = process.env.MOCK_NETWORK === 'mainnet' ? 'mainnet' : 'testnet'
   readonly escrowAddress = 'NQ07 0000 0000 0000 0000 0000 0000 0000 0000'
   txs = new Map<string, MockTx>()
   paid: { to: string; luna: number; memo: string; tx: string }[] = []
@@ -92,11 +93,21 @@ export class NimiqChain implements Chain {
   private Nimiq: any
   private key: any
   private rpcUrl: string
+  private rpcUrls: string[]
   private minConfirmations = Number(process.env.MIN_CONFIRMATIONS ?? 2)
   private sendQueue: Promise<unknown> = Promise.resolve()
 
+  /** Network fee per payout in luna. Nimiq accepts fee 0, and that is the default. Raise it with PAY_FEE_LUNA if validators ever stop including free txs. */
+  readonly payFee: bigint
+  /** The escrow address this deploy was meant to run, so a wrong key can never go live. Required on mainnet. */
+  private expected = (process.env.EXPECTED_ESCROW_ADDRESS || '').trim()
+
   constructor(private dataDir: string, readonly network: Network = 'testnet') {
-    this.rpcUrl = process.env.NIMIQ_RPC_URL || DEFAULT_RPC[network]
+    this.rpcUrls = (process.env.NIMIQ_RPC_URL || DEFAULT_RPC[network]).split(',').map((u) => u.trim()).filter(Boolean)
+    this.rpcUrl = this.rpcUrls[0]
+    const fee = Number(process.env.PAY_FEE_LUNA ?? 0)
+    if (!Number.isInteger(fee) || fee < 0 || fee > 100_000) throw new Error('PAY_FEE_LUNA must be a whole number of luna between 0 and 100000')
+    this.payFee = BigInt(fee)
   }
 
   async start() {
@@ -111,19 +122,36 @@ export class NimiqChain implements Chain {
     }
     this.key = N.KeyPair.derive(N.PrivateKey.fromHex(found.hex))
     this.escrowAddress = this.key.toAddress().toUserFriendlyAddress()
+    if (this.network === 'mainnet' && !this.expected) {
+      throw new Error('Mainnet needs EXPECTED_ESCROW_ADDRESS, the public address you funded, so a wrong key can never go live.')
+    }
+    if (this.expected && !sameAddr(this.expected, this.escrowAddress)) {
+      throw new Error(`The escrow key derives ${this.escrowAddress}, but EXPECTED_ESCROW_ADDRESS is ${this.expected}. Refusing to start.`)
+    }
     console.log(`[chain] ${this.network} escrow ${this.escrowAddress} (key from ${found.source === 'env' ? 'env' : found.source === 'generated' ? 'new file' : 'file'}), rpc ${this.rpcUrl}`)
   }
 
+  /** Tries each RPC in NIMIQ_RPC_URL (comma separated) in turn when one is unreachable. A JSON-RPC error is an answer, not an outage, so it is not retried elsewhere. */
   private async rpc(method: string, params: unknown[]): Promise<any> {
-    const res = await fetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
-      signal: AbortSignal.timeout(15000),
-    })
-    const j: any = await res.json()
-    if (j.error) throw new Error(typeof j.error === 'string' ? j.error : j.error.data || j.error.message)
-    return j.result?.data
+    let last: unknown
+    for (const url of this.rpcUrls) {
+      let j: any
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
+          signal: AbortSignal.timeout(15000),
+        })
+        j = await res.json()
+      } catch (e) {
+        last = e
+        continue
+      }
+      if (j.error) throw new Error(typeof j.error === 'string' ? j.error : j.error.data || j.error.message)
+      return j.result?.data
+    }
+    throw last ?? new Error('No RPC endpoint configured')
   }
 
   async verifyDeposit(txHash: string, e: { luna: number; memo: string }): Promise<DepositCheck> {
@@ -171,13 +199,16 @@ export class NimiqChain implements Chain {
       // a contract account (HTLC, vesting) rejects plain transfers: the tx would confirm but fail, and the NIM stays in escrow
       const dest = await this.rpc('getAccountByAddress', [to]).catch(() => null)
       if (dest && dest.type && dest.type !== 'basic') throw new Error(`Cannot pay ${to}: it is a ${dest.type} contract, not a wallet`)
+      // payouts only ever spend what players deposited. If the escrow cannot cover this one, stop here rather than broadcast a tx that would be rejected
+      const have = await this.balance()
+      if (BigInt(have) < BigInt(luna) + this.payFee) throw new Error('Escrow balance is too low for this payout')
       const height: number = await this.rpc('getBlockNumber', [])
       const tx = N.TransactionBuilder.newBasicWithData(
         this.key.toAddress(),
         N.Address.fromUserFriendlyAddress(to),
         new TextEncoder().encode(memo.slice(0, 64)),
         BigInt(luna),
-        0n,
+        this.payFee,
         height,
         NETWORK_ID[this.network],
       )
@@ -217,6 +248,13 @@ export function resolveChainConfig(env: NodeJS.ProcessEnv = process.env): { kind
   }
   if (raw === 'nimiq') return { kind: 'nimiq', network: (net || 'testnet') as Network }
   throw new Error('CHAIN must be mock or nimiq')
+}
+
+/** Where the database lives. Testnet keeps the original folder so an existing volume still loads. Mainnet gets its own
+ *  subfolder, so testnet balances, jars, pools and used tx hashes can never be read as mainnet money. */
+export function stateDir(base: string, env: NodeJS.ProcessEnv = process.env): string {
+  const { kind, network } = resolveChainConfig(env)
+  return kind === 'nimiq' && network === 'mainnet' ? join(base, 'mainnet') : base
 }
 
 export async function makeChain(dataDir: string): Promise<Chain> {

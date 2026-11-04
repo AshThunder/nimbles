@@ -727,7 +727,7 @@ export class Engine {
     this.payPool()
     for (const m of Object.values(this.db.matches)) {
       if (m.status !== 'settled' && m.status !== 'cancelled') this.tick(m)
-      else if (m.settlement?.payouts.some((p) => !p.tx && (p as any).attempts < 6)) this.runPayouts(m)
+      else if (m.settlement?.payouts.some((p) => this.dueForPayout(p))) this.runPayouts(m)
     }
   }
 
@@ -894,13 +894,39 @@ export class Engine {
     return (this.db.pool ??= { luna: 0 })
   }
 
+  /** A payout is tried six times in a row, then once every 5 minutes for about 4 hours. A refund must not be lost to an RPC outage or an empty float. */
+  private dueForPayout(p: any, now = Date.now()) {
+    if (p.tx || p.inflight || p.luna < 1) return false
+    const n = p.attempts ?? 0
+    return n < 6 || (n < 54 && now - (p.lastTryAt ?? 0) >= 5 * 60_000)
+  }
+
+  /** Everything the escrow owes right now: jars, the saver pool, stakes locked in live matches and payouts not yet sent.
+   *  The escrow balance should always be at least this. The difference is the float that pays network fees. */
+  liabilities() {
+    let jars = 0
+    for (const p of Object.values(this.db.profiles)) jars += p.jarLuna
+    let live = 0
+    let unpaid = 0
+    for (const m of Object.values(this.db.matches)) {
+      if (m.status === 'settled' || m.status === 'cancelled') {
+        for (const p of m.settlement?.payouts ?? []) if (!p.tx) unpaid += p.luna
+      } else {
+        for (const p of m.players) if (p.funded && !p.isBot) live += p.escrowed
+      }
+    }
+    const pool = this.pool.luna
+    return { jars, pool, live, unpaid, total: jars + pool + live + unpaid }
+  }
+
   private runPayouts(m: MatchRec) {
     const s = m.settlement
     if (!s) return
     s.payouts.forEach(async (p: any, i) => {
-      if (p.tx || p.inflight || (p.attempts ?? 0) >= 6 || p.luna < 1) return
+      if (!this.dueForPayout(p)) return
       p.inflight = true
       p.attempts = (p.attempts ?? 0) + 1
+      p.lastTryAt = Date.now()
       try {
         p.tx = await this.chain.pay(p.to, p.luna, `nb:${m.id}:${p.kind}${i}`)
         delete p.error

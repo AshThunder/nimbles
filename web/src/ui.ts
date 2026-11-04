@@ -7,7 +7,8 @@ export const FLAME = '<svg viewBox="0 0 48 56"><path d="M24 3c1.6 11 17 15 17 31
 export const JAR = '<svg class="jarart" viewBox="0 0 72 88"><defs><clipPath id="jc"><path d="M12 24h48v50a8 8 0 0 1-8 8H20a8 8 0 0 1-8-8z"/></clipPath></defs><rect x="14" y="6" width="44" height="12" rx="4" fill="#F4B323"/><rect x="18" y="16" width="36" height="8" rx="2" fill="#C98E0A"/><path d="M12 24h48v50a8 8 0 0 1-8 8H20a8 8 0 0 1-8-8z" fill="#2E3365"/><g clip-path="url(#jc)"><rect x="12" y="46" width="48" height="40" fill="#F4B323"/><ellipse cx="26" cy="62" rx="9" ry="3.6" fill="#C98E0A"/><ellipse cx="44" cy="70" rx="9" ry="3.6" fill="#C98E0A"/><ellipse cx="30" cy="76" rx="9" ry="3.6" fill="#C98E0A"/><ellipse cx="50" cy="55" rx="7" ry="3" fill="#C98E0A"/></g><path d="M12 24h48v50a8 8 0 0 1-8 8H20a8 8 0 0 1-8-8z" fill="none" stroke="#F5F0E6" stroke-width="2.5"/><rect x="17" y="30" width="4" height="22" rx="2" fill="#F5F0E6" opacity=".35"/></svg>'
 
 export const netBadge = () => {
-  const n = S.wallet?.network
+  // Nimiq Pay's own network wins. When the host does not say, fall back to the network this server runs on
+  const n = S.wallet?.network && S.wallet.network !== 'unknown' ? S.wallet.network : S.cfg?.network
   if (S.wallet?.kind === 'preview' && !S.cfg.mock) return '<span class="net off">Preview</span>'
   if (n === 'mainnet') return '<span class="net">Mainnet</span>'
   return '<span class="net test">Testnet</span>'

@@ -1,0 +1,35 @@
+# Nimbles on Nimiq MAINNET (real NIM). Separate app and separate volume from the testnet build in fly.toml,
+# so no testnet balance, jar, pool or tx hash can ever be read as mainnet money.
+# Deploy: fly deploy -c fly.mainnet.toml     (steps in MAINNET.md)
+# The escrow key is NEVER in this file. It is the platform secret ESCROW_PRIVATE_KEY.
+app = "nimbles-mainnet"
+primary_region = "ams"
+
+[build]
+
+[env]
+  CHAIN = "nimiq"
+  NETWORK = "mainnet"
+  ALLOW_MAINNET = "yes"
+  # the public escrow address the key must derive to. A wrong key refuses to start
+  EXPECTED_ESCROW_ADDRESS = "NQ87 51PJ 4Q0P RRQV DVCY L28T N3FK YUK6 P8DR"
+  PORT = "8080"
+  DATA_DIR = "/data"
+  # launch cap: the biggest stake chip is 10 NIM. Raise on purpose, after the first real matches
+  MAX_STAKE_NIM = "10"
+  MIN_CONFIRMATIONS = "2"
+
+[[mounts]]
+  source = "nimbles_mainnet_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
