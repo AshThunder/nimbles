@@ -18,3 +18,5 @@ dist/
 # local test output
 tests/e2e/out/
 test-results/
+__pycache__/
+*.pyc
