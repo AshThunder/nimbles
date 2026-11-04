@@ -389,6 +389,10 @@ export class Engine {
       const pz = makeSudoku(m.seed, 9)
       if (JSON.stringify(b.detail.grid) !== JSON.stringify(pz.solution)) throw bad('That grid does not solve this puzzle')
     }
+    if (m.game === 'lastbite' && b.detail?.solved && Array.isArray(b.detail.grid)) {
+      const pz = makeSudoku(m.seed, 4)
+      if (JSON.stringify(b.detail.grid) !== JSON.stringify(pz.solution)) throw bad('That grid does not solve this puzzle')
+    }
     pl.result = { score, time, detail: b.detail }
     pl.progress = score
     this.maybeSettle(m)
