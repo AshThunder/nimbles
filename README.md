@@ -1,6 +1,16 @@
 # Nimbles
 
-Skill-only duels for friends, built as a [Nimiq Pay mini app](https://nimiq.dev/mini-apps). Pick a game, pick a mode, beat a friend. No luck, no house edge: the better player wins.
+Skill-only duels for friends, built as a [Nimiq Pay mini app](https://nimiq.dev/mini-apps). Pick a game, pick a mode, beat a friend. No luck: the better player wins. Win and Save pots carry a 2% fee that funds the savers' pool.
+
+**Live:** [nimbles-mainnet.fly.dev](https://nimbles-mainnet.fly.dev) (mainnet, real NIM) · [nimbles-nimiq.fly.dev](https://nimbles-nimiq.fly.dev) (testnet, play money)
+
+<p>
+  <img src="docs/screenshots/screenshot-1.png" width="160" alt="Nimbles screenshot 1">
+  <img src="docs/screenshots/screenshot-2.png" width="160" alt="Nimbles screenshot 2">
+  <img src="docs/screenshots/screenshot-3.png" width="160" alt="Nimbles screenshot 3">
+  <img src="docs/screenshots/screenshot-4.png" width="160" alt="Nimbles screenshot 4">
+  <img src="docs/screenshots/screenshot-5.png" width="160" alt="Nimbles screenshot 5">
+</p>
 
 **Modes**
 
@@ -64,7 +74,8 @@ Dev with hot reload: `npm run dev` (Vite on 5173 proxying the API). Outside Nimi
 
 ### Try it in Nimiq Pay
 
-Testnet build: https://nimbles-nimiq.fly.dev (testnet only, play money).
+Mainnet: https://nimbles-mainnet.fly.dev (real NIM, stakes capped).
+Testnet: https://nimbles-nimiq.fly.dev (testnet only, play money).
 
 1. Open Nimiq Pay, then Mini Apps, then Custom URL, and enter your deployed URL (or `http://<LAN-IP>:5173` from `npm run dev`).
 2. For testnet, long-press the settings button for 10 seconds and choose Testnet. Use "Get free NIM" for test funds.

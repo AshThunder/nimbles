@@ -67,7 +67,7 @@ route('/pip', async (root) => {
     const left = me.jarLuna > 0 && me.jarUnlockAt > Date.now() ? `locked for ${Math.max(1, Math.ceil((me.jarUnlockAt - Date.now()) / 864e5))} more days` : me.jarLuna > 0 ? 'unlocked and ready to withdraw' : 'empty, the lock starts with your first deposit'
     return `Your goal is ${goal} NIM with a ${me.plan.lockDays}-day lock. The jar holds ${jar} NIM, ${left}. Win Save matches to fill it.`
   }
-  const bubbles = () => msgs.map((m) => `<div class="nb ${m.role}">${m.role === 'nimo' ? pipImg('happy') : ''}<div class="bb">${esc(m.text)}${m.link ? `<button class="btn gold sm" data-act="lnk" data-to="${m.link[1]}" style="margin-top:8px">${esc(m.link[0])}</button>` : ''}</div></div>`).join('') + (thinking ? `<div class="nb nimo">${pipImg('think')}<div class="bb dots"><i></i><i></i><i></i></div></div>` : '')
+  const bubbles = () => msgs.map((m) => `<div class="nb ${m.role}">${m.role === 'nimo' ? pipImg('happy') : ''}<div class="bb">${esc(m.text)}${m.link ? `<button class="btn gold sm" data-act="lnk" data-to="${m.link[1]}" >${esc(m.link[0])}</button>` : ''}</div></div>`).join('') + (thinking ? `<div class="nb nimo">${pipImg('think')}<div class="bb dots"><i></i><i></i><i></i></div></div>` : '')
   const draw = () => {
     const keep = root.querySelector('.scroll')?.scrollTop ?? 0
     root.innerHTML = `${topbar('Nimo', 'none')}<div class="scroll" style="gap:12px">

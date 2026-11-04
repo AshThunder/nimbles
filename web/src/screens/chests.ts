@@ -65,7 +65,7 @@ route('/chest/:id', async (root, p) => {
     root.innerHTML = `${topbar(c.title, 'back')}<div class="scroll center chs" style="gap:14px">
       <div class="chw ${phase}"><img class="chimg" src="/badges/chest-${isOpen ? 'open' : 'closed'}.svg" alt="" width="168" height="168"></div>
       <b class="cht">${isOpen ? 'Opened' : esc(c.why)}</b>
-      <div class="card chin"><div class="lab" style="margin:0 0 10px">${isOpen ? 'You got' : 'Inside'}<small>Same for everyone, never NIM</small></div><div class="tc crs">${contentRows(c.contents, isOpen)}</div></div>
+      <div class="card chin"><div class="lab" style="margin:0 0 10px">${isOpen ? 'You got' : 'Inside'}<small>Same for everyone, never NIM</small></div><div class="tc chcs">${contentRows(c.contents, isOpen)}</div></div>
       ${err ? errBox(err) : ''}
     </div>
     <div class="foot">${isOpen
