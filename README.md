@@ -52,6 +52,8 @@ Dev with hot reload: `npm run dev` (Vite on 5173 proxying the API). Outside Nimi
 
 ### Try it in Nimiq Pay
 
+Testnet build: https://nimbles-nimiq.fly.dev (testnet only, play money).
+
 1. Open Nimiq Pay, then Mini Apps, then Custom URL, and enter your deployed URL (or `http://<LAN-IP>:5173` from `npm run dev`).
 2. For testnet, long-press the settings button for 10 seconds and choose Testnet. Use "Get free NIM" for test funds.
 
