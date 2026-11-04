@@ -59,3 +59,83 @@ export function poolDay(poolLuna: number, weights: Record<string, bigint>, cap =
   }
   return { day, shares, paid }
 }
+
+// ---- chests ----
+// A chest never holds NIM. Everything inside is fixed by the chest's kind, so players can read it before they open it.
+export type ChestKind = 'win' | 'triple' | 'streak3' | 'streak7' | 'streak30' | 'level'
+export type Contents = {
+  xp: number
+  boost?: { pct: number; hours: number } // a temporary lift to the saver pool share
+  badge?: string
+  cosmetic?: string // a frame or table theme id
+}
+
+export const CHEST_TITLES: Record<ChestKind, string> = {
+  win: 'Daily win chest',
+  triple: 'Hot hand chest',
+  streak3: '3-day streak chest',
+  streak7: '7-day streak chest',
+  streak30: '30-day streak chest',
+  level: 'Level-up chest',
+}
+export const CHEST_WHY: Record<ChestKind, string> = {
+  win: 'You won a duel today',
+  triple: 'You won 3 duels in one day',
+  streak3: 'You kept a 3-day streak',
+  streak7: 'You kept a 7-day streak',
+  streak30: 'You kept a 30-day streak',
+  level: 'You reached a new level',
+}
+
+export function chestContents(kind: ChestKind, level = 0): Contents {
+  switch (kind) {
+    case 'win': return { xp: 40, boost: { pct: 5, hours: 24 } }
+    case 'triple': return { xp: 100, boost: { pct: 10, hours: 48 }, badge: 'hot-hand', cosmetic: 'theme:butter' }
+    case 'streak3': return { xp: 75, badge: 'streak-3' }
+    case 'streak7': return { xp: 150, badge: 'streak-7', cosmetic: 'theme:lilac' }
+    case 'streak30': return { xp: 400, badge: 'streak-30', cosmetic: 'frame:gold' }
+    case 'level': return { xp: 60, boost: { pct: 5, hours: 24 }, ...(level > 0 && level % 5 === 0 ? { badge: 'level-' + level } : {}) }
+  }
+}
+
+export type ChestRec = { id: string; kind: ChestKind; level?: number; at: number; openedAt?: number }
+
+/** The chests a player has earned but not been given yet. Ids are unique per day, per streak run and per level, so nothing is ever given twice. */
+export function chestsDue(s: { today: string; wins: number; streak: number; streakStart: string; level: number; lvlSeen: number }): ChestRec[] {
+  const at = Date.now()
+  const out: ChestRec[] = []
+  if (s.wins >= 1) out.push({ id: `win:${s.today}`, kind: 'win', at })
+  if (s.wins >= 3) out.push({ id: `triple:${s.today}`, kind: 'triple', at })
+  for (const n of [3, 7, 30] as const) if (s.streak >= n) out.push({ id: `streak${n}:${s.streakStart}`, kind: `streak${n}` as ChestKind, at })
+  for (let l = s.lvlSeen + 1; l <= s.level; l++) out.push({ id: `lvl:${l}`, kind: 'level', level: l, at })
+  return out
+}
+
+// ---- cosmetics: flat colours only ----
+export type Cosmetic = { id: string; kind: 'frame' | 'theme'; name: string; color: string; tint: string; level?: number; chest?: boolean }
+export const COSMETICS: Cosmetic[] = [
+  { id: 'theme:sky', kind: 'theme', name: 'Sky', color: '#1F78C4', tint: '#D7E9F8', level: 3 },
+  { id: 'theme:mint', kind: 'theme', name: 'Mint', color: '#1F8A5B', tint: '#D3EBDD', level: 6 },
+  { id: 'theme:blush', kind: 'theme', name: 'Blush', color: '#D0432E', tint: '#F6D8D1', level: 10 },
+  { id: 'theme:lilac', kind: 'theme', name: 'Lilac', color: '#7A4FC4', tint: '#E4DAF6', chest: true },
+  { id: 'theme:butter', kind: 'theme', name: 'Butter', color: '#F4B323', tint: '#FBE6AE', chest: true },
+  { id: 'frame:blue', kind: 'frame', name: 'Blue frame', color: '#1F78C4', tint: '#D7E9F8', level: 5 },
+  { id: 'frame:green', kind: 'frame', name: 'Green frame', color: '#1F8A5B', tint: '#D3EBDD', level: 10 },
+  { id: 'frame:coral', kind: 'frame', name: 'Coral frame', color: '#D0432E', tint: '#F6D8D1', level: 15 },
+  { id: 'frame:gold', kind: 'frame', name: 'Gold frame', color: '#F4B323', tint: '#FBE6AE', chest: true },
+]
+export const cosmeticOf = (id: string) => COSMETICS.find((c) => c.id === id)
+
+export type BadgeDef = { id: string; name: string; why: string; icon: string }
+export const BADGES: BadgeDef[] = [
+  { id: 'hot-hand', name: 'Hot hand', why: 'Won 3 duels in a day', icon: 'bolt' },
+  { id: 'streak-3', name: '3-day streak', why: 'Kept a 3-day streak', icon: 'flame-lit' },
+  { id: 'streak-7', name: '7-day streak', why: 'Kept a 7-day streak', icon: 'flame-hot' },
+  { id: 'streak-30', name: '30-day streak', why: 'Kept a 30-day streak', icon: 'crown' },
+  { id: 'level-5', name: 'Level 5', why: 'Reached level 5', icon: 'gem-blue' },
+  { id: 'level-10', name: 'Level 10', why: 'Reached level 10', icon: 'gem-green' },
+  { id: 'level-15', name: 'Level 15', why: 'Reached level 15', icon: 'gem-coral' },
+  { id: 'level-20', name: 'Level 20', why: 'Reached level 20', icon: 'trophy-silver' },
+  { id: 'level-25', name: 'Level 25', why: 'Reached level 25', icon: 'trophy-gold' },
+]
+export const badgeOf = (id: string) => BADGES.find((b) => b.id === id) ?? { id, name: id.replace('level-', 'Level '), why: 'Reached a high level', icon: 'trophy-gold' }

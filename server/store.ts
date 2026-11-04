@@ -2,6 +2,7 @@ import type { ChessLive } from '../shared/chessgame'
 import type { PoolLive } from '../shared/poolgame'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { ChestRec } from '../shared/rewards'
 import type { Payout, PublicMatch, Result, Settlement } from '../shared/types'
 import type { Question } from './bank'
 
@@ -32,6 +33,11 @@ export type ProfileRec = {
   interestWeekKey?: string
   interestWeek?: number
   interestTotal?: number
+  chests?: ChestRec[] // earned chests, opened or not
+  lvlSeen?: number // the highest level that has already been given its chest
+  badges?: string[]
+  cosmetics?: string[] // frames and themes unlocked from chests
+  boosts?: { pct: number; until: number }[] // temporary saver pool lifts from chests
 }
 
 export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {

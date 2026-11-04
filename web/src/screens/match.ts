@@ -322,6 +322,7 @@ route('/m/:id', async (root, { id }) => {
     const headline = st.draw ? 'Dead heat' : n > 2 ? `${ORD[rank - 1]} place` : win ? 'Victory' : 'Defeat'
     const mood = st.draw ? 'love' : win ? 'cheer' : rank === 2 && n > 2 ? 'happy' : 'sad'
     const xp = st.xp[addr] ?? 0
+    const chestCard = `<button class="card chr" data-act="chests" style="background:var(--gold-tint);min-height:56px;padding:6px 12px 6px 8px"><img src="/badges/chest-closed.svg" alt="" width="40" height="40"><span class="nm"><b>Chest earned</b><span>Hold to open. See what is inside first</span></span><span class="chip gold">Open</span></button>`
     const myPay = st.payouts.filter((p) => (p.for ?? p.to) === addr)
     const jar = st.jarCredit[addr] ?? 0
     const unit = (s: number) => (m.game === 'trivia' ? `${s} pts` : m.game === 'solitaire' ? `${s / 10} cards` : `${s} pts`)
@@ -344,7 +345,7 @@ route('/m/:id', async (root, { id }) => {
       <div class="rank" style="gap:8px">${rows}</div>
       ${lines ? `<div class="sec"><div class="lab">Your NIM</div><div class="rank" style="gap:8px">${lines}</div></div>` : ''}
       <div class="note"><span class="paid">${ic('shield-check', 's16')}${esc(st.reason)}</span><span class="mono" style="font-size:12px;color:var(--muted)">Seed ${esc((m.seed ?? '').slice(0, 10))}…</span></div>
-      ${pipRow(mood, win ? '<b>Well played.</b> Want a rematch?' : st.draw ? '<b>So close.</b> Rematch settles it' : '<b>Good fight.</b> Rematch and take it back?')}</div>
+      <div id="chestslot">${win && S.me.chests > 0 ? chestCard : pipRow(mood, win ? '<b>Well played.</b> Want a rematch?' : st.draw ? '<b>So close.</b> Rematch settles it' : '<b>Good fight.</b> Rematch and take it back?')}</div></div>
     <div class="foot" style="gap:8px"><button class="btn gold block" data-act="again">${ic('rotate-ccw', 's20')}Play again</button><button class="btn ghost block" data-act="home">Home</button></div>`
     if (!shown && (win || st.draw)) {
       const cv = $('#cf', root) as HTMLCanvasElement | null
@@ -358,7 +359,11 @@ route('/m/:id', async (root, { id }) => {
       if (win) buzz([60, 40, 60])
       if (xp) setTimeout(() => sfx('reward/xp', 0.4), 700)
       S.wallet.balance().then((b) => (S.balance = b))
-      api.me().then((p) => (S.me = p)).catch(() => {})
+      api.me().then((p) => {
+        S.me = p
+        const slot = $('#chestslot', root)
+        if (slot && p.chests > 0 && win) slot.innerHTML = chestCard
+      }).catch(() => {})
     }
   }
 
@@ -391,6 +396,7 @@ route('/m/:id', async (root, { id }) => {
     'send-terms': () => void termsCall({ action: 'propose', ...draftBody(draft) }),
     back: () => (m.status === 'settled' || m.status === 'cancelled' ? go('/') : m.status === 'lobby' || m.status === 'funding' || m.status === 'terms' ? go('/') : toast('Finish the round first, or you forfeit')),
     home: () => go('/'),
+    chests: () => go('/chests'),
     again: () => go('/g/' + m.game),
     cancel: async () => {
       try {

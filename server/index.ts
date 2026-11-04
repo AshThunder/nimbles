@@ -150,6 +150,14 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       const b = await readBody(req, 1024)
       return send(res, 200, await engine.withdrawJar(me, b?.early === true))
     }
+    // dev only (mock chain): pretend the player won three duels today, so tests can open a chest
+    if (method === 'POST' && path === '/dev/three-wins' && chain instanceof MockChain) return send(res, 200, engine.devThreeWins(me))
+    if (method === 'GET' && path === '/chests') return send(res, 200, engine.chestList(me))
+    if (method === 'POST' && path === '/chests/open') {
+      limit('chest:' + me, 20, 60_000)
+      const b = await readBody(req, 1024)
+      return send(res, 200, engine.openChest(me, String(b?.id ?? '')))
+    }
     if (method === 'POST' && path === '/ai/receipt') {
       limit('ai:' + me, 8, 60_000)
       const b = await readBody(req, 8_000_000)

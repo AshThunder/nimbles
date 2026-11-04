@@ -100,6 +100,7 @@ export type Profile = {
   questWins: number
   questDay: string
   weekXp: number
+  chests: number // earned and not opened yet
 }
 
 export function levelFor(xp: number) {

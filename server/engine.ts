@@ -15,7 +15,7 @@ import { rng } from '../shared/rng'
 import { replaySolitaire } from '../shared/solitaire'
 import { replayBubble } from '../shared/bubblesim'
 import { makeSudoku } from '../shared/puzzles'
-import { BOOST_TOTAL_MAX, DEFAULT_GOAL_LUNA, MAX_GOAL_NIM, POOL_DAILY_CAP, POOL_DAILY_PCT, earlyFee, isTier, levelBoostPct, poolDay, poolWeight, saveFee, type LockDays, type Plan } from '../shared/rewards'
+import { BOOST_TOTAL_MAX, CHEST_TITLES, CHEST_WHY, chestContents, chestsDue,  DEFAULT_GOAL_LUNA, MAX_GOAL_NIM, POOL_DAILY_CAP, POOL_DAILY_PCT, earlyFee, isTier, levelBoostPct, poolDay, poolWeight, saveFee, type LockDays, type Plan } from '../shared/rewards'
 import {
   GAMES, LUNA, STAKES, levelFor,
   type GameId, type Mode, type OppKind, type Payee, type Payout, type PipLevel, type Profile, type PublicMatch, type Result, type Settlement, type SettleTerms,
@@ -90,23 +90,32 @@ export class Engine {
     return a
   }
 
+  /** The current run of days, and the first day of it. Today not played yet does not break the run. */
+  streakOf(p: ProfileRec, now = Date.now()) {
+    const days = new Set(p.activeDays)
+    const today = day(now)
+    let streak = 0
+    let start = today
+    for (let t = now; ; t -= 864e5) {
+      if (days.has(day(t))) { streak++; start = day(t) }
+      else if (day(t) === today) continue
+      else break
+    }
+    return { streak, start }
+  }
+
   profile(address: string): Profile {
     const p = this.must(address)
     this.rollWeek(p)
     const lv = levelFor(p.xp)
     const today = day()
-    const days = new Set(p.activeDays)
-    let streak = 0
-    for (let t = Date.now(); ; t -= 864e5) {
-      if (days.has(day(t))) streak++
-      else if (day(t) === today) continue // today not played yet doesn't break the streak
-      else break
-    }
+    const { streak } = this.streakOf(p)
     return {
       address: p.address, name: p.name, avatar: p.avatar, xp: p.xp, level: lv.level, levelXp: lv.levelXp, nextXp: lv.nextXp,
       streak, lastStreakDay: p.activeDays[p.activeDays.length - 1] ?? '', streakDays: p.activeDays.slice(-14),
       wins: p.wins, played: p.played, jarLuna: p.jarLuna, jarUnlockAt: p.jarUnlockAt, plan: this.planOf(p),
       questWins: p.questDay === today ? p.questWins : 0, questDay: today, weekXp: p.weekXp,
+      chests: (p.chests ?? []).filter((c) => !c.openedAt).length,
       ...({ vaultToday: p.vaultDay === today, vaultDay: p.vaultDay } as object),
     } as Profile
   }
@@ -713,12 +722,8 @@ export class Engine {
         rec.questWins = 0
       }
       if (won) rec.questWins++
-      if (rec.questWins >= 3 && rec.questChestDay !== today) {
-        rec.questChestDay = today
-        rec.xp += 50
-        xp[r.address] += 50
-      }
       if (jarCredit[r.address]) this.creditJar(rec, jarCredit[r.address])
+      this.syncChests(rec)
       for (const other of humans) if (other.player.address !== r.address && !rec.friends.includes(other.player.address)) rec.friends.push(other.player.address)
     }
     m.settlement = {
@@ -811,9 +816,72 @@ export class Engine {
     return this.jarInfo(addr)
   }
 
+  // ---------------- chests ----------------
+  /** Gives out every chest the player has earned and not yet received. Safe to run any number of times. */
+  syncChests(p: ProfileRec) {
+    const today = day()
+    const { streak, start } = this.streakOf(p)
+    const level = levelFor(p.xp).level
+    if (p.lvlSeen === undefined) p.lvlSeen = level // players from before chests do not get a flood
+    p.chests ??= []
+    const have = new Set(p.chests.map((c) => c.id))
+    const due = chestsDue({ today, wins: p.questDay === today ? p.questWins : 0, streak, streakStart: start, level, lvlSeen: p.lvlSeen })
+    for (const c of due) if (!have.has(c.id)) p.chests.push(c)
+    p.lvlSeen = Math.max(p.lvlSeen, level)
+    p.chests = p.chests.slice(-60)
+  }
+
+  devThreeWins(addr: string) {
+    const p = this.must(addr)
+    p.questDay = day()
+    p.questWins = 3
+    if (!p.activeDays.includes(day())) p.activeDays.push(day())
+    this.syncChests(p)
+    this.store.save()
+    return { chests: (p.chests ?? []).length }
+  }
+
+  chestList(addr: string) {
+    const p = this.must(addr)
+    this.syncChests(p)
+    this.store.save()
+    const now = Date.now()
+    return {
+      chests: [...p.chests!].sort((a, b) => (a.openedAt ? 1 : 0) - (b.openedAt ? 1 : 0) || b.at - a.at).map((c) => ({
+        id: c.id, kind: c.kind, level: c.level, title: CHEST_TITLES[c.kind], why: CHEST_WHY[c.kind] + (c.level ? ` ${c.level}` : ''),
+        at: c.at, openedAt: c.openedAt ?? 0, contents: chestContents(c.kind, c.level),
+      })),
+      boost: { levelPct: levelBoostPct(levelFor(p.xp).level), chestPct: Math.max(0, ...(p.boosts ?? []).filter((b) => b.until > now).map((b) => b.pct)), until: Math.max(0, ...(p.boosts ?? []).filter((b) => b.until > now).map((b) => b.until)), totalPct: this.boostPct(p) },
+      badges: p.badges ?? [], cosmetics: p.cosmetics ?? [],
+    }
+  }
+
+  /** Opens a chest and hands over exactly what its kind says. No NIM, no dice. */
+  openChest(addr: string, id: string) {
+    const p = this.must(addr)
+    this.syncChests(p)
+    const c = p.chests!.find((x) => x.id === id)
+    if (!c) throw bad('No such chest')
+    if (c.openedAt) throw bad('That chest is already open')
+    const ct = chestContents(c.kind, c.level)
+    c.openedAt = Date.now()
+    p.xp += ct.xp
+    this.rollWeek(p)
+    p.weekXp += ct.xp
+    if (ct.badge && !(p.badges ??= []).includes(ct.badge)) p.badges.push(ct.badge)
+    if (ct.cosmetic && !(p.cosmetics ??= []).includes(ct.cosmetic)) p.cosmetics.push(ct.cosmetic)
+    if (ct.boost) (p.boosts ??= []).push({ pct: ct.boost.pct, until: Date.now() + ct.boost.hours * 36e5 })
+    p.boosts = (p.boosts ?? []).filter((b) => b.until > Date.now()).slice(-10)
+    this.syncChests(p) // the XP can lift the level, which earns its own chest
+    this.store.save()
+    return { opened: { id: c.id, kind: c.kind, level: c.level, contents: ct }, profile: this.profile(addr) }
+  }
+
   /** Total saver boost, in percent: level plus chests, capped. */
   boostPct(p: ProfileRec): number {
-    return Math.min(BOOST_TOTAL_MAX, levelBoostPct(levelFor(p.xp).level))
+    const now = Date.now()
+    const chest = Math.max(0, ...(p.boosts ?? []).filter((b) => b.until > now).map((b) => b.pct))
+    return Math.min(BOOST_TOTAL_MAX, levelBoostPct(levelFor(p.xp).level) + chest)
   }
 
   private weights(now = Date.now()) {
@@ -915,6 +983,7 @@ export class Engine {
       p.xp += bonus
       p.weekXp += bonus
     }
+    this.syncChests(p)
     this.store.save()
     return { solved: true, xp: 30 + bonus, profile: this.profile(addr) }
   }

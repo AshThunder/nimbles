@@ -1,4 +1,5 @@
 import type { ChessLive } from '../../shared/chessgame'
+import type { ChestKind, Contents } from '../../shared/rewards'
 import type { PoolLive } from '../../shared/poolgame'
 import type { Profile, PublicMatch } from '../../shared/types'
 
@@ -62,6 +63,11 @@ export type MatchView = Omit<PublicMatch, 'players'> & {
   players: (PublicMatch['players'][number] & { escrowed?: number; isBot?: boolean })[]
 }
 
+export type ChestView = {
+  id: string; kind: ChestKind; level?: number; title: string; why: string; at: number; openedAt: number; contents: Contents
+}
+export type ChestList = { chests: ChestView[]; boost: { levelPct: number; chestPct: number; until: number; totalPct: number }; badges: string[]; cosmetics: string[] }
+
 export const api = {
   config: () => call<Config>('GET', '/config'),
   challenge: () => call<{ nonce: string; message: string }>('GET', '/auth/challenge'),
@@ -87,6 +93,8 @@ export const api = {
   jar: () => call<JarInfo>('GET', '/jar'),
   setPlan: (b: { goalNim?: number; lockDays?: number }) => call<JarInfo>('POST', '/jar/plan', b),
   withdraw: (early = false) => call<any>('POST', '/jar/withdraw', { early }),
+  chests: () => call<ChestList>('GET', '/chests'),
+  openChest: (id: string) => call<{ opened: { id: string; kind: ChestKind; level?: number; contents: Contents }; profile: Profile }>('POST', '/chests/open', { id }),
   receipt: (b: { imageBase64?: string; mime?: string; text?: string }) => call<any>('POST', '/ai/receipt', b),
   mockTx: (b: { from: string; to: string; luna: number; memo: string }) => call<{ hash: string }>('POST', '/dev/mock-tx', b),
 }

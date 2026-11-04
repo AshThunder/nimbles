@@ -8,6 +8,7 @@ import './screens/setup'
 import './screens/match'
 import './screens/misc'
 import './screens/jar'
+import './screens/chests'
 import { netBadge } from './ui'
 
 const app = document.getElementById('app')!
