@@ -1,7 +1,7 @@
 import { dealKlondike, canStack, canFound, cardId, type Card } from '../../../shared/puzzles'
 import { GAME_DURATION_MS } from '../../../shared/pip'
 import { sfx, buzz, $ } from '../lib'
-import { clock, strip, setScores, type GameMod } from './common'
+import { clock, strip, setScores, finishBtn, wireFinish, type GameMod } from './common'
 
 type Sel = { from: 'waste' } | { from: 'tab'; col: number; idx: number }
 
@@ -14,7 +14,7 @@ export const solitaire: GameMod = (ctx) => {
   let moves = 0
   const score = () => g.found.reduce((s, p) => s + p.length, 0) * 10
   ctx.root.innerHTML = `<div class="top"><span style="width:40px"></span><div class="ttl">Solitaire Duel</div><span class="tmr" id="tm">3:00</span></div>
-  <div class="scroll" style="gap:10px">${strip(m0, ctx.me)}<div class="tbar"><div class="pbar"><i id="tb" style="width:100%"></i></div></div><div class="sol" id="sol"></div></div>`
+  <div class="scroll" style="gap:10px">${strip(m0, ctx.me)}<div class="tbar"><div class="pbar"><i id="tb" style="width:100%"></i></div></div><div class="sol" id="sol"></div>${finishBtn()}</div>`
   const clk = clock(m0, $('#tm', ctx.root), $('#tb', ctx.root), () => void end(), total)
 
   const imgOf = (c: Card) => `<img src="/cards/faces/${cardId(c)}.svg" alt="${cardId(c).replace('-', ' of ')}" draggable="false">`
@@ -149,6 +149,7 @@ export const solitaire: GameMod = (ctx) => {
     }
   })
   draw()
+  wireFinish(ctx.root, () => void end())
 
   const end = async () => {
     if (done) return

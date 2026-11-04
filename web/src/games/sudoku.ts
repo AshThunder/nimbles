@@ -1,7 +1,7 @@
 import { esc, ic, sfx, buzz, $, $$ } from '../lib'
 import { makeSudoku } from '../../../shared/puzzles'
 import { GAME_DURATION_MS } from '../../../shared/pip'
-import { clock, strip, setScores, type GameMod } from './common'
+import { clock, strip, setScores, finishBtn, wireFinish, type GameMod } from './common'
 
 export type Board = {
   grid: number[]
@@ -96,9 +96,10 @@ export const sudokuGame = (size: 4 | 9): GameMod => (ctx) => {
   const bonus = size === 9 ? 50 : 50
   let done = false
   ctx.root.innerHTML = `<div class="top"><span style="width:40px"></span><div class="ttl">${size === 9 ? 'Sudoku' : 'Last Bite sprint'}</div><span class="tmr" id="tm">0:00</span></div>
-  <div class="scroll" style="gap:12px">${strip(m0, ctx.me)}<div class="tbar"><div class="pbar"><i id="tb" style="width:100%"></i></div></div><div id="bd" style="display:flex;flex-direction:column;gap:14px"></div></div>`
+  <div class="scroll" style="gap:12px">${strip(m0, ctx.me)}<div class="tbar"><div class="pbar"><i id="tb" style="width:100%"></i></div></div><div id="bd" style="display:flex;flex-direction:column;gap:14px"></div>${finishBtn()}</div>`
   const clk = clock(m0, $('#tm', ctx.root), $('#tb', ctx.root), () => void end(false), total)
   const score = (b: Board, solved: boolean) => b.filledCorrect() * per + (solved ? bonus + Math.floor(clk.left() / 1000) : 0)
+  wireFinish(ctx.root, () => void end(false))
   let last = 0
   const bd = board($('#bd', ctx.root)!, size, pz.puzzle, pz.solution, (b) => {
     const s = score(b, false)

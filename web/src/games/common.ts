@@ -45,3 +45,22 @@ export function clock(m: MatchView, el: HTMLElement | null, bar: HTMLElement | n
   }, 250)
   return { stop: () => clearInterval(t), left: () => Math.max(0, end - serverNow()), end }
 }
+
+/** "Finish round" with a two-tap confirm, so a stray tap never ends your run. */
+export const finishBtn = () => `<button class="btn ghost sm block" data-fin style="height:40px;font-size:14px">Finish round</button>`
+export function wireFinish(root: HTMLElement, onConfirm: () => void) {
+  const b = root.querySelector<HTMLButtonElement>('[data-fin]')
+  if (!b) return
+  let armed: ReturnType<typeof setTimeout> | undefined
+  b.addEventListener('click', () => {
+    if (armed) {
+      clearTimeout(armed)
+      return onConfirm()
+    }
+    b.textContent = 'Tap again to finish'
+    armed = setTimeout(() => {
+      armed = undefined
+      b.textContent = 'Finish round'
+    }, 2500)
+  })
+}
