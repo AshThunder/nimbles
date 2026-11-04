@@ -189,19 +189,17 @@ test('session: a valid proof decides the address even when the app claimed anoth
   const s = (await call(null, 'POST', '/session', { address: claimed, proof: { nonce: ch.nonce, ...sign(kp, bytes) } })).j
   assert.equal(s.verified, true)
   assert.equal(s.profile.address, address)
-  // replaying the same challenge does not verify again
-  const again = (await call(null, 'POST', '/session', { address: claimed, proof: { nonce: ch.nonce, ...sign(kp, bytes) } })).j
-  assert.equal(again.verified, false)
-  assert.equal(again.profile.address, claimed)
+  // replaying the same challenge is refused
+  const again = await call(null, 'POST', '/session', { address: claimed, proof: { nonce: ch.nonce, ...sign(kp, bytes) } })
+  assert.equal(again.status, 401)
 })
 
-test('session: no proof or a bad proof keeps the claimed address and is reported unverified', async () => {
+test('session: no proof keeps the claimed address (testnet and mock only), a bad proof is refused', async () => {
   const claimed = addr(5)
   assert.equal((await call(null, 'POST', '/session', { address: claimed })).j.verified, false)
   const ch = (await call(null, 'GET', '/auth/challenge')).j
-  const bad = (await call(null, 'POST', '/session', { address: claimed, proof: { nonce: ch.nonce, publicKey: 'aa'.repeat(32), signature: 'bb'.repeat(64) } })).j
-  assert.equal(bad.verified, false)
-  assert.equal(bad.profile.address, claimed)
+  const bad = await call(null, 'POST', '/session', { address: claimed, proof: { nonce: ch.nonce, publicKey: 'aa'.repeat(32), signature: 'bb'.repeat(64) } })
+  assert.equal(bad.status, 401)
 })
 
 // ---- retry / backoff --------------------------------------------------------------------------------------------

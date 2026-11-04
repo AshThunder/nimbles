@@ -9,6 +9,11 @@ export const setToken = (t: string) => {
   sessionStorage.setItem('nb:token', t)
 }
 
+/** Set by the app: signs a fresh wallet challenge and opens a new session. Called when the server says the token expired. */
+let reauth: (() => Promise<void>) | null = null
+let reauthing: Promise<void> | null = null
+export const setReauth = (f: () => Promise<void>) => { reauth = f }
+
 export class ApiErr extends Error {
   constructor(public status: number, msg: string) {
     super(msg)
@@ -18,7 +23,7 @@ export class ApiErr extends Error {
 let serverSkew = 0
 export const serverNow = () => Date.now() + serverSkew
 
-async function call<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+async function call<T = any>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
   let res: Response
   try {
     res = await fetch('/api' + path, {
@@ -30,6 +35,11 @@ async function call<T = any>(method: string, path: string, body?: unknown): Prom
     throw new ApiErr(0, 'Cannot reach the Nimbles server. Check your connection')
   }
   const j: any = await res.json().catch(() => ({}))
+  if (res.status === 401 && !retried && reauth && path !== '/session') {
+    reauthing ??= reauth().finally(() => { reauthing = null })
+    await reauthing
+    return call<T>(method, path, body, true)
+  }
   if (!res.ok) throw new ApiErr(res.status, j?.error || j?.message || `Request failed (${res.status})`)
   if (typeof j?.serverNow === 'number') serverSkew = j.serverNow - Date.now()
   return j as T

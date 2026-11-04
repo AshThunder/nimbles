@@ -20,6 +20,9 @@ Guards: a mainnet server will not load a database stamped testnet or an unstampe
 
 The badge in the app follows Nimiq Pay's network, and falls back to the server's network. A payment from a wallet on a different network is stopped before it is sent (matches and vault deposits).
 
+## Sign-in on mainnet
+Every session starts with a fresh challenge the wallet signs (`GET /api/auth/challenge`, then `POST /api/session` with the proof). The nonce works once and expires in 2 minutes, the message says "mainnet", the address comes from the public key and never from the request, and an address-only session is refused with 401. Tokens are HMAC-signed, bound to the address, and expire after `SESSION_TTL_MIN` minutes (default 60 on mainnet). The app re-signs when one expires. That means mainnet only works inside Nimiq Pay (a version with `sign`), not in a plain browser.
+
 ## Money model (why the float is small)
 
 Every payout comes out of stakes players deposited. Bots (Nimo) never hold a stake. Winnings, refunds, jar withdrawals and the saver pool all move NIM that is already in escrow. The pool is fed by a 2% fee on Save pots (max 1 NIM per pot) and by early-unlock fees, and pays at most 5% of itself a day (max 2 NIM). It never needs outside money. So the escrow balance should always be at least `jars + pool + live stakes + unsent payouts`. The only outside cost is a network fee, and it is 0.

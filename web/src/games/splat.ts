@@ -1,6 +1,7 @@
 import { ARENA, CX, CY, MAX_AMMO, MAX_HP, DASH_CD, PR, SPEED, TICK_MS, walk, type Snap, type Wall } from '../../../shared/splat'
 import { nickOf } from '../../../shared/nick'
 import { $, buzz, esc, fmtTime, ic, sfx } from '../lib'
+import { api } from '../api'
 import type { GameMod } from './common'
 
 /** Six flat seat colours. Each player keeps theirs from the lobby to the result. */
@@ -14,7 +15,7 @@ type Stick = { x: number; y: number; on: boolean }
 /** Splat Royale, 2 to 6 players. The server runs the match at 30 ticks a second; the phone sends sticks, moves its own blob right away (prediction) and draws the others a few frames behind, smoothly (interpolation). */
 export const splat: GameMod = (ctx) => {
   const id = ctx.m.id
-  const token = sessionStorage.getItem('nb:token') ?? ''
+  const token = () => sessionStorage.getItem('nb:token') ?? ''
   let init: Init | null = null
   let cur: Snap | null = null
   const buf: { k: number; at: number; s: Snap }[] = []
@@ -57,7 +58,7 @@ export const splat: GameMod = (ctx) => {
   const nameOf = (s: number) => (s === init?.seat ? 'You' : (init?.players[s]?.name ?? nickOf('seat' + s)))
 
   // ---------- network ----------
-  const url = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/splat?m=${id}&t=${encodeURIComponent(token)}`
+  const url = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/splat?m=${id}&t=${encodeURIComponent(token())}`
   const open = () => {
     if (dead) return
     const w = (ws = new WebSocket(url()))
@@ -72,7 +73,8 @@ export const splat: GameMod = (ctx) => {
     w.onclose = () => {
       if (dead || ws !== w) return
       retry = Math.min(retry + 1, 5)
-      setTimeout(open, 250 * retry)
+      // a plain call renews an expired session token (re-signing in the wallet) before the socket reconnects
+      setTimeout(() => void api.me().catch(() => {}).then(open), 250 * retry)
     }
     w.onerror = () => w.close()
   }

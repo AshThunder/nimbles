@@ -1,6 +1,6 @@
 import './style.css'
-import { api, setToken } from './api'
-import { connect, adoptVerified, ConnectError } from './wallet'
+import { api, setToken, setReauth, ApiErr } from './api'
+import { connect, adoptVerified, ConnectError, sameAddress } from './wallet'
 import { S, go, render } from './state'
 import { esc, pipImg, sfx } from './lib'
 import './screens/home'
@@ -40,6 +40,14 @@ async function boot() {
     const r = await api.session(S.wallet.address, saved.name, saved.avatar, S.wallet.proof)
     adoptVerified(S.wallet, r.profile.address, r.verified || S.wallet.verified)
     setToken(r.token)
+    // when the token runs out the server answers 401 and the app signs a fresh challenge, then retries the call
+    setReauth(async () => {
+      const w = S.wallet!
+      const proof = w.signIn ? await w.signIn(() => {}) : undefined
+      const nr = await api.session(w.address, saved.name, saved.avatar, proof)
+      if (nr.verified && !sameAddress(nr.profile.address, w.address)) throw new ApiErr(401, 'Wallet account changed. Reload Nimbles')
+      setToken(nr.token)
+    })
     S.me = r.profile
     S.balance = await S.wallet.balance()
   } catch (e: any) {

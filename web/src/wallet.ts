@@ -14,6 +14,8 @@ export type Wallet = {
   accounts: string[]
   verified: boolean
   proof?: { nonce: string; publicKey: string; signature: string }
+  /** Asks the wallet to sign a brand new server challenge (every session, and every renewal after the token expires) */
+  signIn?(onStatus?: (m: string) => void): Promise<NonNullable<Wallet['proof']> | undefined>
   network: Net | 'unknown'
   /** Sends `luna` to `to` with a public memo (max 64 bytes) and returns the tx hash. */
   send(to: string, luna: number, memo: string): Promise<string>
@@ -67,7 +69,6 @@ const isDenied = (e: unknown) => {
   try { return NimiqProviderError.is(e) && (e as any).type === 'PERMISSION_DENIED' } catch { return false }
 }
 
-const PROVEN = 'nb:proven'
 
 /**
  * Connects to the wallet. Outside Nimiq Pay it returns a preview identity. Inside Nimiq Pay it never drops to
@@ -103,24 +104,21 @@ async function connectNimiqPay(onStatus: (msg: string) => void): Promise<Wallet>
 
   // Nimiq Pay picks the signing account itself and the order of listAccounts() means nothing, so ask the wallet to
   // sign a one-time challenge: the signature tells the server which address will really pay.
-  let address = accounts[0]
-  let proof: Wallet['proof']
-  let verified = false
-  const cached = sessionStorage.getItem(PROVEN)
-  const cachedHit = cached ? accounts.find((a) => sameAddress(a, cached)) : undefined
-  if (cachedHit) {
-    address = cachedHit
-    verified = true
-  } else if (typeof (nq as any).sign === 'function') {
+  const signIn: Wallet['signIn'] = async (status = onStatus) => {
+    if (typeof (nq as any).sign !== 'function') return undefined
     try {
-      onStatus('Confirm it is you in Nimiq Pay')
+      status('Confirm it is you in Nimiq Pay')
       const c = await api.challenge()
       const sig = await withTimeout((nq as any).sign(c.message) as Promise<{ publicKey: string; signature: string }>, 25000, 'Signing')
-      if (sig?.publicKey && sig?.signature) proof = { nonce: c.nonce, publicKey: sig.publicKey, signature: sig.signature }
+      if (sig?.publicKey && sig?.signature) return { nonce: c.nonce, publicKey: sig.publicKey, signature: sig.signature }
     } catch {
-      /* declined or unsupported: carry on with the shared address, the server marks it unverified */
+      /* declined or unsupported: the server decides (mainnet refuses, testnet keeps an unverified session) */
     }
+    return undefined
   }
+  const address = accounts[0]
+  const proof = await signIn(onStatus)
+  const verified = false
 
   const w: Wallet = {
     kind: 'nimiq-pay',
@@ -128,6 +126,7 @@ async function connectNimiqPay(onStatus: (msg: string) => void): Promise<Wallet>
     accounts,
     verified,
     proof,
+    signIn,
     network: getHostNetwork() ?? 'unknown',
     async send(to, luna, memo) {
       const tx = { recipient: to, value: luna }
@@ -148,7 +147,6 @@ async function connectNimiqPay(onStatus: (msg: string) => void): Promise<Wallet>
 export function adoptVerified(w: Wallet, address: string, verified: boolean) {
   w.address = address
   w.verified = verified
-  if (verified && w.kind === 'nimiq-pay') sessionStorage.setItem(PROVEN, address)
 }
 
 function previewWallet(cfg: Config): Wallet {

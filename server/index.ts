@@ -56,7 +56,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
   const store = new Store(stateDir(dataDir), opts.persist ?? true, net)
   const chain = await makeChain(dataDir)
   const engine = new Engine(store, chain)
-  const challenges = new Challenges()
+  const challenges = new Challenges(chain.network)
   const distDir = join(ROOT, 'dist')
 
   const send = (res: ServerResponse, status: number, body: unknown) => {
@@ -81,13 +81,21 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
     if (method === 'POST' && path === '/session') {
       limit('sess:' + ip, 60, 60_000)
       const b = await readBody(req, 4096)
-      // proof of wallet ownership: a signed one-time challenge. A good signature decides the address, a missing or
-      // unreadable one keeps the claimed address (older wallets) and is reported back as unverified.
+      // Sign-in is proven by a signed one-time challenge: the server nonce is single use and expires in two minutes, the
+      // signature is verified, and the address comes from the public key, never from the request. The token that comes
+      // back is short-lived and bound to that address. A proof that is present but wrong is refused outright. With no
+      // proof at all, only testnet and the mock fall back to the claimed address (an unverified session). Mainnet never does.
       let proven: string | null = null
-      if (b.proof && typeof b.proof === 'object') {
-        if (challenges.take(String(b.proof.nonce))) proven = await addressFromProof(b.proof, challengeText(String(b.proof.nonce)))
+      if (b.proof !== undefined && b.proof !== null) {
+        if (typeof b.proof !== 'object') throw new ApiError(401, 'Sign-in failed. Try again')
+        const nonce = String(b.proof.nonce)
+        if (challenges.take(nonce)) proven = await addressFromProof(b.proof, challengeText(nonce, chain.network))
+        if (!proven) throw new ApiError(401, 'Sign-in failed. Try again')
+      } else if (engine.requireSigned) {
+        throw new ApiError(401, 'Sign in with your wallet. Open Nimbles inside Nimiq Pay')
       }
-      return send(res, 200, { ...engine.session(proven ?? b.address, b.name, b.avatar), verified: !!proven })
+      const s = engine.session(proven ?? b.address, b.name, b.avatar, !!proven)
+      return send(res, 200, { ...s, verified: !!proven })
     }
     if (method === 'GET' && path === '/auth/challenge') {
       limit('chal:' + ip, 60, 60_000)

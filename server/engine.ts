@@ -1,3 +1,4 @@
+import { Sessions } from './auth'
 import { createHash, randomBytes } from 'node:crypto'
 import { Store, type MatchRec, type ProfileRec } from './store'
 import { isNimiqAddress, sameAddr, type Chain } from './chain'
@@ -59,7 +60,7 @@ export class Engine {
   lockDays = Number(process.env.JAR_LOCK_DAYS ?? 30)
   /** Per-match cap in NIM. Mainnet defaults to a small cap until it is raised on purpose. */
   get maxStakeNim() {
-    return Number(process.env.MAX_STAKE_NIM ?? (this.chain.kind === 'nimiq' && this.chain.network === 'mainnet' ? 25 : 1000))
+    return Number(process.env.MAX_STAKE_NIM ?? (this.chain.network === 'mainnet' ? 25 : 1000))
   }
   /** Live Splat Royale runs. The sim itself lives in shared/splat.ts. */
   splat = new SplatRuns((m, order, sim) => this.splatFinish(m, order, sim))
@@ -73,7 +74,24 @@ export class Engine {
 
   // ---------------- profiles / sessions ----------------
 
-  session(addressIn: string, name?: string, avatar?: string): { token: string; profile: Profile } {
+  /** Session tokens expire (SESSION_TTL_MIN, default 60 on mainnet and 12 hours elsewhere) and are bound to one address. */
+  get sessions(): Sessions {
+    if (!this._sessions) {
+      const secret = process.env.SESSION_SECRET || (this.db.authSecret ??= randomBytes(32).toString('hex'))
+      const mainnet = this.chain.network === 'mainnet'
+      const min = Number(process.env.SESSION_TTL_MIN ?? (mainnet ? 60 : 720))
+      this._sessions = new Sessions(secret, Math.max(1, min) * 60_000)
+      this.store.save()
+    }
+    return this._sessions
+  }
+  private _sessions?: Sessions
+  /** Mainnet moves real NIM, so it never accepts a session that is not backed by a signed challenge. */
+  get requireSigned() {
+    return process.env.REQUIRE_SIGNED === 'yes' || (this.chain.network === 'mainnet')
+  }
+
+  session(addressIn: string, name?: string, avatar?: string, verified = false): { token: string; expiresAt: number; profile: Profile } {
     const address = String(addressIn || '').trim().toUpperCase().replace(/\s+/g, ' ')
     if (!isNimiqAddress(address)) throw bad('That is not a valid Nimiq address')
     let p = this.db.profiles[address]
@@ -89,16 +107,16 @@ export class Engine {
     }
     if (name) p.name = String(name).replace(/[^\p{L}\p{N} ._-]/gu, '').trim().slice(0, 16) || p.name
     if (avatar && AVATARS.includes(avatar)) p.avatar = avatar
-    const token = rid(24)
-    this.db.tokens[token] = address
+    const { token, expiresAt } = this.sessions.issue(address, verified)
     this.store.save()
-    return { token, profile: this.profile(address) }
+    return { token, expiresAt, profile: this.profile(address) }
   }
 
   auth(token: string | undefined): string {
-    const a = token ? this.db.tokens[token] : undefined
-    if (!a) throw bad('Sign in again', 401)
-    return a
+    const s = this.sessions.check(token)
+    if (!s) throw bad('Sign in again', 401)
+    if (this.requireSigned && !s.verified) throw bad('Sign in again', 401)
+    return s.address
   }
 
   /** The current run of days, and the first day of it. Today not played yet does not break the run. */

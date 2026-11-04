@@ -42,7 +42,7 @@ Chess and pool against a friend are fully server-authoritative: the phones only 
 - **Replay verification.** Solitaire and Bubble Shooter clients upload their move log; the server replays it on the shared seed and computes the score itself. An invalid log scores 0.
 - **Live relay.** For Chess and Pool vs a human the server holds the game state. A client cannot report a result for these matches (the result endpoint refuses). Pool physics run only on the server, so different phones cannot disagree; the ball paths are sent once per viewer and animated locally.
 - **Escrow.** Players pay a server wallet with memo `nb:<matchId>`. The server verifies the transaction on chain (2 confirmations by default), then pays out or refunds. The escrow is custodial in this version.
-- **Known limits.** Sessions are a token per address without a signed challenge. A production version should add a signed login and an HTLC or contract-style escrow. Stakes are capped on mainnet (25 NIM by default).
+- **Known limits.** Sign-in is a signed one-time challenge (single use, 2 minute expiry, address derived from the signing key) and session tokens are short-lived and bound to that address. Testnet and the mock still accept an unsigned, unverified session so the browser preview works; mainnet never does. A production version should add an HTLC or contract-style escrow. Stakes are capped on mainnet (25 NIM by default).
 
 ## Nimiq integration
 
@@ -118,7 +118,7 @@ All nine new skill games are live in Play, Win, Save and Settle: Darts, Block Pu
 
 Games not in yet: Code Sprint. Settle for more than two players in live chess and pool is also still to do.
 
-Also planned: signed wallet login, an HTLC or contract escrow, reconnect and spectate for live games.
+Also planned: an HTLC or contract escrow, reconnect and spectate for live games.
 
 ## Credits
 

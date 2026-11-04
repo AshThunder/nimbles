@@ -73,7 +73,8 @@ export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
 
 export type DB = {
   profiles: Record<string, ProfileRec>
-  tokens: Record<string, string>
+  tokens: Record<string, string> // legacy never-expiring tokens, no longer accepted
+  authSecret?: string // HMAC key for session tokens
   matches: Record<string, MatchRec>
   usedTx: Record<string, string>
   pool?: { luna: number; lastPayDay?: string; paidTotal?: number; feesTotal?: number } // the saver interest pool, held in the escrow wallet like jar balances
