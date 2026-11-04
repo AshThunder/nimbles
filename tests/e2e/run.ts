@@ -10,6 +10,8 @@ import assert from 'node:assert/strict'
 import { canMake } from '../../shared/words'
 
 process.env.CHAIN = 'mock'
+const UNLOCK = process.env.E2E_UNLOCK === '1' // E2E_UNLOCK=1 also runs the held-back games
+if (UNLOCK) process.env.NIMBLES_UNLOCK_ALL = '1'; else delete process.env.NIMBLES_UNLOCK_ALL
 process.env.SPLAT_CAP_SECONDS = '30' // a short Splat Royale so the whole match fits in the test
 const BREAK = !!process.env.E2E_BREAK
 if (!process.env.E2E_AI) delete process.env.GEMINI_API_KEY
@@ -69,7 +71,7 @@ async function player(browser: Browser, name: keyof typeof ADDR): Promise<{ ctx:
 // Layout check run on every screenshot: no overlapping in-flow siblings, no clipped text, nothing off the sides,
 // and the game screens must fit without scrolling. Failures are collected and fail the run.
 const layoutIssues: string[] = []
-const NO_SCROLL = /^(solitaire$|sudoku|word-rush|bubble|chess$|chess-selected|chess-live|pool)/
+const NO_SCROLL = /^(solitaire$|sudoku|word-rush|bubble|darts|blocks|speedmath|spider|dominoes|blitz|bowling|carrom|ghost|chess$|chess-selected|chess-live|pool)/
 const CHECK_JS = String.raw`(noScroll) => {
   var out = []
   var app = document.getElementById('app')
@@ -139,7 +141,20 @@ try {
   // ---------- 1. Home + wallet via the real SDK ----------
   const chris = await player(browser, 'chris')
   const c = chris.page
-  assert.equal(await c.locator('.gc').count(), 9, '9 game cards')
+  assert.equal(await c.locator('.gc').count(), 18, '18 game cards')
+  if (!UNLOCK) {
+    assert.equal(await c.locator('.gc.soon').count(), 8, '8 Coming soon tiles')
+    assert.equal(await c.locator('.gc.soon:disabled').count(), 8, 'they cannot be tapped')
+    await c.locator('.gc.soon').first().scrollIntoViewIfNeeded()
+    await shot(c, 'home-soon-tiles')
+    await c.locator('.gc.soon').first().click({ force: true })
+    assert.equal(new URL(c.url()).hash, '', 'a Coming soon tile goes nowhere')
+    await c.goto('/#/g/spider')
+    await c.waitForTimeout(400)
+    assert.ok(!(await c.locator('#go').count()), 'a Coming soon game has no setup page')
+    await c.goto('/')
+    await c.waitForSelector('.gc')
+  }
   assert.match(await c.locator('.xpi b').innerText(), /.+/)
   assert.ok(!(await c.content()).includes('Preview'), 'inside Nimiq Pay there is no preview banner')
   await shot(c, 'home')
@@ -382,6 +397,163 @@ try {
   await c.waitForSelector('.res', { timeout: 15000 })
   log(`bubble shooter: 6 shots fired (${popped}), finished vs Nimo`)
 
+  // ---------- 5c. Darts, Block Puzzle, Speed Math vs Nimo ----------
+  await c.goto('/#/g/darts')
+  await c.waitForSelector('#go')
+  assert.equal(await c.locator('[data-act=mode]').count(), 4, 'darts offers every mode')
+  await c.locator('#go').click()
+  await c.waitForSelector('#cv', { timeout: 15000 })
+  for (let i = 0; i < 3; i++) {
+    await c.locator('#th').click()
+    await c.waitForTimeout(800)
+  }
+  assert.match(await c.locator('#dl').innerText(), /^7 darts left/, 'three darts thrown')
+  await shot(c, 'darts')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  log('darts: 3 darts thrown, finished vs Nimo')
+
+  if (UNLOCK) {
+  await c.goto('/#/g/blocks')
+  await c.waitForSelector('#go')
+  await c.locator('#go').click()
+  await c.waitForSelector('#cv', { timeout: 15000 })
+  const bkb = (await c.locator('#cv').boundingBox())!
+  for (const gx of [0.2, 0.5]) {
+    await c.mouse.move(bkb.x + bkb.width / 6, bkb.y + bkb.height - 28)
+    await c.mouse.down()
+    await c.mouse.move(bkb.x + bkb.width * gx, bkb.y + bkb.height * 0.3, { steps: 5 })
+    await c.mouse.up()
+    await c.waitForTimeout(400)
+  }
+  const placed = await c.locator('#pp').innerText()
+  await shot(c, 'blocks')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  log(`block puzzle: dragged pieces onto the grid (${placed}), finished vs Nimo`)
+
+  await c.goto('/#/g/speedmath')
+  await c.waitForSelector('#go')
+  await c.locator('#go').click()
+  await c.waitForSelector('#qt', { timeout: 15000 })
+  for (let i = 0; i < 4; i++) {
+    const q = (await c.locator('#qt').innerText()).replace(' = ?', '')
+    const mm = q.match(/^(\d+) (\+|−|×|÷) (\d+)$/)!
+    const [a, b] = [Number(mm[1]), Number(mm[3])]
+    let ans = mm[2] === '+' ? a + b : mm[2] === '−' ? a - b : mm[2] === '×' ? a * b : a / b
+    if (i === 2) ans += 1 // one wrong on purpose
+    for (const ch of String(ans)) await c.locator(`[data-k="${ch}"]`).click()
+    await c.locator('[data-k=go]').click()
+    await c.waitForTimeout(450)
+  }
+  assert.match(await c.locator('#ct').innerText(), /^4 answered/)
+  await shot(c, 'speedmath')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  log('speed math: 4 sums answered (one wrong on purpose), finished vs Nimo')
+
+  // ---------- 5d. Spider Solitaire, Domino Chain, 21 Blitz vs Nimo ----------
+  await c.goto('/#/g/spider')
+  await c.waitForSelector('#go')
+  assert.equal(await c.locator('[data-act=mode]').count(), 4, 'spider offers every mode')
+  await c.locator('#go').click()
+  await c.waitForSelector('.scol', { timeout: 15000 })
+  assert.equal(await c.locator('.scol').count(), 10)
+  await c.locator('#sd').click()
+  await c.waitForTimeout(300)
+  assert.match(await c.locator('#sd').innerText(), /\(4\)/, 'dealt once, four deals left')
+  await c.locator('.scol').nth(3).locator('.sc').last().click() // select a run
+  await shot(c, 'spider')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  log('spider solitaire: dealt a row, picked a run, finished vs Nimo')
+
+  await c.goto('/#/g/dominoes')
+  await c.waitForSelector('#go')
+  await c.locator('#go').click()
+  await c.waitForSelector('#dh .dmt', { timeout: 15000 })
+  for (let i = 0; i < 3; i++) {
+    const ok = c.locator('#dh .dmt.ok')
+    if (await ok.count()) {
+      await ok.first().click()
+      if (await c.locator('#pl:not([disabled])').count()) await c.locator('#pl').click()
+    } else if (await c.locator('#dd:not([disabled])').count()) await c.locator('#dd').click()
+    await c.waitForTimeout(350)
+  }
+  await shot(c, 'dominoes')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  log('domino chain: played tiles from the hand, finished vs Nimo')
+
+  await c.goto('/#/g/blitz')
+  await c.waitForSelector('#go')
+  await c.locator('#go').click()
+  await c.waitForSelector('.bzk', { timeout: 15000 })
+  for (let i = 0; i < 5; i++) {
+    await c.locator('.bzk').nth(i % 4).click()
+    await c.waitForTimeout(300)
+  }
+  assert.equal(await c.locator('#bl').innerText(), '15', 'five of twenty cards placed')
+  await shot(c, 'blitz')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  log('21 blitz: five cards placed on four stacks, finished vs Nimo')
+
+  await c.goto('/#/g/bowling')
+  await c.waitForSelector('#go')
+  await c.locator('#go').click()
+  await c.waitForSelector('#bt', { timeout: 15000 })
+  for (let i = 0; i < 2; i++) {
+    await c.waitForTimeout(700)
+    await c.locator('#bt').click()
+    await c.waitForTimeout(700)
+    await c.locator('#bt').click()
+    await c.waitForTimeout(1000)
+  }
+  assert.ok((await c.locator('#bf small').allInnerTexts()).join('').trim().length > 0, 'the frame strip shows rolled balls')
+  await shot(c, 'bowling')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  log('bowling: two throws with timed taps, finished vs Nimo')
+
+  await c.goto('/#/g/carrom')
+  await c.waitForSelector('#go')
+  await c.locator('#go').click()
+  await c.waitForSelector('#sh', { timeout: 15000 })
+  await c.locator('#cv').click({ position: { x: 150, y: 120 } })
+  await c.locator('#sh').click()
+  await c.waitForFunction(() => !(document.querySelector('#sh') as HTMLButtonElement).disabled, null, { timeout: 20000 })
+  assert.match(await c.locator('#cl').innerText(), /^7 strikes left/, 'one strike used')
+  await shot(c, 'carrom')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 15000 })
+  log('carrom: aimed and struck once, finished vs Nimo')
+
+  await c.goto('/#/g/ghost')
+  await c.waitForSelector('#go')
+  await c.locator('#go').click()
+  await c.waitForSelector('#gr', { timeout: 15000 })
+  await c.locator('#gr').click()
+  await c.waitForTimeout(400)
+  await c.locator('#gl').click()
+  await c.waitForTimeout(1500)
+  assert.match(await c.locator('#gd').innerText(), /m · ghost/)
+  await shot(c, 'ghost')
+  await c.locator('[data-fin]').click()
+  await c.locator('[data-fin]').click()
+  await c.waitForSelector('.res', { timeout: 20000 })
+  log('ghost race: changed lane twice, finished vs Nimo')
+
+  }
+
   await c.goto('/#/g/chess')
   await c.waitForSelector('#go')
   assert.equal(await c.locator('[data-act=mode]').count(), 4, 'chess offers Play, Win, Save and Settle')
@@ -519,7 +691,12 @@ try {
   // ---------- 5d. Splat Royale: three seats, two phones and a Nimo, host starts early ----------
   await c.goto('/#/g/splat')
   await c.waitForSelector('#go')
-  assert.equal(await c.locator('[data-m=settle].lock').count(), 0, 'Splat Settle is open now')
+  if (UNLOCK) assert.equal(await c.locator('[data-m=settle].lock').count(), 0, 'Splat Settle is open now')
+  else {
+    assert.equal(await c.locator('[data-m=settle]').isDisabled(), true, 'Splat Settle shows Coming soon')
+    assert.match(await c.locator('[data-m=settle]').innerText(), /Coming soon/)
+    await shot(c, 'splat-settle-soon')
+  }
   await c.locator('[data-act=opp][data-k=invite]').click()
   await c.locator('[data-act=seats][data-n="3"]').click()
   await shot(c, 'splat-setup')
@@ -572,6 +749,7 @@ try {
   log('Splat Royale: 3 seats, host starts early, WASD and stick fire, server-scored result for both phones')
 
   // ---------- 5e. Splat Royale Settle: host sets the bill, starts with two of three seats, both agree, the result pays by place ----------
+  if (UNLOCK) {
   await c.goto('/#/g/splat')
   await c.waitForSelector('#go')
   await c.locator('[data-m=settle]').click()
@@ -611,6 +789,7 @@ try {
   assert.equal(ssm.players.reduce((x: number, p: any) => x + (p.share ?? 0), 0), 6 * 1e5, 'the place shares add up to the bill')
   await shot(c, 'splat-settle-result')
   log('Splat Settle: host sets the bill, early start re-agrees the split, shares by place add up to the bill')
+  }
 
   // ---------- 6. Vault, rank, pip, me, credits ----------
   await c.goto('/#/vault')

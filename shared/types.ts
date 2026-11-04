@@ -1,9 +1,16 @@
-export type GameId = 'trivia' | 'solitaire' | 'chess' | 'pool' | 'sudoku' | 'bubble' | 'word' | 'lastbite' | 'splat'
+export type GameId = 'trivia' | 'solitaire' | 'chess' | 'pool' | 'sudoku' | 'bubble' | 'word' | 'lastbite' | 'splat' | 'darts' | 'blocks' | 'speedmath' | 'spider' | 'dominoes' | 'blitz' | 'bowling' | 'carrom' | 'ghost'
 export type Mode = 'play' | 'win' | 'save' | 'settle'
 export type OppKind = 'invite' | 'auto' | 'pip'
 export type PipLevel = 'easy' | 'med' | 'hard'
 
 export const LUNA = 100_000 // 1 NIM = 100,000 luna
+
+/** Built and tested, but not open to players yet. They show as "Coming soon" tiles; the server refuses to start them.
+ *  Set NIMBLES_UNLOCK_ALL=1 on the server to open them (tests do this). */
+export const COMING_SOON: readonly GameId[] = ['blocks', 'spider', 'speedmath', 'dominoes', 'blitz', 'bowling', 'carrom', 'ghost']
+/** Settle for Splat Royale (2 to 6 players, split by place) is built but held back */
+export const SPLAT_SETTLE_SOON = true
+export const isSoon = (id: string, unlockAll = false) => !unlockAll && COMING_SOON.includes(id as GameId)
 
 export const GAMES: Record<GameId, { name: string; blurb: string; tag?: 'Hot' | 'New'; minutes: string; level: number; maxPlayers: number }> = {
   trivia: { name: 'AI Trivia Duel', blurb: 'Any topic', tag: 'Hot', minutes: '2 min', level: 5, maxPlayers: 2 },
@@ -14,6 +21,15 @@ export const GAMES: Record<GameId, { name: string; blurb: string; tag?: 'Hot' | 
   bubble: { name: 'Bubble Shooter', blurb: '90 sec', tag: 'Hot', minutes: '90 sec', level: 3, maxPlayers: 2 },
   word: { name: 'Word Rush', blurb: 'Same letters', tag: 'New', minutes: '1 min', level: 1, maxPlayers: 2 },
   lastbite: { name: 'Last Bite', blurb: 'Quick 4x4 sprint', minutes: '2 min', level: 2, maxPlayers: 2 },
+  darts: { name: 'Darts', blurb: '10 darts', tag: 'New', minutes: '1 min', level: 1, maxPlayers: 2 },
+  blocks: { name: 'Block Puzzle', blurb: 'Clear the lines', tag: 'New', minutes: '2 min', level: 2, maxPlayers: 2 },
+  speedmath: { name: 'Speed Math', blurb: '60 sec sums', tag: 'New', minutes: '1 min', level: 2, maxPlayers: 2 },
+  spider: { name: 'Spider Solitaire', blurb: 'One suit', tag: 'New', minutes: '4 min', level: 4, maxPlayers: 2 },
+  dominoes: { name: 'Domino Chain', blurb: 'Same tiles', tag: 'New', minutes: '2 min', level: 3, maxPlayers: 2 },
+  blitz: { name: '21 Blitz', blurb: 'Four hands', tag: 'New', minutes: '1 min', level: 2, maxPlayers: 2 },
+  bowling: { name: 'Bowling', blurb: 'Ten frames', tag: 'New', minutes: '2 min', level: 3, maxPlayers: 2 },
+  carrom: { name: 'Carrom', blurb: 'Eight strikes', tag: 'New', minutes: '2 min', level: 3, maxPlayers: 2 },
+  ghost: { name: 'Ghost Race', blurb: '45 sec dash', tag: 'New', minutes: '1 min', level: 2, maxPlayers: 2 },
   splat: { name: 'Splat Royale', blurb: '2 to 6 players', tag: 'New', minutes: '3 min', level: 3, maxPlayers: 6 },
 }
 

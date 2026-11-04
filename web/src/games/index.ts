@@ -10,6 +10,15 @@ import { poolLive } from './poolLive'
 import { word } from './word'
 import { sudokuGame } from './sudoku'
 import { splat } from './splat'
+import { spider } from './spider'
+import { dominoes } from './dominoes'
+import { blitz } from './blitz'
+import { bowling } from './bowling'
+import { carrom } from './carrom'
+import { ghost } from './ghost'
+import { darts } from './darts'
+import { blocks } from './blocks'
+import { speedmath } from './speedmath'
 
 export const MODS: Partial<Record<GameId, GameMod>> = {
   trivia,
@@ -19,6 +28,15 @@ export const MODS: Partial<Record<GameId, GameMod>> = {
   pool,
   solitaire,
   splat,
+  darts,
+  bowling,
+  carrom,
+  ghost,
+  blitz,
+  dominoes,
+  spider,
+  blocks,
+  speedmath,
   sudoku: sudokuGame(9),
   lastbite: sudokuGame(4),
 }

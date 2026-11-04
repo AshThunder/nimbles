@@ -5,6 +5,7 @@ import { createApp } from '../server/index'
 import { PLACE_SPLIT, escrowRequired, evenShares, placeShares, toLuna } from '../shared/economy'
 
 process.env.CHAIN = 'mock'
+process.env.NIMBLES_UNLOCK_ALL = '1' // these games are held back in production, the tests open them
 process.env.GEMINI_API_KEY = ''
 process.env.JAR_LOCK_DAYS = '30'
 

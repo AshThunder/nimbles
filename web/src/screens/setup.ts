@@ -3,7 +3,7 @@ import { actions, esc, glyph, GLYPH_BG, ic, lvBadge, pipImg, sfx, toast, $, $$ }
 import { S, go, route } from '../state'
 import { coin, errBox, topbar } from '../ui'
 import { billOf, draftBody, draftOk, newDraft, termsActions, termsInput, termsLine, termsSheet, type TermsDraft } from './terms'
-import { GAMES, STAKES, fmtNim, type GameId, type Mode, type OppKind, type PipLevel } from '../../../shared/types'
+import { GAMES, STAKES, SPLAT_SETTLE_SOON, isSoon, fmtNim, type GameId, type Mode, type OppKind, type PipLevel } from '../../../shared/types'
 import { toLuna } from '../../../shared/economy'
 import { saveFee } from '../../../shared/rewards'
 
@@ -29,7 +29,7 @@ type Setup = {
 route('/g/:id', (root, p) => {
   const id = p.id as GameId
   const g = GAMES[id]
-  if (!g) return go('/')
+  if (!g || isSoon(id, S.cfg.unlockAll)) return go('/')
   const canStake = !(S.wallet.kind === 'preview' && !S.cfg.mock)
   const st: Setup = {
     mode: id === 'lastbite' ? 'settle' : 'play', opp: id === 'lastbite' ? 'invite' : 'pip', pip: 'med', stake: 2, d: newDraft(),
@@ -37,7 +37,8 @@ route('/g/:id', (root, p) => {
   }
   const royale = id === 'splat'
   const pre = sessionStorage.getItem('nb:bill')
-  if (pre) { st.d.bill = pre; st.mode = 'settle'; st.opp = 'invite'; sessionStorage.removeItem('nb:bill') }
+  if (pre && royale && SPLAT_SETTLE_SOON && !S.cfg.unlockAll) sessionStorage.removeItem('nb:bill')
+  else if (pre) { st.d.bill = pre; st.mode = 'settle'; st.opp = 'invite'; sessionStorage.removeItem('nb:bill') }
   const staked = () => st.mode !== 'play'
   const paid = () => st.mode === 'win' || st.mode === 'save'
   const pickOpp = () => {
@@ -79,6 +80,7 @@ route('/g/:id', (root, p) => {
   const tiles = () => `<div class="mt" role="radiogroup" aria-label="Mode">${MODES.map(([m, icon, n, d, col]) => {
     const on = st.mode === m
     const lock = m !== 'play' && !canStake
+    if (m === 'settle' && royale && SPLAT_SETTLE_SOON && !S.cfg.unlockAll) return `<button class="t lock" data-act="soon" data-m="settle" disabled aria-disabled="true"><span class="h"><span class="ic" style="background:${col}">${ic(icon)}</span><span class="n">${n}</span></span><span class="m">Coming soon</span></button>`
     return `<button class="t ${on ? 'on' : ''} ${lock ? 'lock' : ''}" data-act="mode" data-m="${m}" role="radio" aria-checked="${on}"><span class="h"><span class="ic" style="background:${col}">${ic(icon)}</span><span class="n">${n}</span>${m === 'win' ? '<span class="new">NEW</span>' : ''}</span><span class="m">${d}</span>${on ? `<span class="ck2">${ic('check')}</span>` : ''}</button>`
   }).join('')}</div>`
   const chips = () => {

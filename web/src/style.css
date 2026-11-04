@@ -13,7 +13,7 @@
   --sans:"Bricolage Grotesque",system-ui,sans-serif; --mono:"DM Mono",ui-monospace,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{background:#d9d2c1;height:100%;overscroll-behavior:none;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{background:#F5F0E6;height:100%;overscroll-behavior:none;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
 body{font-family:var(--sans);color:var(--ink);font-size:15px;line-height:20px;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
 #app{width:100%;max-width:480px;margin:0 auto;height:100vh;height:100dvh;background:var(--bg);position:relative;overflow:hidden;display:flex;flex-direction:column}
 .i{width:18px;height:18px;stroke:currentColor;stroke-width:1.75;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
@@ -682,3 +682,71 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .nb.me .bb{background:var(--ink);color:var(--bg)}
 .bb.dots{display:flex;gap:4px;padding:14px}
 .bb.dots i{width:7px;height:7px;border-radius:50%;background:var(--ink);opacity:.4}
+
+/* Speed Math */
+.smq{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 12px;border:2px solid var(--ink);transition:background .12s}
+.smq.ok{background:var(--green-tint)}
+.smq.no{background:var(--coral-tint)}
+.smt{font-size:36px;line-height:42px;font-weight:700;font-variant-numeric:tabular-nums;text-align:center}
+.sma{min-height:48px;min-width:140px;border-bottom:3px solid var(--ink);font-size:36px;line-height:44px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;white-space:pre}
+.kp{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kb{min-height:54px;border-radius:14px;border:2px solid var(--ink);background:var(--card);font:inherit;font-size:24px;font-weight:700;color:var(--ink);display:flex;align-items:center;justify-content:center;touch-action:manipulation}
+.kb:active{background:var(--gold-tint)}
+.kb.go{background:var(--gold)}
+
+/* Spider Solitaire */
+.spt{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.spt .btn{padding:0 14px;font-size:15px;box-shadow:0 3px 0 var(--ink)}
+.spd{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;flex:1;min-height:240px}
+.scol{position:relative;min-height:60px;border-radius:6px;background:var(--raised)}
+.sc{position:absolute;left:0;right:0;height:46px;border-radius:6px;border:2px solid var(--ink);background:var(--card);display:flex;flex-direction:column;align-items:center;padding-top:2px;line-height:14px;font-size:13px;overflow:hidden;touch-action:manipulation}
+.sc b{font-weight:800}
+.sc i{font-style:normal;font-size:12px}
+.sc.dn{background:var(--blue);border-color:var(--ink)}
+.sc.sel{background:var(--gold)}
+
+/* Domino Chain */
+.dmc{display:flex;flex-wrap:wrap;gap:3px;align-content:flex-start;justify-content:center;height:120px;overflow:hidden;background:var(--raised);border-radius:12px;padding:6px}
+.dme{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dmh{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-content:flex-start;min-height:100px}
+.dmt{display:inline-flex;align-items:center;justify-content:center;gap:2px;width:44px;height:26px;border-radius:6px;background:var(--card);border:2px solid var(--ink);font-size:14px;line-height:1}
+.dmt b{width:14px;text-align:center;font-weight:800}
+.dmt s{width:2px;height:16px;background:var(--ink);display:block}
+.dmt.dbl{background:var(--gold-tint)}
+.dmh .dmt{width:56px;height:34px;font-size:18px;opacity:.45;touch-action:manipulation}
+.dmh .dmt.ok{opacity:1}
+.dmh .dmt.sel{background:var(--gold);box-shadow:0 3px 0 var(--ink)}
+.dmt.end{background:var(--blue-tint)}
+
+/* 21 Blitz */
+.bzn{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--raised);border-radius:12px;padding:8px 12px}
+.bzn small{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:2px}
+.bzl{text-align:center}
+.bzl b{font-size:28px;font-weight:800;display:block;line-height:30px}
+.bzc{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;width:36px;height:48px;border-radius:7px;background:var(--card);border:2px solid var(--ink);line-height:16px;font-size:15px}
+.bzc i{font-style:normal;font-size:14px}
+.bzc.red{color:var(--coral)}
+.bzc.big{width:56px;height:76px;font-size:24px;line-height:28px}
+.bzc.big i{font-size:22px}
+.bzc.sm{width:100%;height:26px;flex-direction:row;gap:4px;font-size:14px;margin-top:-2px}
+.bzs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;flex:1;min-height:230px}
+.bzk{display:flex;flex-direction:column;gap:4px;padding:6px 4px;border-radius:12px;background:var(--card);border:2px solid var(--ink);box-shadow:0 3px 0 var(--ink);min-height:200px;align-items:stretch;text-align:center}
+.bzk:active:not(:disabled){background:var(--gold-tint)}
+.bzk.bust{background:var(--coral-tint)}
+.bzk.full{opacity:.8}
+.bzh{font-size:20px;font-weight:800;line-height:22px}
+.bzh small{display:block;font-size:11px;font-weight:700;color:var(--ink2)}
+.bzcol{display:flex;flex-direction:column;gap:0}
+
+/* Bowling */
+.bwf{display:grid;grid-template-columns:repeat(9,1fr) 1.5fr;gap:2px}
+.bwf>div{border:2px solid var(--ink);border-radius:6px;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:space-between;height:40px;padding:1px 0;overflow:hidden}
+.bwf>div.on{background:var(--gold-tint)}
+.bwf small{font-size:10px;font-weight:700;color:var(--ink2);line-height:12px;white-space:nowrap}
+.bwf b{font-size:13px;font-weight:800;line-height:14px}
+.crs{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700}
+.crs span{width:54px}
+.crs input{flex:1;accent-color:var(--ink);height:28px}
+.gc.soon{box-shadow:0 4px 0 var(--ink);cursor:default}
+.gc.soon .art svg.gl{opacity:.6}
+.gc.soon .n{color:var(--ink2)}

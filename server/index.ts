@@ -74,7 +74,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
     if (method === 'GET' && path === '/config') {
       return send(res, 200, {
         chain: chain.kind, network: chain.network, escrow: chain.escrowAddress, lockDays: engine.lockDays, ai: aiStatus(),
-        mock: chain.kind === 'mock', serverNow: Date.now(),
+        mock: chain.kind === 'mock', serverNow: Date.now(), unlockAll: process.env.NIMBLES_UNLOCK_ALL === '1',
       })
     }
     if (method === 'POST' && path === '/session') {

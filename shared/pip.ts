@@ -33,6 +33,24 @@ export function pipScore(game: GameId, level: PipLevel, seed: string): { score: 
       return { score: around(r, [25, 45, 70][L], [8, 10, 12][L]), time: 60000 }
     case 'lastbite':
       return { score: around(r, [20, 32, 44][L], [6, 5, 4][L]), time: 90000 }
+    case 'darts':
+      return { score: around(r, [110, 190, 290][L], [30, 40, 50][L]), time: 40000 }
+    case 'blocks':
+      return { score: around(r, [120, 260, 460][L], [40, 60, 80][L]), time: 120000 }
+    case 'speedmath':
+      return { score: around(r, [110, 230, 380][L], [30, 40, 50][L]), time: 60000 }
+    case 'spider':
+      return { score: around(r, [60, 150, 290][L], [25, 40, 60][L]), time: 240000 }
+    case 'dominoes':
+      return { score: around(r, [60, 100, 150][L], [20, 25, 30][L]), time: 90000 }
+    case 'blitz':
+      return { score: Math.round(around(r, [150, 210, 270][L], [30, 30, 30][L]) / 10) * 10, time: 45000 }
+    case 'bowling':
+      return { score: around(r, [70, 110, 160][L], [20, 25, 30][L]), time: 100000 }
+    case 'carrom':
+      return { score: around(r, [40, 80, 130][L], [15, 25, 35][L]), time: 120000 }
+    case 'ghost':
+      return { score: around(r, [440, 480, 520][L], [30, 25, 20][L]), time: 45000 }
     default:
       return { score: 0, time: 0 }
   }
@@ -51,4 +69,13 @@ export const GAME_DURATION_MS: Record<GameId, number> = {
   word: 60000,
   lastbite: 90000,
   splat: 180000,
+  spider: 240000,
+  dominoes: 120000,
+  blitz: 90000,
+  bowling: 180000,
+  carrom: 150000,
+  ghost: 45000,
+  darts: 60000,
+  blocks: 120000,
+  speedmath: 60000,
 }

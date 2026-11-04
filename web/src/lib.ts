@@ -18,7 +18,7 @@ export function ic(name: string, cls = ''): string {
 }
 export const glyph = (id: string) => (GLYPHS[id] ?? '').replace(/<svg([^>]*)>/, (_m, a) => `<svg${a.replace(/\s(width|height)="[^"]*"/g, '')} class="gl">`)
 export const GLYPH_BG: Record<string, string> = {
-  trivia: '#1F78C4', solitaire: '#1F8A5B', chess: '#1F2348', pool: '#1F7F73', sudoku: '#F4B323', bubble: '#F29AAE', word: '#D0432E', lastbite: '#EBD6A0', vault: '#1F2348', splat: '#6C4AB6',
+  trivia: '#1F78C4', solitaire: '#1F8A5B', chess: '#1F2348', pool: '#1F7F73', sudoku: '#F4B323', bubble: '#F29AAE', word: '#D0432E', lastbite: '#EBD6A0', vault: '#1F2348', splat: '#6C4AB6', spider: '#1F2348', dominoes: '#7A4B2A', blitz: '#C98E0A', bowling: '#1F78C4', carrom: '#8A5A2B', ghost: '#6C4AB6', darts: '#D0432E', blocks: '#1F78C4', speedmath: '#1F8A5B',
 }
 export const pipImg = (mood = 'happy', cls = '') => `<img class="${cls}" src="/pip/pip-${mood}.svg" alt="" width="52" height="52">`
 /** An avatar, optionally wearing a frame: a solid ring in the frame's colour, no gradients. */

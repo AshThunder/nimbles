@@ -31,7 +31,8 @@ export const TABS = [
 export const tabs = (on: string) =>
   `<nav class="tabs">${TABS.map(([i, n, href]) => `<a class="tab ${n === on ? 'on' : ''}" href="#${href}" data-act="tab"><span class="p">${ic(i)}</span>${n}</a>`).join('')}</nav>`
 
-export const gameCard = (id: string, g: { name: string; blurb: string; tag?: string; level: number }) => {
+export const gameCard = (id: string, g: { name: string; blurb: string; tag?: string; level: number }, soon = false) => {
+  if (soon) return `<button class="gc soon" data-id="${id}" disabled aria-disabled="true"><div class="art" style="background:${GLYPH_BG[id]}">${glyph(id)}<span class="tg" style="background:#6B6F8C">Soon</span></div><div class="f"><span class="n">${esc(g.name)}</span><span class="m">Coming soon</span></div></button>`
   const tgc = g.tag === 'Hot' ? '#D0432E' : '#1F8A5B'
   return `<button class="gc" data-act="game" data-id="${id}"><div class="art" style="background:${GLYPH_BG[id]}">${glyph(id)}${g.tag ? `<span class="tg" style="background:${tgc}">${g.tag}</span>` : ''}${lvBadge(g.level, 28).replace('class="lvb"', 'class="lv"')}</div><div class="f"><span class="n">${esc(g.name)}</span><span class="m">${esc(g.blurb)}</span></div></button>`
 }
