@@ -6,7 +6,7 @@ const normAddr = (a: string) => a.replace(/\s+/g, ' ').trim().toUpperCase()
 import { generateTrivia } from './ai'
 import { TICK_MS as SPLAT_TICK_MS } from '../shared/splat'
 import { isLegacyName, nickOf } from '../shared/nick'
-import { clampPct, drawShares, escrowRequired, settleShares, toLuna } from '../shared/economy'
+import { clampPct, drawShares, escrowRequired, evenShares, placePcts, placeShares, settleShares, toLuna } from '../shared/economy'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { sevensOf, scoreWords, wordRack } from '../shared/words'
@@ -189,7 +189,7 @@ export class Engine {
       out.live = { ...m.live, last: { ...last, frames: seenShot !== undefined && seenShot < last.no ? last.frames : [] } }
     }
     out.fundBy = m.fundBy
-    if (m.terms) out.terms = { ...m.terms, lock: escrowRequired('settle', m.terms.bill, m.terms.loserPct) }
+    if (m.terms) out.terms = { ...m.terms, lock: escrowRequired('settle', m.terms.bill, m.terms.loserPct, m.terms.split === 'place' ? m.size : 0) }
     out.settlement = m.settlement
     if (m.trivia && (m.status === 'playing' || m.status === 'settled')) {
       const mine = viewer ? m.trivia.answers[viewer] ?? [] : []
@@ -228,33 +228,34 @@ export class Engine {
   }
 
   private required(m: MatchRec) {
-    return escrowRequired(m.mode, m.stake, m.terms?.loserPct)
+    return escrowRequired(m.mode, m.stake, m.terms?.loserPct, m.terms?.split === 'place' ? m.size : 0)
   }
 
   /** Settle terms from a request: bill, split and payee. `who` is the seat proposing, so 'me' and 'friend' resolve to seats. */
-  private async parseTerms(m: { players: { player: { address: string } }[]; terms?: SettleTerms }, who: number, b: any): Promise<{ bill: number; loserPct: number; payee: Payee }> {
+  private async parseTerms(m: { players: { player: { address: string } }[]; terms?: SettleTerms }, who: number, b: any, place = 0): Promise<{ bill: number; loserPct: number; payee: Payee; split?: 'place' }> {
     const bill = Math.round(Number(b.bill) * 100) / 100
     if (!(bill >= 0.5 && bill <= 1000)) throw bad('A bill must be between 0.5 and 1000 NIM')
     if (bill > this.maxStakeNim) throw bad(`The limit on this server is ${this.maxStakeNim} NIM per match`)
-    const pct = Math.round(Number(b.loserPct))
-    if (!Number.isInteger(pct) || pct < 50 || pct > 100) throw bad('The loser pays between 50% and 100% of the bill')
+    // placement split (Splat Royale): the shares come from the preset for this many players, so there is no percent to pick
+    const pct = place >= 2 ? Math.max(...placePcts(place)) : Math.round(Number(b.loserPct))
+    if (!Number.isInteger(pct) || pct < (place >= 2 ? 1 : 50) || pct > 100) throw bad('The loser pays between 50% and 100% of the bill')
     let payee: Payee
     const raw = b.payee
-    if (raw === 'me') payee = { seat: who as 0 | 1 }
-    else if (raw === 'friend') payee = { seat: (1 - who) as 0 | 1 }
-    else if (raw && typeof raw === 'object' && (raw.seat === 0 || raw.seat === 1)) payee = { seat: raw.seat }
+    if (raw === 'me') payee = { seat: who }
+    else if (raw === 'friend' && place <= 2) payee = { seat: 1 - who }
+    else if (raw && typeof raw === 'object' && Number.isInteger(raw.seat) && raw.seat >= 0 && raw.seat < (place || 2)) payee = { seat: raw.seat }
     else {
       const a = normAddr(String(typeof raw === 'object' && raw ? raw.address : raw ?? ''))
       if (!isNimiqAddress(a)) throw bad('The payee must be "me", "friend" or a valid Nimiq address')
       if (sameAddr(a, this.chain.escrowAddress)) throw bad('The payee cannot be the escrow account')
       const seat = m.players.findIndex((p) => sameAddr(p.player.address, a))
-      if (seat >= 0) payee = { seat: seat as 0 | 1 }
+      if (seat >= 0) payee = { seat }
       else {
         if (!(await this.chain.isWallet(a))) throw bad('That address is a contract, not a wallet. A payment there would fail. Use a normal wallet address')
         payee = { address: a }
       }
     }
-    return { bill, loserPct: pct, payee }
+    return place >= 2 ? { bill, loserPct: pct, payee, split: 'place' } : { bill, loserPct: pct, payee }
   }
 
   async create(host: string, b: any): Promise<PublicMatch> {
@@ -275,14 +276,15 @@ export class Engine {
     }
     let terms: SettleTerms | undefined
     if (mode === 'settle') {
-      const t = await this.parseTerms({ players: [{ player: { address: host } }] }, 0, b.terms ?? b)
+      const placeN = game === 'splat' ? Math.round(Number(b.config?.seats ?? 4)) : 0
+      if (game === 'splat' && !(placeN >= 2 && placeN <= GAMES.splat.maxPlayers)) throw bad('Pick 2 to 6 players')
+      const t = await this.parseTerms({ players: [{ player: { address: host } }] }, 0, b.terms ?? b, placeN)
       stake = t.bill
       terms = { ...t, agreed: [host], proposedBy: host, rev: 1 }
     }
     if (stake > this.maxStakeNim) throw bad(`The limit on this server is ${this.maxStakeNim} NIM per match`)
     let size = 2
     if (game === 'splat') {
-      if (mode === 'settle') throw bad('Splat Royale is Play, Win or Save for now')
       size = Math.round(Number(b.config?.seats ?? 4))
       if (!(size >= 2 && size <= GAMES.splat.maxPlayers)) throw bad('Pick 2 to 6 players')
     }
@@ -357,7 +359,12 @@ export class Engine {
       this.fillBots(m)
     } else m.size = m.players.length
     m.config.seats = m.size
-    this.readyUp(m)
+    if (m.mode === 'settle' && m.terms) {
+      // fewer players than seats: the placement split is worked out again for the players who are here, and everyone agrees to it
+      const t = m.terms
+      m.terms = { ...t, loserPct: Math.max(...placePcts(m.size)), agreed: [m.host], proposedBy: m.host, rev: t.rev + 1 }
+      this.openTerms(m)
+    } else this.readyUp(m)
     this.store.save()
     return this.view(m, addr)
   }
@@ -394,12 +401,13 @@ export class Engine {
     if (m.status !== 'lobby' && m.status !== 'terms') throw bad('The terms are locked in, the match has moved on')
     const t = m.terms
     if (b?.action === 'agree') {
-      if (m.status !== 'terms') throw bad('Wait for your friend to join first')
+      if (m.status !== 'terms') throw bad('Wait for the other players to join first')
       if (Number(b.rev) !== t.rev) throw bad('The terms just changed. Read them again before you agree')
       if (!t.agreed.includes(addr)) t.agreed.push(addr)
       if (m.players.every((p) => t.agreed.includes(p.player.address))) this.readyUp(m)
     } else if (b?.action === 'propose') {
-      const n = await this.parseTerms(m, seat, b)
+      if (t.split === 'place' && addr !== m.host) throw bad('Only the host sets the bill and who gets the money. You can agree or leave')
+      const n = await this.parseTerms(m, seat, b, t.split === 'place' ? m.size : 0)
       const same = n.bill === t.bill && n.loserPct === t.loserPct && JSON.stringify(n.payee) === JSON.stringify(t.payee)
       if (!same) {
         m.terms = { ...n, agreed: [addr], proposedBy: addr, rev: t.rev + 1 }
@@ -780,11 +788,19 @@ export class Engine {
       }
     } else if (m.mode === 'settle' && m.terms && !allForfeit) {
       // the loser pays their agreed share, the winner pays the rest, a draw splits it evenly. Each player's unused lock
-      // goes back to them and the bill goes to the payee the two of them agreed.
+      // goes back to them and the bill goes to the payee they agreed. A Splat Royale bill splits by finishing place instead.
       const t = m.terms
-      const sh = settleShares(t.bill, t.loserPct)
-      const dr = drawShares(t.bill)
-      m.players.forEach((p, i) => (p.share = draw ? dr[i] : p.player.address === winner ? sh.winner : sh.loser))
+      const n = m.players.length
+      let shares: number[]
+      if (t.split === 'place') {
+        const byPlace = draw ? evenShares(t.bill, n) : placeShares(t.bill, n)
+        shares = m.players.map((p) => byPlace[draw ? m.players.indexOf(p) : Math.max(0, ranks.findIndex((r) => r.address === p.player.address))])
+      } else {
+        const sh = settleShares(t.bill, t.loserPct)
+        const dr = drawShares(t.bill)
+        shares = m.players.map((p, i) => (draw ? dr[i] : p.player.address === winner ? sh.winner : sh.loser))
+      }
+      m.players.forEach((p, i) => (p.share = shares[i]))
       const payeeSeat = 'seat' in t.payee ? t.payee.seat : -1
       let toPayee = 0
       m.players.forEach((p, i) => {
@@ -795,10 +811,11 @@ export class Engine {
         if (back > 0) payouts.push({ ...this.dest(p), luna: back, kind: 'refund', note: i === payeeSeat ? 'Your lock, you are the payee' : 'Unused part of your lock' })
       })
       if (payeeSeat >= 0) {
-        const other = m.players[1 - payeeSeat]
-        const amt = other.share ?? 0
-        if (amt > 0) payouts.push({ ...this.dest(m.players[payeeSeat]), luna: amt, kind: 'settle', note: `${other.player.name}'s share of the bill` })
-      } else if (toPayee > 0 && 'address' in t.payee) payouts.push({ to: t.payee.address, luna: toPayee, kind: 'settle', note: `Bill settled by ${m.players[0].player.name} and ${m.players[1].player.name}` })
+        const others = m.players.filter((_, i) => i !== payeeSeat)
+        const amt = others.reduce((a, p) => a + (p.share ?? 0), 0)
+        const note = others.length === 1 ? `${others[0].player.name}'s share of the bill` : `${others.length} players' shares of the bill`
+        if (amt > 0) payouts.push({ ...this.dest(m.players[payeeSeat]), luna: amt, kind: 'settle', note })
+      } else if (toPayee > 0 && 'address' in t.payee) payouts.push({ to: t.payee.address, luna: toPayee, kind: 'settle', note: n === 2 ? `Bill settled by ${m.players[0].player.name} and ${m.players[1].player.name}` : `Bill settled by ${n} players` })
     } else if (allForfeit || forfeit) {
       // nobody finished: give everything back
       for (const p of humans) if (p.escrowed > 0 && m.mode !== 'play') payouts.push({ ...this.dest(p), luna: p.escrowed, kind: 'refund', note: 'Match did not finish' })

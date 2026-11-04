@@ -1,5 +1,5 @@
 import { esc, ic } from '../lib'
-import { clampPct, settleShares } from '../../../shared/economy'
+import { clampPct, placePcts, placeShares, settleShares } from '../../../shared/economy'
 import { fmtNim, type Payee } from '../../../shared/types'
 
 /** The Settle terms a player is editing: bill, how hard the loser pays, and who receives the money. */
@@ -12,13 +12,22 @@ export const draftOk = (d: TermsDraft) => billOf(d) >= 0.5 && billOf(d) <= 1000 
 export const draftBody = (d: TermsDraft) => ({ bill: billOf(d), loserPct: d.pct, payee: d.payee === 'other' ? d.other.trim().toUpperCase() : d.payee })
 
 const PRESETS = [100, 70]
+const ORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th']
+
+/** Splat Royale: what each finishing place pays. Last place pays the most, the winner the least. */
+export function placeRows(bill: number, players: number): string {
+  const sh = placeShares(bill || 0, players)
+  const pc = placePcts(players)
+  return `<div class="plr">${sh.map((l, i) => `<div class="kv"><span>${ORDS[i]} place${i === 0 ? ' (winner)' : ''}</span><b>${fmtNim(l)} NIM (${pc[i]}%)</b></div>`).join('')}</div>`
+}
+export const placeNote = 'A draw splits it evenly. Everyone locks the most they could owe and gets the rest back'
 const splitText = (d: TermsDraft) => {
   const s = settleShares(billOf(d) || 0, d.pct)
   return `Loser pays <b>${fmtNim(s.loser)} NIM</b>, winner <b>${fmtNim(s.winner)}</b>. A draw splits it 50/50`
 }
 
 /** Editable terms form. Re-render it by calling this again after the draft changes. */
-export function termsForm(d: TermsDraft): string {
+export function termsForm(d: TermsDraft, place = 0): string {
   const custom = !PRESETS.includes(d.pct)
   const rule = (key: string, label: string, sub: string, on: boolean) =>
     `<button class="opt ${on ? 'on' : ''}" data-act="tpct" data-k="${key}" role="radio" aria-checked="${on}"><span class="tx"><span class="n">${label}</span><span class="m">${sub}</span></span>${on ? `<span class="ck">${ic('check')}</span>` : '<span class="ring"></span>'}</button>`
@@ -26,37 +35,38 @@ export function termsForm(d: TermsDraft): string {
     `<button class="pc ${on ? 'on' : ''}" data-act="tpay" data-k="${key}" role="radio" aria-checked="${on}">${on ? ic('check') : ''}${label}</button>`
   return `<div class="sec"><div class="lab">The bill<small>NIM, the total to settle</small></div>
       <div class="field"><input id="t-bill" class="field" inputmode="decimal" style="border:0;box-shadow:none;height:48px;padding:0" value="${esc(d.bill)}" placeholder="0.00" autocomplete="off"><span class="mono-s">NIM</span></div></div>
-    <div class="sec"><div class="lab">Who pays<small>decided by the game</small></div>
+    ${place ? `<div class="sec"><div class="lab">Who pays<small>by finishing place</small></div>${placeRows(billOf(d), place)}<div class="note" style="font-size:13px">${placeNote}</div></div>` : `<div class="sec"><div class="lab">Who pays<small>decided by the game</small></div>
       ${rule('100', 'Loser pays all', 'The winner pays nothing', d.pct === 100)}
       ${rule('70', '70 / 30', 'Loser pays 70%, winner 30%', d.pct === 70)}
       ${rule('custom', 'Custom', custom ? `Loser pays ${d.pct}%, winner ${100 - d.pct}%` : 'Pick your own split', custom)}
       ${custom ? `<div class="stp"><button class="pc" data-act="tstep" data-d="-5" aria-label="Loser pays less">${ic('minus')}</button><b class="mono" id="t-pct">${d.pct}%</b><button class="pc" data-act="tstep" data-d="5" aria-label="Loser pays more">${ic('plus')}</button></div>` : ''}
-      <div class="note" style="font-size:13px"><span id="t-split">${splitText(d)}</span></div></div>
+      <div class="note" style="font-size:13px"><span id="t-split">${splitText(d)}</span></div></div>`}
     <div class="sec"><div class="lab">Who gets the money<small>paid out when the game ends</small></div>
-      <div class="pick">${who('me', 'Me', d.payee === 'me')}${who('friend', 'My friend', d.payee === 'friend')}${who('other', 'Other address', d.payee === 'other')}</div>
+      <div class="pick">${who('me', 'Me', d.payee === 'me')}${place > 2 ? '' : who('friend', 'My friend', d.payee === 'friend')}${who('other', 'Other address', d.payee === 'other')}</div>
       ${d.payee === 'other' ? `<div class="field">${ic('wallet')}<input id="t-other" class="field" style="border:0;box-shadow:none;height:48px;padding:0;font-size:14px" value="${esc(d.other)}" placeholder="NQ.. wallet address" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>${d.other && !validAddr(d.other) ? '<div class="note" style="font-size:13px;color:var(--bad,#D0432E)">That is not a Nimiq address yet</div>' : ''}` : ''}</div>`
 }
 
 /** The compact Settle form for the setup bottom sheet: bill (with a scan button), who pays, who gets the money. */
-export function termsSheet(d: TermsDraft, scanHtml: string, billHint: string): string {
+export function termsSheet(d: TermsDraft, scanHtml: string, billHint: string, place = 0): string {
   const custom = !PRESETS.includes(d.pct)
   const chip = (act: string, key: string, label: string, on: boolean) =>
     `<button class="pc ${on ? 'on' : ''}" data-act="${act}" data-k="${key}" role="radio" aria-checked="${on}">${on ? ic('check') : ''}${label}</button>`
   return `<div class="sec"><div class="lab">Bill<small>NIM, the total</small></div>
       <div class="brow"><div class="fl"><input id="t-bill" inputmode="decimal" value="${esc(d.bill)}" placeholder="0.00" autocomplete="off" aria-label="Bill in NIM"><span class="u">NIM</span></div>${scanHtml}</div>
       <div class="hint">${billHint}</div></div>
-    <div class="sec"><div class="lab">Who pays<small>decided by the game</small></div>
+    ${place ? `<div class="sec"><div class="lab">Who pays<small>by finishing place</small></div><div id="t-split">${placeRows(billOf(d), place)}</div><div class="hint">${placeNote}</div></div>` : `<div class="sec"><div class="lab">Who pays<small>decided by the game</small></div>
       <div class="pick" role="radiogroup">${chip('tpct', '100', 'Loser all', d.pct === 100)}${chip('tpct', '70', '70 / 30', d.pct === 70)}${chip('tpct', 'custom', 'Custom', custom)}</div>
       ${custom ? `<div class="stp"><button class="pc" data-act="tstep" data-d="-5" aria-label="Loser pays less">${ic('minus')}</button><b class="mono" id="t-pct">${d.pct}%</b><button class="pc" data-act="tstep" data-d="5" aria-label="Loser pays more">${ic('plus')}</button></div>` : ''}
-      <div class="hint" id="t-split">${splitText(d)}</div></div>
+      <div class="hint" id="t-split">${splitText(d)}</div></div>`}
     <div class="sec"><div class="lab">Who gets the money<small>paid out at the end</small></div>
-      <div class="pick" role="radiogroup">${chip('tpay', 'me', 'Me', d.payee === 'me')}${chip('tpay', 'friend', 'My friend', d.payee === 'friend')}${chip('tpay', 'other', 'Other', d.payee === 'other')}</div>
+      <div class="pick" role="radiogroup">${chip('tpay', 'me', 'Me', d.payee === 'me')}${place ? '' : chip('tpay', 'friend', 'My friend', d.payee === 'friend')}${chip('tpay', 'other', 'Other', d.payee === 'other')}</div>
       ${d.payee === 'other' ? `<div class="field">${ic('wallet')}<input id="t-other" class="field" style="border:0;box-shadow:none;height:48px;padding:0;font-size:14px" value="${esc(d.other)}" placeholder="NQ.. wallet address" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>${d.other && !validAddr(d.other) ? '<div class="hint" style="color:#D0432E">That is not a Nimiq address yet</div>' : ''}` : ''}</div>`
 }
 
 /** One line for the Settle card: how the bill splits and who is paid. */
-export function termsLine(d: TermsDraft): string {
+export function termsLine(d: TermsDraft, place = 0): string {
   const who = d.payee === 'me' ? 'paid to me' : d.payee === 'friend' ? 'paid to my friend' : 'paid to another wallet'
+  if (place) return `Split by place · ${who}`
   return `${d.pct === 100 ? 'Loser pays all' : `Loser pays ${d.pct}%`} · ${who}`
 }
 
@@ -80,11 +90,11 @@ export function termsActions(d: TermsDraft, redraw: () => void) {
 }
 
 /** Input handler for the form's text fields. Returns true when it handled the event. */
-export function termsInput(d: TermsDraft, t: HTMLInputElement, root: HTMLElement): boolean {
+export function termsInput(d: TermsDraft, t: HTMLInputElement, root: HTMLElement, placeOf = 0): boolean {
   if (t.id === 't-bill') {
     d.bill = t.value.replace(/[^0-9.]/g, '')
     const s = root.querySelector('#t-split')
-    if (s) s.innerHTML = splitText(d)
+    if (s) s.innerHTML = placeOf ? placeRows(billOf(d), placeOf) : splitText(d)
     return true
   }
   if (t.id === 't-other') {

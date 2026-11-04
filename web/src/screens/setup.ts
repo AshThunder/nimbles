@@ -46,6 +46,7 @@ route('/g/:id', (root, p) => {
     if (st.seats < 3 || !paid()) st.payout = 'wta'
   }
   const players = () => (royale ? st.seats : 2)
+  const place = () => (royale && st.mode === 'settle' ? st.seats : 0) // Splat Royale settles by finishing place
   const prize = () => {
     const pot = toLuna(st.stake) * players()
     const net = pot - saveFee(pot)
@@ -65,7 +66,7 @@ route('/g/:id', (root, p) => {
       if (royale && st.payout === 'top3' && st.seats >= 3) return [`<b>${st.stake} NIM</b> each · top 3 paid, 1st <b>${prize()}</b>`, where]
       return [`<b>${st.stake} NIM</b> each · winner gets <b>${prize()} NIM</b>`, where]
     }
-    return [`Bill <b>${billOf(st.d) || 0} NIM</b> · loser pays ${st.d.pct}%`, 'both agree first']
+    return [place() ? `Bill <b>${billOf(st.d) || 0} NIM</b> · split by place` : `Bill <b>${billOf(st.d) || 0} NIM</b> · loser pays ${st.d.pct}%`, place() ? 'everyone agrees first' : 'both agree first']
   }
   const cta = () => {
     const n = paid() ? ` · ${st.stake} NIM` : ''
@@ -77,7 +78,7 @@ route('/g/:id', (root, p) => {
 
   const tiles = () => `<div class="mt" role="radiogroup" aria-label="Mode">${MODES.map(([m, icon, n, d, col]) => {
     const on = st.mode === m
-    const lock = (m !== 'play' && !canStake) || (royale && m === 'settle')
+    const lock = m !== 'play' && !canStake
     return `<button class="t ${on ? 'on' : ''} ${lock ? 'lock' : ''}" data-act="mode" data-m="${m}" role="radio" aria-checked="${on}"><span class="h"><span class="ic" style="background:${col}">${ic(icon)}</span><span class="n">${n}</span>${m === 'win' ? '<span class="new">NEW</span>' : ''}</span><span class="m">${d}</span>${on ? `<span class="ck2">${ic('check')}</span>` : ''}</button>`
   }).join('')}</div>`
   const chips = () => {
@@ -104,14 +105,14 @@ route('/g/:id', (root, p) => {
       : ''
   }`
   const stakeBlock = () => `<div class="sec"><div class="lab">Stake<small>NIM each</small></div><div class="stkrow" role="radiogroup" aria-label="Stake">${STAKES.map((s) => `<button class="pc stk ${st.stake === s ? 'on' : ''}" data-act="stake" data-s="${s}" role="radio" aria-checked="${st.stake === s}">${st.stake === s ? ic('check') : ''}${s}<small>NIM</small></button>`).join('')}</div></div>`
-  const settleCard = () => `<div class="sec"><div class="lab">Bill details</div><button class="bdc" data-act="bd"><span class="ic">${ic('receipt')}</span><span class="tx"><span class="n">${billOf(st.d) || 0} NIM bill</span><span class="m">${termsLine(st.d)}</span></span><span class="chip" style="background:var(--gold)">${ic('pencil', 's16')}Edit</span></button></div>`
+  const settleCard = () => `<div class="sec"><div class="lab">Bill details</div><button class="bdc" data-act="bd"><span class="ic">${ic('receipt')}</span><span class="tx"><span class="n">${billOf(st.d) || 0} NIM bill</span><span class="m">${termsLine(st.d, place())}</span></span><span class="chip" style="background:var(--gold)">${ic('pencil', 's16')}Edit</span></button></div>`
   const sheet = () => {
     const r = st.receipt
     const scan = `<button class="scan" data-act="scan" aria-label="Scan a receipt">${st.scanning ? ic('refresh-cw', 's20 spin') + '<span>Reading…</span>' : ic('camera', 's20') + '<span>Scan receipt</span>'}</button>`
     const hint = r ? `Nimo read ${r.items.length} items${r.merchant ? ' from ' + esc(r.merchant) : ''}. Check the total` : 'Optional: Nimo can read a receipt for you'
     return `<div class="scrim" data-act="shx"></div><div class="sheet mk" role="dialog" aria-label="Settle a bill"><div class="grab"></div>
-      <div class="sh-h" style="align-items:center"><div><div class="sh-t">Settle a bill</div><div class="sub">Both agree before anything is locked</div></div><button class="sh-x" data-act="shx" aria-label="Close">${ic('x', 's20')}</button></div>
-      ${termsSheet(st.d, scan, hint)}
+      <div class="sh-h" style="align-items:center"><div><div class="sh-t">Settle a bill</div><div class="sub">${place() ? 'Everyone agrees before anything is locked' : 'Both agree before anything is locked'}</div></div><button class="sh-x" data-act="shx" aria-label="Close">${ic('x', 's20')}</button></div>
+      ${termsSheet(st.d, scan, hint, place())}
       <input type="file" id="rfile" accept="image/*" class="hide">
       <button class="btn gold block" data-act="shdone">${ic('check', 's20')}Done</button></div>`
   }
@@ -131,7 +132,7 @@ route('/g/:id', (root, p) => {
           : ''
       }
       ${oppBlock()}
-      ${royale && st.opp !== 'join' && st.mode !== 'settle' ? seatsBlock() : ''}
+      ${royale && st.opp !== 'join' ? seatsBlock() : ''}
       ${st.opp === 'join' ? '' : paid() ? stakeBlock() : st.mode === 'settle' ? settleCard() : ''}
       ${st.err ? errBox(st.err) : ''}
     </div>
@@ -143,7 +144,7 @@ route('/g/:id', (root, p) => {
   root.addEventListener('input', (e) => {
     const t = e.target as HTMLInputElement
     if (t.id === 'topic') st.topic = t.value
-    termsInput(st.d, t, root)
+    termsInput(st.d, t, root, place())
     if (t.id === 'code') st.code = t.value.toUpperCase()
     const b = $('#go', root) as HTMLButtonElement | null
     if (b) b.disabled = !valid() || !!st.busy
@@ -178,7 +179,6 @@ route('/g/:id', (root, p) => {
     mode: (el) => {
       const m = el.dataset.m as Mode
       if (m !== 'play' && !canStake) return toast('Open Nimbles inside Nimiq Pay to stake NIM')
-      if (royale && m === 'settle') return toast('Settle for Splat Royale is coming soon')
       sfx('ui/select')
       st.mode = m
       if (m === 'play' && st.opp === 'auto') st.opp = 'pip'

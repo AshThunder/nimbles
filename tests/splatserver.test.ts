@@ -43,9 +43,10 @@ test('top-3 split is 60/30/10 with the rounding on first place, and two players 
   assert.deepEqual(splatShares(500, 'wta', 6), [500])
 })
 
-test('Splat Royale rules: Play or Save only, friends or Nimo, 2 to 6 seats, no Nimo with money', async () => {
+test('Splat Royale rules: friends or Nimo, 2 to 6 seats, no Nimo with money, Settle needs a payee and friends', async () => {
   const t = await login(addr(60), 'Host')
-  assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'settle', opp: 'invite', terms: { bill: 4 } })).status, 400)
+  assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'settle', opp: 'invite', terms: { bill: 4 } })).status, 400, 'no payee')
+  assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'settle', opp: 'auto', terms: { bill: 4, payee: 'me' }, config: { seats: 3 } })).status, 400, 'friends only')
   assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'save', stake: 2, opp: 'auto', config: { seats: 4 } })).status, 200, 'auto-match is allowed now')
   assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'save', stake: 2, opp: 'pip', config: { seats: 4 } })).status, 400)
   assert.equal((await call(t, 'POST', '/matches', { game: 'splat', mode: 'save', stake: 2, opp: 'invite', config: { seats: 7 } })).status, 400)

@@ -9,7 +9,7 @@ import { errBox, pipRow, topbar } from '../ui'
 import { friendlyWalletError } from '../wallet'
 import { GAMES, fmtNim } from '../../../shared/types'
 import { settleShares } from '../../../shared/economy'
-import { draftBody, draftOk, newDraft, payeeLabel, termsActions, termsForm, termsInput, type TermsDraft } from './terms'
+import { draftBody, draftOk, newDraft, payeeLabel, placeRows, termsActions, termsForm, termsInput, type TermsDraft } from './terms'
 
 const ORD = ['1st', '2nd', '3rd', '4th', '5th', '6th']
 const shareLink = (code: string) => `${location.origin}/#/join/${code}`
@@ -137,7 +137,7 @@ route('/m/:id', async (root, { id }) => {
         <div class="inv-col"><div class="mono" style="font-size:28px;font-weight:700;letter-spacing:.04em" id="code">${m.code}</div>
         <button class="btn gold sm" data-act="share">${ic('share-2', 's16')}Share link</button><button class="btn ghost sm" data-act="copy">${ic('copy', 's16')}Copy code</button></div></div></div>
       ${royale ? royaleSeats() : ''}
-      <div class="wait"><div class="ghostav">${ic('user-plus', 's20')}</div><div class="tx"><b>${royale ? `${m.players.length} of ${m.size} in` : `Waiting for ${need > 1 ? need + ' players' : 'your friend'}`}</b><span>${royale ? (staked ? 'Everyone locks the stake when the match fills, or when the host starts it' : 'Nimos fill the empty seats when the host starts') : m.mode === 'settle' ? 'You both agree the terms once they join' : staked ? 'Both lock the stake once they join' : 'The game starts when they join'}</span></div><div class="dotsw"><i></i><i></i><i></i></div></div>
+      <div class="wait"><div class="ghostav">${ic('user-plus', 's20')}</div><div class="tx"><b>${royale ? `${m.players.length} of ${m.size} in` : `Waiting for ${need > 1 ? need + ' players' : 'your friend'}`}</b><span>${royale ? (m.mode === 'settle' ? 'When the match fills, or the host starts it, everyone agrees the bill. Nothing is locked until they do' : staked ? 'Everyone locks the stake when the match fills, or when the host starts it' : 'Nimos fill the empty seats when the host starts') : m.mode === 'settle' ? 'You both agree the terms once they join' : staked ? 'Both lock the stake once they join' : 'The game starts when they join'}</span></div><div class="dotsw"><i></i><i></i><i></i></div></div>
       ${pipRow('wink', `Seeds are sealed: <span class="mono" style="font-size:12px">${m.seedCommit.slice(0, 10)}…</span> proves nobody can rig the deal`)}</div>
       <div class="foot">${royale && m.host === S.wallet.address ? `<button class="btn gold block" data-act="start" ${busy || (staked && m.players.length < 2) ? 'disabled' : ''}>${ic('zap', 's20')}${staked ? (m.players.length < 2 ? 'Need one more player' : `Start now with ${m.players.length}`) : 'Start now'}</button>` : ''}<button class="btn ghost block" data-act="cancel">Cancel match</button></div>`
   }
@@ -150,7 +150,7 @@ route('/m/:id', async (root, { id }) => {
       const you = p.player.address === S.wallet.address
       return `<div class="rw ${you ? 'me' : ''}" style="min-height:48px"><span class="avs">${p.isBot ? pipImg('cool') : avatar(p.player.avatar)}</span><span class="nm"><b>${you ? 'You' : esc(p.player.name)}${p.player.address === m.host ? '<span class="tg2" style="background:var(--ink)">Host</span>' : ''}</b></span>${dots(i)}</div>`
     }).join('')
-    const pay = m.mode === 'save' || m.mode === 'win' ? (royale ? (m.config.payout === 'top3' ? 'Top 3 split the pot 60 / 30 / 10' : 'Last one standing takes the pot') : 'Winner takes the pot') : 'Free play, earns XP'
+    const pay = m.mode === 'settle' ? 'Bill split by place, last pays most' : m.mode === 'save' || m.mode === 'win' ? (royale ? (m.config.payout === 'top3' ? 'Top 3 split the pot 60 / 30 / 10' : 'Last one standing takes the pot') : 'Winner takes the pot') : 'Free play, earns XP'
     return `<div class="sec"><div class="lab">Players<small>${esc(pay)}</small></div><div class="rank" style="gap:8px">${rows}</div></div>`
   }
 
@@ -161,10 +161,12 @@ route('/m/:id', async (root, { id }) => {
     const iAgreed = t.agreed.includes(addr)
     const left = fmtTime((m.fundBy ?? 0) - serverNow())
     if (proposing) {
-      root.innerHTML = `${header('Change terms')}<div class="scroll" style="gap:14px"><div class="tc">${termsForm(draft)}</div>${err ? errBox(err) : ''}</div>
+      root.innerHTML = `${header('Change terms')}<div class="scroll" style="gap:14px"><div class="tc">${termsForm(draft, t.split === 'place' ? m.size ?? m.players.length : 0)}</div>${err ? errBox(err) : ''}</div>
         <div class="foot"><button class="btn gold block" data-act="send-terms" ${draftOk(draft) && !busy ? '' : 'disabled'}>${ic('send', 's20')}Send new terms</button><button class="btn ghost block" data-act="keep">Keep the current terms</button></div>`
       return
     }
+    const place = t.split === 'place'
+    const isHost = m.host === addr
     const s = settleShares(t.bill, t.loserPct)
     const rows = m.players
       .map((p) => {
@@ -175,15 +177,15 @@ route('/m/:id', async (root, { id }) => {
     root.innerHTML = `${header('Agree the terms')}<div class="scroll" style="gap:12px">
       <div class="card tc"><div class="row"><b style="font-size:18px">${GAMES[m.game].name}</b><span class="sp"></span><span class="mono" style="font-size:13px" id="terms-left">${left}</span></div>
         <div class="kv"><span>Bill</span><b>${t.bill} NIM</b></div>
-        <div class="kv"><span>Loser pays</span><b>${fmtNim(s.loser)} NIM (${t.loserPct}%)</b></div>
+        ${place ? `<div class="kv"><span>Pays by place</span><b>Last pays most</b></div>${placeRows(t.bill, m.players.length)}<div class="kv"><span>If it is a draw</span><b>Even split</b></div>` : `<div class="kv"><span>Loser pays</span><b>${fmtNim(s.loser)} NIM (${t.loserPct}%)</b></div>
         <div class="kv"><span>Winner pays</span><b>${fmtNim(s.winner)} NIM</b></div>
-        <div class="kv"><span>If it is a draw</span><b>Half each</b></div>
+        <div class="kv"><span>If it is a draw</span><b>Half each</b></div>`}
         <div class="kv"><span>Money goes to</span><b>${esc(payeeLabel(t.payee, m.players, addr))}</b></div>
-        <div class="kv"><span>Each of you locks</span><b>${fmtNim(t.lock ?? 0)} NIM</b></div></div>
+        <div class="kv"><span>${place ? 'Each player locks' : 'Each of you locks'}</span><b>${fmtNim(t.lock ?? 0)} NIM</b></div></div>
       <div class="rank" style="gap:8px">${rows}</div>
       ${err ? errBox(err) : ''}
-      ${iAgreed ? pipRow('sleepy', '<b>You agreed.</b> Waiting for the other player. Nothing is locked yet') : pipRow('happy', '<b>Check the terms.</b> Nothing is locked until you both agree')}</div>
-    <div class="foot">${iAgreed ? '' : `<button class="btn gold block" data-act="agree" ${busy ? 'disabled' : ''}>${ic('check', 's20')}Agree to these terms</button>`}<button class="btn ghost block" data-act="change">${ic('pencil', 's20')}Change terms</button><button class="btn ghost block" data-act="cancel">Decline and cancel</button></div>`
+      ${iAgreed ? pipRow('sleepy', `<b>You agreed.</b> Waiting for ${place ? 'the others' : 'the other player'}. Nothing is locked yet`) : pipRow('happy', `<b>Check the terms.</b> Nothing is locked until ${place ? 'everyone agrees' : 'you both agree'}`)}</div>
+    <div class="foot">${iAgreed ? '' : `<button class="btn gold block" data-act="agree" ${busy ? 'disabled' : ''}>${ic('check', 's20')}Agree to these terms</button>`}${place && !isHost ? '' : `<button class="btn ghost block" data-act="change">${ic('pencil', 's20')}Change terms</button>`}<button class="btn ghost block" data-act="cancel">Decline and cancel</button></div>`
     cdTimer = setInterval(() => {
       const el = $('#terms-left', root)
       if (el) el.textContent = fmtTime((m.fundBy ?? 0) - serverNow())
@@ -227,7 +229,7 @@ route('/m/:id', async (root, { id }) => {
           ? `All ${m.players.length} lock <b>${m.stake} NIM</b>. The pot is <b>${m.stake * m.players.length} NIM</b>. ${m.config.payout === 'top3' && m.players.length >= 3 ? 'The top 3 split it 60 / 30 / 10' : 'The last one standing takes it'}, into locked savings jars. If the match cannot finish, every stake comes back`
           : `Both lock <b>${m.stake} NIM</b>. Winner's <b>${m.stake * 2} NIM</b> goes into their locked savings jar. Draw returns both stakes`
         : m.terms
-          ? `Terms agreed: bill <b>${m.terms.bill} NIM</b>, loser pays ${m.terms.loserPct}%. Each locks the most they could owe. Whatever is not owed comes back`
+          ? `Terms agreed: bill <b>${m.terms.bill} NIM</b>, ${m.terms.split === 'place' ? 'split by finishing place, last pays most' : `loser pays ${m.terms.loserPct}%`}. Each locks the most they could owe. Whatever is not owed comes back`
           : ''
     root.innerHTML = `${header('Lock in')}<div class="scroll" style="gap:12px">
       <div class="card" style="display:flex;flex-direction:column;gap:6px"><div class="row"><b style="font-size:18px">${GAMES[m.game].name}</b><span class="sp"></span><span class="mono" style="font-size:13px" id="fund-left">${fmtTime(fundBy - serverNow())}</span></div><div style="font-size:14px;line-height:20px;color:var(--ink2)">${what}</div></div>
@@ -400,7 +402,7 @@ route('/m/:id', async (root, { id }) => {
   }
 
   root.addEventListener('input', (ev) => {
-    if (proposing && termsInput(draft, ev.target as HTMLInputElement, root)) {
+    if (proposing && termsInput(draft, ev.target as HTMLInputElement, root, m.terms?.split === 'place' ? m.size ?? m.players.length : 0)) {
       const b = $('[data-act=send-terms]', root) as HTMLButtonElement | null
       if (b) b.disabled = !draftOk(draft)
     }

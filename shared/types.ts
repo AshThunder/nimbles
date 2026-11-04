@@ -55,13 +55,14 @@ export type PublicMatch = {
 }
 
 /** Who receives the bill: one of the two players (by seat) or any other wallet address. */
-export type Payee = { seat: 0 | 1 } | { address: string }
+export type Payee = { seat: number } | { address: string }
 
 /** Settle: what both friends agree to before anything is locked. Changing any field clears the other side's agreement. */
 export type SettleTerms = {
   bill: number // NIM
   loserPct: number // 50..100: share of the bill the loser pays, the winner pays the rest. A draw splits 50/50
   payee: Payee
+  split?: 'place' // Splat Royale: the bill is split by finishing place (see PLACE_SPLIT), not winner and loser
   agreed: string[] // addresses that agreed to this exact revision
   proposedBy: string
   rev: number

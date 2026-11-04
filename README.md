@@ -23,7 +23,7 @@ Skill-only duels for friends, built as a [Nimiq Pay mini app](https://nimiq.dev/
 | 8-Ball Pool | Live turns, 60 s shot clock | Server-run physics |
 | Splat Royale | 2 to 6 players, one arena, last one standing. Twin-stick on a phone | Server-run simulation at 30 ticks a second, own blob predicted on the phone |
 
-Splat Royale is a live battle royale. The phones only send stick and dash input; the server runs the whole match with no random numbers, so the same inputs always give the same result. Save mode pays the winner (or 60 / 30 / 10 to the top three), and if a match cannot finish every stake is refunded. Settle is not offered for it, and practice matches fill empty seats with Nimos.
+Splat Royale is a live battle royale. The phones only send stick and dash input; the server runs the whole match with no random numbers, so the same inputs always give the same result. Save mode pays the winner (or 60 / 30 / 10 to the top three), and if a match cannot finish every stake is refunded. Settle works for 2 to 6 players: the host sets the bill and who is paid, the split is by finishing place (last pays most, a draw splits evenly), everyone agrees before anything is locked, and each player locks only their own largest possible share. Practice matches fill empty seats with Nimos.
 
 Chess and pool against a friend are fully server-authoritative: the phones only send a move or a shot, and the server runs the rules and the clocks. Against Nimo they are Play mode only.
 
@@ -102,7 +102,7 @@ The e2e run drives the real SDK against a mock `window.nimiq`, then plays every 
 
 ## Roadmap
 
-Shipped recently: Nimo (the built-in rival), the savings plan with its daily interest pool, chests and rewards, and Splat Royale.
+Shipped recently: Nimo (the built-in rival), the savings plan with its daily interest pool, chests and rewards, Splat Royale, Win mode, and Settle for Splat Royale with up to six players.
 
 Games not in yet: Spider Solitaire, 21 Blitz, Dominoes, Block Puzzle, Darts, Bowling, Carrom, Speed Math and Code Sprint, Ghost Race. Settle for more than two players in live chess and pool is also still to do.
 
