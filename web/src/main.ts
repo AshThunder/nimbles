@@ -26,6 +26,26 @@ const connecting = (msg: string, retry = false) => {
 }
 
 let booted = false
+let unsubAccounts: (() => void) | undefined
+let resumeBound = false
+
+function bindBalanceLifecycle() {
+  unsubAccounts?.()
+  unsubAccounts = S.wallet?.onAccountsChanged?.(() => { void refreshBalance() })
+  if (resumeBound) return
+  resumeBound = true
+  // Coalesce resume signals: HTLC may have been replaced while backgrounded.
+  let resumeTimer: ReturnType<typeof setTimeout> | undefined
+  const onResume = () => {
+    if (document.visibilityState === 'hidden') return
+    clearTimeout(resumeTimer)
+    resumeTimer = setTimeout(() => { void refreshBalance() }, 250)
+  }
+  document.addEventListener('visibilitychange', onResume)
+  window.addEventListener('pageshow', onResume)
+  window.addEventListener('focus', onResume)
+}
+
 async function boot() {
   connecting('Starting Nimbles…')
   // ?join=NMB-XXXX becomes a hash route so links from outside Nimiq Pay still land on the right screen
@@ -52,6 +72,7 @@ async function boot() {
       setToken(nr.token)
     })
     S.me = r.profile
+    bindBalanceLifecycle()
     await refreshBalance()
   } catch (e: any) {
     return fatal(e?.message ?? String(e))

@@ -1,6 +1,7 @@
 import { esc, glyph, GLYPH_BG, ic, avatar, lvBadge, pipImg, shortAddr } from './lib'
 import { S } from './state'
 import { fmtNim, fmtNimCompact } from '../../shared/types'
+import { hasPayHtlc, parsePayAccounts } from '../../shared/pay-balance'
 
 export const HEX = '<svg class="hex" viewBox="0 0 24 24"><path d="M12 1.8l8.8 5.1v10.2L12 22.2l-8.8-5.1V6.9z" fill="#F4B323" stroke="#1F2348" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 6l4.7 2.7v5.4L12 16.8l-4.7-2.7V8.7z" fill="none" stroke="#C98E0A" stroke-width="1.6" stroke-linejoin="round"/></svg>'
 export const FLAME = '<svg viewBox="0 0 48 56"><path d="M24 3c1.6 11 17 15 17 31a17 17 0 0 1-34 0c0-9 6.5-12.5 9-20 3 3.6 3.8 5.4 6.2 5.4C23 19 20 12 24 3z" fill="#F4B323" stroke="#1F2348" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 30c1.3 6 8 8 8 14a8 8 0 0 1-16 0c0-4.5 3.5-6 5-10 1.2 1.8 1.6 2.6 3 2.6z" fill="#FFFCF5"/></svg>'
@@ -17,7 +18,7 @@ export const netBadge = () => {
 export const coinLabel = (b: number | null | undefined = S.balance) =>
   b === undefined ? '…' : b == null ? '—' : fmtNimCompact(b)
 
-/** Header chip: confirmed connected-wallet NIM only (compact). Tap opens exact amount. Jar stays on its own card. */
+/** Header chip: confirmed connected-wallet spendable NIM only (compact). Tap opens exact amount. Jar stays on its own card. */
 export const coin = () => {
   const b = S.balance
   const txt = coinLabel(b)
@@ -35,11 +36,20 @@ export const paintBalance = () => {
   })
 }
 
+/** Monotonic request id so a slow stale balance() cannot overwrite a newer result. */
+let balGen = 0
+
 export async function refreshBalance() {
   if (!S.wallet) { S.balance = null; paintBalance(); return null }
+  const gen = ++balGen
+  // Keep showing the previous value (or … on first load) while a fetch is in flight — never flash a fake 0.
+  if (S.balance === undefined) paintBalance()
   try {
-    S.balance = await S.wallet.balance()
+    const next = await S.wallet.balance()
+    if (gen !== balGen) return S.balance ?? null
+    S.balance = next
   } catch {
+    if (gen !== balGen) return S.balance ?? null
     S.balance = null
   }
   paintBalance()
@@ -51,16 +61,21 @@ let balDlg: HTMLDialogElement | null = null
 function balanceDialogBody(b: number | null | undefined) {
   const exact = b === undefined ? 'Loading…' : b == null ? 'Unavailable' : `${fmtNim(b)} NIM`
   const addr = S.wallet?.address ? shortAddr(S.wallet.address) : ''
-  const multi = (S.wallet?.accounts?.length ?? 0) > 1
+  const htlc = hasPayHtlc(S.wallet?.accounts)
+  const { htlc: htlcAddr } = parsePayAccounts(S.wallet?.accounts)
   let note: string
   if (b === null) {
-    note = 'Could not read this wallet right now. Tap Close and try again. Pending incoming NIM is never counted here.'
-  } else if (b === 0 && multi) {
-    note = `Confirmed balance for the account you signed in with${addr ? ` (${addr})` : ''}. That account is empty on chain. Nimiq Pay shared more than one account — if your NIM is in another one, reopen Nimbles and approve the funded account when asked to sign in. Pending NIM is not included.`
+    note = 'Could not read spendable NIM in Nimiq Pay right now. Tap Close and try again. Pending incoming NIM is never counted here.'
+  } else if (b === undefined) {
+    note = 'Reading your Nimiq Pay balance…'
+  } else if (htlc) {
+    // Official Pay model: spendable lives in the active HTLC; basic address usually reads 0.
+    note = `Spendable NIM in Nimiq Pay for ${addr || 'your wallet'} (Pay HTLC balance). Your basic address usually shows 0 on explorers while funds sit in the active HTLC. Pay may replace that HTLC automatically; Nimbles re-reads when it does. Pending incoming NIM is not included. Stakes locked in a match leave this total until the match ends.`
+    void htlcAddr // identity stays basic; HTLC address is not shown to avoid confusing contract ids
   } else if (b === 0) {
-    note = `Confirmed balance for the account you signed in with${addr ? ` (${addr})` : ''}. This account has 0 NIM on chain. Pending incoming NIM is not included.`
+    note = `Confirmed spendable balance for ${addr || 'your wallet'}. Nimiq Pay has no active HTLC for this wallet right now, so spendable is 0. Pending incoming NIM is not included.`
   } else {
-    note = `Confirmed balance for the account you signed in with${addr ? ` (${addr})` : ''}. Pending incoming NIM is not included. Stakes locked in a match leave this total until the match ends.`
+    note = `Confirmed spendable balance for ${addr || 'your wallet'}. Pending incoming NIM is not included. Stakes locked in a match leave this total until the match ends.`
   }
   return { exact, note }
 }

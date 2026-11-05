@@ -116,8 +116,11 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
     const me = engine.auth(tok)
     limit('u:' + me, 600, 60_000)
     if (method === 'GET' && path === '/address-balance') {
-      // Confirmed on-chain balance for a Nimiq address. Pending funds are never included.
-      // Defaults to the signed-in wallet. Public chain data, but still behind a session + rate limit.
+      // Confirmed on-chain balance for a Nimiq address (basic or contract). Pending funds are never included.
+      // Defaults to the signed-in wallet. Public chain data, behind a session + rate limit.
+      // This is NOT Nimiq Pay "spendable" by itself: Pay keeps spendable NIM in an HTLC, so a basic
+      // address often reads 0. The mini-app must only call this for provider-authorized accounts
+      // (listAccounts wallet/HTLC) and must prefer host getBalance(htlc) for the header total.
       limit('abal:' + me, 60, 60_000)
       const raw = (q.get('address') || me).trim()
       if (!isNimiqAddress(raw)) throw new ApiError(400, 'That is not a Nimiq address')

@@ -4,13 +4,18 @@ import { init, getHostNetwork, NimiqProviderError } from '@nimiq/mini-app-sdk'
 import { api, type Config } from './api'
 import { randomHex } from './lib'
 import { retry } from '../../shared/retry'
+import {
+  parsePayAccounts,
+  resolveSpendableLuna,
+  isProviderAuthorizedAddress,
+} from '../../shared/pay-balance'
 
 export type Net = 'mainnet' | 'testnet'
 export type Wallet = {
   kind: 'nimiq-pay' | 'preview'
   /** the address that will really pay, once the server has verified the wallet's signature */
   address: string
-  /** everything listAccounts() returned (the signer is not necessarily the first) */
+  /** everything listAccounts() returned: [wallet, htlc?] per official SDK */
   accounts: string[]
   verified: boolean
   proof?: { nonce: string; publicKey: string; signature: string }
@@ -19,7 +24,14 @@ export type Wallet = {
   network: Net | 'unknown'
   /** Sends `luna` to `to` with a public memo (max 64 bytes) and returns the tx hash. */
   send(to: string, luna: number, memo: string): Promise<string>
+  /**
+   * Confirmed spendable NIM in luna for this Pay wallet.
+   * Official path: getBalance(active HTLC) from listAccounts; 0 when no HTLC.
+   * null = unavailable (not a real zero). Never jar/escrow; never other wallets.
+   */
   balance(): Promise<number | null>
+  /** Optional: subscribe to Pay HTLC replacement / account list updates. Returns unsubscribe. */
+  onAccountsChanged?(cb: (accounts: string[]) => void): () => void
 }
 
 const B32 = '0123456789ABCDEFGHJKLMNPQRSTUVXY'
@@ -69,7 +81,6 @@ const isDenied = (e: unknown) => {
   try { return NimiqProviderError.is(e) && (e as any).type === 'PERMISSION_DENIED' } catch { return false }
 }
 
-
 /**
  * Connects to the wallet. Outside Nimiq Pay it returns a preview identity. Inside Nimiq Pay it never drops to
  * preview: it keeps retrying (provider not injected yet, host still waking, empty first answer) and only gives
@@ -102,8 +113,7 @@ async function connectNimiqPay(onStatus: (msg: string) => void): Promise<Wallet>
     throw new ConnectError('Nimiq Pay did not answer. Keep it open and try again.', 'unavailable')
   }
 
-  // Nimiq Pay picks the signing account itself and the order of listAccounts() means nothing, so ask the wallet to
-  // sign a one-time challenge: the signature tells the server which address will really pay.
+  // Identity is the basic wallet address (accounts[0]). Sign-in proves that address; HTLC is balance only.
   const signIn: Wallet['signIn'] = async (status = onStatus) => {
     if (typeof (nq as any).sign !== 'function') return undefined
     try {
@@ -116,14 +126,67 @@ async function connectNimiqPay(onStatus: (msg: string) => void): Promise<Wallet>
     }
     return undefined
   }
-  const address = accounts[0]
+  const { wallet: walletAddr } = parsePayAccounts(accounts)
+  const address = walletAddr ?? accounts[0]
   const proof = await signIn(onStatus)
   const verified = false
+
+  const accountListeners = new Set<(accounts: string[]) => void>()
+  const accountsEqual = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((x, i) => sameAddress(x, b[i]))
+  /** Update cached accounts. Notify listeners only when the list actually changes (HTLC replace). */
+  const applyAccounts = (next: string[], notify = true) => {
+    if (!Array.isArray(next) || !next.length) return false
+    const sliced = next.slice()
+    const changed = !accountsEqual(w.accounts, sliced)
+    if (!changed) return false
+    w.accounts = sliced
+    // Keep signed identity on the basic wallet slot; do not swap address to the HTLC.
+    const parsed = parsePayAccounts(sliced)
+    if (parsed.wallet && !sameAddress(parsed.wallet, w.address) && !w.verified) {
+      w.address = parsed.wallet
+    }
+    if (notify) {
+      for (const cb of accountListeners) {
+        try { cb(w.accounts) } catch { /* listener errors must not break Pay */ }
+      }
+    }
+    return true
+  }
+
+  // Official: host emits accountsChanged when it replaces the HTLC (age/top-up) without re-approval.
+  try {
+    if (typeof (nq as any).on === 'function') {
+      ;(nq as any).on('accountsChanged', (next: string[]) => applyAccounts(next))
+    }
+  } catch { /* older host without events */ }
+
+  const readHostHtlc = async (htlc: string): Promise<{ luna: number | null; error: boolean }> => {
+    try {
+      if (typeof (nq as any).getBalance !== 'function') return { luna: null, error: true }
+      const b = await withTimeout(nq.getBalance(htlc), 15000, 'Balance')
+      if (typeof b === 'number' && Number.isFinite(b) && b >= 0) return { luna: b, error: false }
+      return { luna: null, error: false }
+    } catch (e) {
+      if (isDenied(e)) return { luna: null, error: true }
+      return { luna: null, error: true }
+    }
+  }
+
+  const readRpcAuthorized = async (addr: string): Promise<number | null> => {
+    // Backend fallback only for a provider-authorized address (wallet or its HTLC), never arbitrary.
+    if (!isProviderAuthorizedAddress(w.accounts, addr)) return null
+    try {
+      const r = await api.addressBalance(addr)
+      if (typeof r?.luna === 'number' && Number.isFinite(r.luna) && r.luna >= 0) return r.luna
+    } catch { /* RPC/auth blip */ }
+    return null
+  }
 
   const w: Wallet = {
     kind: 'nimiq-pay',
     address,
-    accounts,
+    accounts: accounts.slice(),
     verified,
     proof,
     signIn,
@@ -133,25 +196,38 @@ async function connectNimiqPay(onStatus: (msg: string) => void): Promise<Wallet>
       return memo ? nq.sendBasicTransactionWithData({ ...tx, data: memo }) : nq.sendBasicTransaction(tx)
     },
     async balance() {
-      // Confirmed NIM for the signed-in address only (never jar/escrow, never other listAccounts entries).
-      // Prefer the server RPC path: Albatross getAccountByAddress is confirmed-only and returns luna.
-      // Host getBalance is a fallback when RPC is unreachable. Null = unavailable; 0 = real empty account.
+      // Re-bind accounts when possible so a silent HTLC replacement is picked up even before the event.
       try {
-        const r = await api.addressBalance(w.address)
-        if (typeof r?.luna === 'number' && Number.isFinite(r.luna) && r.luna >= 0) return r.luna
-      } catch {
-        /* RPC/auth blip: try the host next */
-      }
-      try {
-        if (typeof (nq as any).getBalance === 'function') {
-          const b = await nq.getBalance(w.address)
-          // SDK contract: number in luna. ErrorResponse is thrown by the init() proxy. Reject non-numbers.
-          if (typeof b === 'number' && Number.isFinite(b) && b >= 0) return b
+        if (typeof (nq as any).listAccounts === 'function') {
+          const fresh = await withTimeout(nq.listAccounts(), 15000, 'Accounts')
+          // Quiet rebind: do not notify listeners here or refreshBalance would recurse forever.
+          if (Array.isArray(fresh) && fresh.length) applyAccounts(fresh, false)
         }
-      } catch {
-        /* host missing method, denied, or network blip */
+      } catch { /* keep last known accounts */ }
+
+      const { htlc } = parsePayAccounts(w.accounts)
+      // Official: no HTLC → spendable is 0. Do not claim basic-address RPC as total wallet funds.
+      if (!htlc) {
+        return resolveSpendableLuna({ accounts: w.accounts })
       }
-      return null
+
+      const host = await readHostHtlc(htlc)
+      if (typeof host.luna === 'number') {
+        return resolveSpendableLuna({ accounts: w.accounts, hostHtlcLuna: host.luna })
+      }
+
+      // Host unavailable / denied / missing getBalance: optional RPC on the same authorized HTLC only.
+      const rpc = await readRpcAuthorized(htlc)
+      return resolveSpendableLuna({
+        accounts: w.accounts,
+        hostHtlcLuna: host.luna,
+        hostError: host.error,
+        rpcHtlcLuna: rpc,
+      })
+    },
+    onAccountsChanged(cb) {
+      accountListeners.add(cb)
+      return () => { accountListeners.delete(cb) }
     },
   }
   return w
@@ -176,6 +252,7 @@ function previewWallet(cfg: Config): Wallet {
       return (await api.mockTx({ from: address, to, luna, memo })).hash
     },
     async balance() {
+      // Preview has no Pay HTLC. Mock chain: show a play balance. Live preview outside Pay: unavailable.
       return cfg.mock ? 1_000_000 * 100_000 : null
     },
   }
