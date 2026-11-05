@@ -66,6 +66,7 @@ svg{display:block}
 .btn.sm{height:40px;font-size:15px;padding:0 16px;border-radius:12px;box-shadow:0 4px 0 var(--ink)}
 .btn.block{width:100%}
 .btn.ghost{background:var(--card);box-shadow:0 4px 0 var(--ink);color:var(--ink);height:48px;font-size:16px}
+a.btn{text-decoration:none;color:inherit}
 .foot{padding:12px 16px 28px;flex:none;display:flex;flex-direction:column;gap:8px}
 
 /* pip */

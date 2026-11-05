@@ -1,6 +1,6 @@
 import './style.css'
 import { api, setToken, setReauth, ApiErr } from './api'
-import { connect, adoptVerified, ConnectError, sameAddress } from './wallet'
+import { connect, adoptVerified, ConnectError, sameAddress, deepLink } from './wallet'
 import { S, go, render } from './state'
 import { esc, pipImg, sfx } from './lib'
 import './screens/home'
@@ -14,7 +14,10 @@ import { netBadge } from './ui'
 const app = document.getElementById('app')!
 
 function fatal(msg: string) {
-  app.innerHTML = `<div class="view"><div class="scroll center" style="justify-content:center;gap:14px">${pipImg('sad')}<b style="font-size:22px">Cannot start Nimbles</b><div style="color:var(--ink2);max-width:300px">${esc(msg)}</div><button class="btn gold" onclick="location.reload()">Try again</button></div></div>`
+  const openPay = deepLink()
+  const appStore = 'https://apps.apple.com/app/nimiq-pay/id6471844738'
+  const playStore = 'https://play.google.com/store/apps/details?id=com.nimiq.pay'
+  app.innerHTML = `<div class="view"><div class="scroll center" style="justify-content:center;gap:14px;padding:24px 20px">${pipImg('sad')}<b style="font-size:22px">Cannot start Nimbles</b><div style="color:var(--ink2);max-width:300px">${esc(msg)}</div><div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:320px;margin-top:4px"><button class="btn gold block" onclick="location.reload()">Try again</button><a class="btn ghost block" href="${openPay}">Open in Nimiq Pay</a><div style="display:flex;gap:8px"><a class="btn ghost sm" style="flex:1" href="${appStore}" target="_blank" rel="noopener">App Store</a><a class="btn ghost sm" style="flex:1" href="${playStore}" target="_blank" rel="noopener">Google Play</a></div></div></div></div>`
 }
 
 const connecting = (msg: string, retry = false) => {
