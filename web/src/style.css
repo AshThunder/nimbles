@@ -756,11 +756,28 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .nb .bb .btn{display:flex;width:fit-content;margin-top:10px}
 
 
-/* wallet balance dialog: flat cream, native <dialog> */
-.bal-dlg{border:0;padding:0;background:transparent;max-width:calc(100vw - 32px);width:360px}
+/* wallet balance dialog: flat cream/navy/yellow, centered native <dialog> */
+.bal-dlg{
+  border:0;padding:0;background:transparent;
+  /* Reliable center in mobile WebViews that skip default dialog margin centering */
+  position:fixed;inset:0;margin:auto;
+  width:min(320px, calc(100vw - 32px));
+  max-width:calc(100vw - 32px);
+  height:fit-content;max-height:calc(100dvh - 32px);
+  box-sizing:border-box;
+}
 .bal-dlg::backdrop{background:rgba(14,16,48,.45);overflow:hidden;overscroll-behavior:contain}
 .bal-dlg:modal{overscroll-behavior:contain}
-.bal-card{background:var(--bg);border:2px solid var(--ink);border-radius:20px;box-shadow:0 8px 0 var(--ink);padding:20px 18px 16px;display:flex;flex-direction:column;gap:12px;color:var(--ink)}
-.bal-card h2{font-size:20px;font-weight:800;letter-spacing:-.01em}
-.bal-exact{font-size:28px;font-weight:800;line-height:34px;letter-spacing:-.02em}
-.bal-note{font-size:13px;line-height:18px;color:var(--ink2);font-weight:600}
+.bal-card{
+  background:var(--bg);border:2px solid var(--ink);border-radius:20px;
+  box-shadow:0 8px 0 var(--ink);
+  padding:20px 20px 16px;display:flex;flex-direction:column;gap:12px;color:var(--ink);
+  box-sizing:border-box;max-width:100%;
+}
+.bal-card h2{font-size:20px;font-weight:800;letter-spacing:-.01em;margin:0}
+.bal-exact{
+  font-size:clamp(22px, 7vw, 28px);font-weight:800;line-height:1.2;letter-spacing:-.02em;
+  overflow-wrap:anywhere;word-break:break-word;font-variant-numeric:tabular-nums;
+}
+.bal-note{font-size:14px;line-height:20px;color:var(--ink2);font-weight:600;margin:0}
+.bal-card .btn{margin-top:4px}
