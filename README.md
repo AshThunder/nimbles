@@ -1,140 +1,124 @@
 # Nimbles
 
-Skill-only duels for friends, built as a [Nimiq Pay mini app](https://nimiq.dev/mini-apps). Pick a game, pick a mode, beat a friend. No luck: the better player wins. Win and Save pots carry a 2% fee that funds the savers' pool.
+Skill-only games for [Nimiq Pay](https://nimiq.dev/mini-apps). Eighteen matches, four modes, real rivals. No dice, no random draws: the better player wins. Win and Save pots take a 2% fee (capped at 1 NIM) that funds the savers' interest pool.
 
 **Live:** [nimbles-mainnet.fly.dev](https://nimbles-mainnet.fly.dev) (mainnet, real NIM) · [nimbles-nimiq.fly.dev](https://nimbles-nimiq.fly.dev) (testnet, play money)
 
-<p>
-  <img src="docs/screenshots/screenshot-1.png" width="160" alt="Nimbles screenshot 1">
-  <img src="docs/screenshots/screenshot-2.png" width="160" alt="Nimbles screenshot 2">
-  <img src="docs/screenshots/screenshot-3.png" width="160" alt="Nimbles screenshot 3">
-  <img src="docs/screenshots/screenshot-4.png" width="160" alt="Nimbles screenshot 4">
-  <img src="docs/screenshots/screenshot-5.png" width="160" alt="Nimbles screenshot 5">
-</p>
+Built for the [Nimiq Mini Apps Competition](https://www.nimiq.com/miniapps) (MIT).
 
-**Modes**
+## Screenshots
 
-- **Play**: free, for XP and rank. Practice against Nimo, the built-in AI, or a friend.
-- **Save**: both players stake NIM. The winner's pot goes into a locked savings jar.
-- **Settle**: invite a friend, agree the terms first (bill, who gets paid, loser pays all, 70/30 or custom), both lock their share, the game decides who pays what, and the payee is paid on-chain. A draw splits it evenly.
+| Hub | Modes | Splat Royale | Savings jar | Nimo |
+| --- | --- | --- | --- | --- |
+| <img src="docs/screenshots/screenshot-1.png" width="150" alt="Hub"> | <img src="docs/screenshots/screenshot-2.png" width="150" alt="Modes"> | <img src="docs/screenshots/screenshot-3.png" width="150" alt="Splat Royale"> | <img src="docs/screenshots/screenshot-4.png" width="150" alt="Savings jar"> | <img src="docs/screenshots/screenshot-5.png" width="150" alt="Nimo"> |
 
-**Games**
+### All 18 games
+
+| AI Trivia Duel | Solitaire Duel | Chess Blitz |
+| --- | --- | --- |
+| <img src="docs/screenshots/games/trivia.png" width="180" alt="AI Trivia Duel"> | <img src="docs/screenshots/games/solitaire.png" width="180" alt="Solitaire Duel"> | <img src="docs/screenshots/games/chess.png" width="180" alt="Chess Blitz"> |
+
+| 8-Ball Pool | Sudoku | Bubble Shooter |
+| --- | --- | --- |
+| <img src="docs/screenshots/games/pool.png" width="180" alt="8-Ball Pool"> | <img src="docs/screenshots/games/sudoku.png" width="180" alt="Sudoku"> | <img src="docs/screenshots/games/bubble.png" width="180" alt="Bubble Shooter"> |
+
+| Word Rush | Last Bite | Darts |
+| --- | --- | --- |
+| <img src="docs/screenshots/games/word.png" width="180" alt="Word Rush"> | <img src="docs/screenshots/games/lastbite.png" width="180" alt="Last Bite"> | <img src="docs/screenshots/games/darts.png" width="180" alt="Darts"> |
+
+| Block Puzzle | Speed Math | Spider Solitaire |
+| --- | --- | --- |
+| <img src="docs/screenshots/games/blocks.png" width="180" alt="Block Puzzle"> | <img src="docs/screenshots/games/speedmath.png" width="180" alt="Speed Math"> | <img src="docs/screenshots/games/spider.png" width="180" alt="Spider Solitaire"> |
+
+| Domino Chain | 21 Blitz | Bowling |
+| --- | --- | --- |
+| <img src="docs/screenshots/games/dominoes.png" width="180" alt="Domino Chain"> | <img src="docs/screenshots/games/blitz.png" width="180" alt="21 Blitz"> | <img src="docs/screenshots/games/bowling.png" width="180" alt="Bowling"> |
+
+| Carrom | Ghost Race | Splat Royale |
+| --- | --- | --- |
+| <img src="docs/screenshots/games/carrom.png" width="180" alt="Carrom"> | <img src="docs/screenshots/games/ghost.png" width="180" alt="Ghost Race"> | <img src="docs/screenshots/games/splat.png" width="180" alt="Splat Royale"> |
+
+## Modes
+
+- **Play** — free. Practice against Nimo (Easy / Medium / Hard) or a friend. Earns XP and rank.
+- **Win** — both stake NIM. The winner takes the pot (minus the 2% saver fee), paid to their wallet. Splat Royale can pay winner-takes-all or 60 / 30 / 10 to the top three.
+- **Save** — same stake as Win, but the winner's pot goes into their locked savings jar.
+- **Settle** — invite-only (share a code, or join one). Agree the bill, who is paid, and the split before anyone locks NIM: loser pays all, 70 / 30, or a custom split. A draw splits evenly. Splat Royale Settle splits by finishing place (last pays most). Each player locks only their own largest possible share.
+
+Nimo is free-play only. Staked modes need a real rival (invite, join by code, or Match me).
+
+## Games
 
 | Game | How it is played | Result is decided by |
 | --- | --- | --- |
-| AI Trivia Duel | Same 5 questions, speed and accuracy | Server (answers never leave it early) |
+| AI Trivia Duel | Same 5 questions, speed and accuracy | Server (answers stay on it until the round ends) |
 | Solitaire Duel | Same deal from a shared seed | Server replay of your move log |
-| Last Bite | Same sudoku for 2 to 4 friends, pays the bill | Server checks the solved grid |
-| Streak Vault | Daily puzzle, deposits to your jar | Server |
-| Sudoku | Same grid, first to solve | Server checks the grid |
-| Word Rush | Same letters, find words | Server recomputes the score |
-| Bubble Shooter | Same board and bubble queue | Server replay of your shot log |
 | Chess Blitz | 3:00 per side, live | Server-run board and clocks |
 | 8-Ball Pool | Live turns, 60 s shot clock | Server-run physics |
+| Sudoku | Same 9×9 grid, first to solve | Server checks the grid |
+| Bubble Shooter | Same board and bubble queue | Server replay of your shot log |
+| Word Rush | Same letters, find words | Server recomputes the score |
+| Last Bite | Quick 4×4 sudoku sprint | Server checks the solved grid |
 | Darts | 10 darts, tap to stop a moving reticle | Server replay of your throw times |
 | Block Puzzle | Same pieces, clear lines | Server replay of your placements |
 | Speed Math | 60 seconds of sums, same list | Server recomputes from your answers |
 | Spider Solitaire | One suit, eight runs, same deal | Server replay of your move log |
 | Domino Chain | Same tiles, build the longest chain | Server replay of your plays and draws |
 | 21 Blitz | 20 cards onto four stacks, aim for 21 | Server replay of where each card went |
-| Bowling | Ten frames, two timed taps per ball, the lane drifts by seed | Server replay of your tap times |
-| Carrom | Eight strikes on a shared board, pocket the coins | Server replay of your strikes (fixed-step physics) |
-| Ghost Race | 45 second three-lane dash against a fixed-pace ghost | Server replay of your lane changes |
-| Splat Royale | 2 to 6 players, one arena, last one standing. Twin-stick on a phone | Server-run simulation at 30 ticks a second, own blob predicted on the phone |
+| Bowling | Ten frames, two timed taps per ball | Server replay of your tap times |
+| Carrom | Eight strikes on a shared board | Server replay of your strikes |
+| Ghost Race | 45 second three-lane dash vs a fixed-pace ghost | Server replay of your lane changes |
+| Splat Royale | 2 to 6 players, twin-stick arena, last one standing | Server simulation at 30 ticks/s |
 
-Splat Royale is a live battle royale. The phones only send stick and dash input; the server runs the whole match with no random numbers, so the same inputs always give the same result. Save mode pays the winner (or 60 / 30 / 10 to the top three), and if a match cannot finish every stake is refunded. Settle works for 2 to 6 players: the host sets the bill and who is paid, the split is by finishing place (last pays most, a draw splits evenly), everyone agrees before anything is locked, and each player locks only their own largest possible share. Practice matches fill empty seats with Nimos.
+Splat Royale phones only send stick and dash input. The server runs the whole match with no random numbers, so the same inputs always give the same result. If a staked match cannot finish, every stake is refunded. Practice fills empty seats with Nimos.
 
-Chess and pool against a friend are fully server-authoritative: the phones only send a move or a shot, and the server runs the rules and the clocks. Against Nimo they are Play mode only.
+## Savings jar, chests and XP
 
-## Fairness and trust
+- Lock NIM for **7, 30 or 90 days**. Unlocking early costs up to **10%** of the jar at the start of the lock, falling in a straight line to zero at the end. The fee stays in the savers' pool.
+- Win and Save pots put **2%** of the pot (capped at 1 NIM) into that pool. Each day the pool pays a share to locked savers, weighted by balance × lock days × boost.
+- Level and chest boosts raise a saver's share of the pool (up to +40% combined). A locked jar also adds match XP (+5% / +10% / +20% for 7 / 30 / 90 days).
+- **Chests** are fixed and earned (daily win, hot hand, streak 3 / 7 / 30, level-up). You can read the contents before you open one. They never hold NIM and never roll dice.
+
+## Nimo
+
+Nimo is the in-app host: free practice opponent, daily vault reminder, and chat guide. Ask about modes, the jar, or a receipt and it will point you to the right screen.
+
+## Fairness and money
 
 - **Same seed.** The server publishes `sha256(seed)` when a match is made and reveals the seed at the start. Both players get the same deal and can check it.
-- **Replay verification.** Solitaire and Bubble Shooter clients upload their move log; the server replays it on the shared seed and computes the score itself. An invalid log scores 0.
-- **Live relay.** For Chess and Pool vs a human the server holds the game state. A client cannot report a result for these matches (the result endpoint refuses). Pool physics run only on the server, so different phones cannot disagree; the ball paths are sent once per viewer and animated locally.
-- **Escrow.** Players pay a server wallet with memo `nb:<matchId>`. The server verifies the transaction on chain (2 confirmations by default), then pays out or refunds. The escrow is custodial in this version.
-- **Known limits.** Sign-in is a signed one-time challenge (single use, 2 minute expiry, address derived from the signing key) and session tokens are short-lived and bound to that address. Testnet and the mock still accept an unsigned, unverified session so the browser preview works; mainnet never does. A production version should add an HTLC or contract-style escrow. Stakes are capped on mainnet (25 NIM by default).
+- **Replay or live relay.** Turn-based games upload a move log; the server recomputes the score. Chess and Pool vs a human are fully server-authoritative. Splat is server-simulated.
+- **Signed sign-in.** The wallet signs a one-time challenge (single use, 2 minute expiry). The address comes from the signature. Session tokens are short-lived and bound to that address. Mainnet never accepts an unsigned session; testnet and the mock still allow an unverified preview.
+- **Escrow.** Players pay a server wallet with memo `nb:<matchId>`. Deposits need confirmations (default 2). Winners are paid out automatically, or refunded on a draw / cancel. The escrow is custodial in this version; a production build should move to HTLC or contract-style escrow. Stakes are capped (25 NIM by default on mainnet).
 
 ## Nimiq integration
 
-- `@nimiq/mini-app-sdk`: `init`, `listAccounts`, `sendBasicTransactionWithData` for deposits (memo `nb:<matchId>`, 1 NIM = 100,000 luna).
-- Server chain adapter (`server/chain.ts`) talks to Nimiq JSON-RPC (testnet `rpc.testnet.nimiqwatch.com`, mainnet `rpc.nimiqwatch.com`), verifies deposits, and builds and signs payouts offline with `@nimiq/core`. Payouts are serialized through one queue.
-- One flag switches networks (`CHAIN=nimiq NETWORK=testnet|mainnet`). Mainnet also needs `ALLOW_MAINNET=yes` and a pre-existing escrow key, and it never auto-generates one.
-- The public RPC is rate limited. Set `NIMIQ_RPC_URL` to your own node or provider for real traffic.
+- `@nimiq/mini-app-sdk` for `init`, accounts and `sendBasicTransactionWithData` (1 NIM = 100,000 luna).
+- `server/chain.ts` talks to Nimiq JSON-RPC (`rpc.nimiqwatch.com` on mainnet, `rpc.testnet.nimiqwatch.com` on testnet), verifies deposits, and signs payouts offline with `@nimiq/core`.
+- One flag switches networks (`CHAIN=nimiq NETWORK=testnet|mainnet`). Mainnet also needs `ALLOW_MAINNET=yes`, a pre-existing escrow key, and `EXPECTED_ESCROW_ADDRESS`. It never auto-generates a key.
 
 ## Run it
 
 ```bash
 npm install
-cp .env.example .env     # optional
+cp .env.example .env     # optional; defaults to the in-memory mock chain
 npm run build
-npm start                # http://localhost:8787 (PORT to change)
+npm start                # http://localhost:8787
 ```
 
-Dev with hot reload: `npm run dev` (Vite on 5173 proxying the API). Outside Nimiq Pay the app opens in preview mode (free play, no wallet).
+Dev with hot reload: `npm run dev` (Vite on 5173, API proxied). Outside Nimiq Pay the app opens in preview mode (free play, no wallet).
 
 ### Try it in Nimiq Pay
 
-Mainnet: https://nimbles-mainnet.fly.dev (real NIM, stakes capped).
-Testnet: https://nimbles-nimiq.fly.dev (testnet only, play money).
+1. Open Nimiq Pay → Mini Apps → Custom URL.
+2. Enter https://nimbles-mainnet.fly.dev (real NIM) or https://nimbles-nimiq.fly.dev (testnet), or `http://<LAN-IP>:5173` from `npm run dev`.
 
-1. Open Nimiq Pay, then Mini Apps, then Custom URL, and enter your deployed URL (or `http://<LAN-IP>:5173` from `npm run dev`).
-2. For testnet, long-press the settings button for 10 seconds and choose Testnet. Use "Get free NIM" for test funds.
-
-### Deploy
-
-A `Dockerfile` and `fly.toml` are included (one machine and a small volume mounted at `/data`).
+### Tests
 
 ```bash
-fly launch --no-deploy --copy-config
-fly volumes create nimbles_data --size 1
-fly secrets set GEMINI_API_KEY=...            # optional
-fly deploy                                    # testnet by default (fly.toml)
+npm test                 # unit tests
+npm run build && npm run e2e   # headless phone browser vs the mock chain
 ```
 
-For mainnet: `npm run wallet:mainnet` (writes a chmod 600 key file and prints only the public address), then follow [MAINNET.md](MAINNET.md). It uses its own app and volume (`fly.mainnet.toml`), so no testnet state carries over.
+## Licence
 
-## Environment
-
-See [.env.example](.env.example). Highlights:
-
-| Variable | Purpose |
-| --- | --- |
-| `PORT`, `DATA_DIR` | Server port, and where state and the generated testnet key live |
-| `CHAIN`, `NETWORK` | `mock` (default) or `nimiq`, plus `testnet` or `mainnet` |
-| `ALLOW_MAINNET`, `EXPECTED_ESCROW_ADDRESS` | Both required for mainnet. The key must derive to the pinned address |
-| `PAY_FEE_LUNA` | Network fee per payout, default 0 |
-| `ESCROW_PRIVATE_KEY`, `ESCROW_KEY_FILE` | Escrow wallet key. Mainnet needs one of them |
-| `MAX_STAKE_NIM` | Stake cap per player (default 25 on mainnet) |
-| `MIN_CONFIRMATIONS`, `NIMIQ_RPC_URL` | Deposit confirmations, RPC override (comma separated for failover) |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Nimo trivia and receipt reading. Without a key a built-in bank is used |
-| `JAR_LOCK_DAYS` | Jar lock length (default 30) |
-
-Secrets live in `.env`, `data/` and key files, all git-ignored. Nothing secret is committed.
-
-## Test it
-
-```bash
-npm run typecheck
-npm test     # settlement, puzzles, replay verification, live chess and pool, chain adapter rules
-npm run e2e  # Playwright on a phone viewport with a mocked Nimiq Pay provider; screenshots in tests/e2e/out
-```
-
-The e2e run drives the real SDK against a mock `window.nimiq`, then plays every game including a staked live chess duel and a live pool duel between two browsers, and fails on any page error or 5xx. `scripts/testnet-roundtrip.ts` proves a real testnet deposit and payout.
-
-## Roadmap
-
-Shipped recently: Nimo (the built-in rival), the savings plan with its daily interest pool, chests and rewards, Splat Royale, Win mode, and Darts. Settle for Splat Royale with up to six players.
-
-All nine new skill games are live in Play, Win, Save and Settle: Darts, Block Puzzle, Speed Math, Spider Solitaire, Domino Chain, 21 Blitz, Bowling, Carrom and Ghost Race. Every one uses the same seed or deal for both players, and the server recomputes the score from your inputs, so a made-up score is ignored. Settle for Splat Royale (2 to 6 players) is open too. `COMING_SOON` in `shared/types.ts` can hold any game back as a greyed tile that cannot be opened (the server refuses it too); it is empty now. The whole app sits on one flat warm cream background (`#F5F0E6`).
-
-Games not in yet: Code Sprint. Settle for more than two players in live chess and pool is also still to do.
-
-Also planned: an HTLC or contract escrow, reconnect and spectate for live games.
-
-## Credits
-
-Built for the Nimiq mini app competition. Art, sound and font credits are in [CREDITS.md](CREDITS.md) and in the app under Me, then Credits. Chess logic by [chess.js](https://github.com/jhlywa/chess.js), chain access by [@nimiq/core](https://github.com/nimiq/core-rs-albatross).
-
-## License
-
-MIT, see [LICENSE](LICENSE).
+[MIT](LICENSE) © 2026 Chris Gold.
