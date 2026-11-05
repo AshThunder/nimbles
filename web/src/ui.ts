@@ -1,4 +1,4 @@
-import { esc, glyph, GLYPH_BG, ic, avatar, lvBadge, pipImg } from './lib'
+import { esc, glyph, GLYPH_BG, ic, avatar, lvBadge, pipImg, shortAddr } from './lib'
 import { S } from './state'
 import { fmtNim, fmtNimCompact } from '../../shared/types'
 
@@ -48,12 +48,25 @@ export async function refreshBalance() {
 
 let balDlg: HTMLDialogElement | null = null
 /** Wallet-only detail. Does not list the savings jar (that stays on the jar card). */
-export function openBalanceDialog() {
-  const b = S.balance
+function balanceDialogBody(b: number | null | undefined) {
   const exact = b === undefined ? 'Loading…' : b == null ? 'Unavailable' : `${fmtNim(b)} NIM`
-  const note = b === null
-    ? 'Could not read your connected wallet right now. Pending incoming NIM is never counted here.'
-    : 'Confirmed balance of the connected wallet. Pending incoming NIM is not included. Stakes locked in a match leave this total until the match ends.'
+  const addr = S.wallet?.address ? shortAddr(S.wallet.address) : ''
+  const multi = (S.wallet?.accounts?.length ?? 0) > 1
+  let note: string
+  if (b === null) {
+    note = 'Could not read this wallet right now. Tap Close and try again. Pending incoming NIM is never counted here.'
+  } else if (b === 0 && multi) {
+    note = `Confirmed balance for the account you signed in with${addr ? ` (${addr})` : ''}. That account is empty on chain. Nimiq Pay shared more than one account — if your NIM is in another one, reopen Nimbles and approve the funded account when asked to sign in. Pending NIM is not included.`
+  } else if (b === 0) {
+    note = `Confirmed balance for the account you signed in with${addr ? ` (${addr})` : ''}. This account has 0 NIM on chain. Pending incoming NIM is not included.`
+  } else {
+    note = `Confirmed balance for the account you signed in with${addr ? ` (${addr})` : ''}. Pending incoming NIM is not included. Stakes locked in a match leave this total until the match ends.`
+  }
+  return { exact, note }
+}
+
+export function openBalanceDialog() {
+  const { exact, note } = balanceDialogBody(S.balance)
   if (!balDlg) {
     balDlg = document.createElement('dialog')
     balDlg.id = 'bal-dlg'
@@ -72,14 +85,15 @@ export function openBalanceDialog() {
       balDlg.addEventListener('pointerup', (e) => { if (pressedOutside && outside(e, balDlg!)) balDlg!.close() })
     }
   }
-  balDlg.innerHTML = `<div class="bal-card"><h2 id="bal-title">Wallet</h2><div class="bal-exact mono">${esc(exact)}</div><p class="bal-note">${esc(note)}</p><form method="dialog"><button class="btn gold block" value="ok" autofocus>Close</button></form></div>`
+  balDlg.innerHTML = `<div class="bal-card"><h2 id="bal-title">Wallet</h2><div class="bal-exact mono" data-bal-exact>${esc(exact)}</div><p class="bal-note" data-bal-note>${esc(note)}</p><form method="dialog"><button class="btn gold block" value="ok" autofocus>Close</button></form></div>`
   if (!balDlg.open) balDlg.showModal()
-  // refresh while open so a stale chip does not stick
   void refreshBalance().then(() => {
     if (!balDlg?.open) return
-    const nb = S.balance
-    const el = balDlg.querySelector('.bal-exact')
-    if (el) el.textContent = nb === undefined ? 'Loading…' : nb == null ? 'Unavailable' : `${fmtNim(nb)} NIM`
+    const body = balanceDialogBody(S.balance)
+    const exactEl = balDlg.querySelector('[data-bal-exact]')
+    const noteEl = balDlg.querySelector('[data-bal-note]')
+    if (exactEl) exactEl.textContent = body.exact
+    if (noteEl) noteEl.textContent = body.note
   })
 }
 

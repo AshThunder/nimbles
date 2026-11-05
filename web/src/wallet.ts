@@ -133,21 +133,23 @@ async function connectNimiqPay(onStatus: (msg: string) => void): Promise<Wallet>
       return memo ? nq.sendBasicTransactionWithData({ ...tx, data: memo }) : nq.sendBasicTransaction(tx)
     },
     async balance() {
-      // Confirmed connected-wallet NIM only. Never mix jar/escrow credits into this number.
-      // Prefer the host provider; fall back to the server's confirmed RPC lookup. Null means unavailable, not zero.
-      try {
-        if (typeof (nq as any).getBalance === 'function') {
-          const b = await nq.getBalance(w.address)
-          if (typeof b === 'number' && Number.isFinite(b) && b >= 0) return b
-        }
-      } catch {
-        /* host missing method or network blip: try RPC */
-      }
+      // Confirmed NIM for the signed-in address only (never jar/escrow, never other listAccounts entries).
+      // Prefer the server RPC path: Albatross getAccountByAddress is confirmed-only and returns luna.
+      // Host getBalance is a fallback when RPC is unreachable. Null = unavailable; 0 = real empty account.
       try {
         const r = await api.addressBalance(w.address)
         if (typeof r?.luna === 'number' && Number.isFinite(r.luna) && r.luna >= 0) return r.luna
       } catch {
-        /* leave as unavailable */
+        /* RPC/auth blip: try the host next */
+      }
+      try {
+        if (typeof (nq as any).getBalance === 'function') {
+          const b = await nq.getBalance(w.address)
+          // SDK contract: number in luna. ErrorResponse is thrown by the init() proxy. Reject non-numbers.
+          if (typeof b === 'number' && Number.isFinite(b) && b >= 0) return b
+        }
+      } catch {
+        /* host missing method, denied, or network blip */
       }
       return null
     },

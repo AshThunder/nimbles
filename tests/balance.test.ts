@@ -109,3 +109,33 @@ test('a missing mock account reads as confirmed zero, not unavailable', async ()
   assert.equal(bal.status, 200)
   assert.equal(bal.j.luna, 0)
 })
+
+test('genuine zero on the signed-in address is 0, not another account\'s funds and not unavailable', async () => {
+  const A = addr(6)
+  const B = addr(7) // another wallet the user might own; must not leak into A\'s header balance
+  const token = (await call(null, 'POST', '/session', { address: A })).j.token
+  ;(app.chain as MockChain).balances.set(A, 0)
+  ;(app.chain as MockChain).balances.set(B, luna(122))
+  const balA = await call(token, 'GET', `/address-balance?address=${encodeURIComponent(A)}`)
+  assert.equal(balA.status, 200)
+  assert.equal(balA.j.luna, 0, 'empty signed-in account stays a real zero')
+  const balB = await call(token, 'GET', `/address-balance?address=${encodeURIComponent(B)}`)
+  assert.equal(balB.status, 200)
+  assert.equal(balB.j.luna, luna(122))
+  assert.notEqual(balA.j.luna, balB.j.luna)
+})
+
+test('RPC failure is unavailable (null path), never reported as zero', async () => {
+  const A = addr(8)
+  const token = (await call(null, 'POST', '/session', { address: A })).j.token
+  const chain = app.chain as MockChain
+  const orig = chain.accountBalance.bind(chain)
+  chain.accountBalance = async () => null
+  try {
+    const bal = await call(token, 'GET', `/address-balance?address=${encodeURIComponent(A)}`)
+    assert.equal(bal.status, 502)
+    assert.match(String(bal.j.error || ''), /could not read/i)
+  } finally {
+    chain.accountBalance = orig
+  }
+})
