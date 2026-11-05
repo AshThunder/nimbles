@@ -2,7 +2,7 @@ import { api } from '../api'
 import { actions, avatar, esc, glyph, ic, lvBadge, GLYPH_BG, sfx, tap, toast } from '../lib'
 import { BUILT } from '../games'
 import { S, go, route } from '../state'
-import { FLAME, JAR, coin, gameCard, netBadge, pipRow, tabs } from '../ui'
+import { FLAME, JAR, coin, gameCard, netBadge, pipRow, tabs, refreshBalance } from '../ui'
 import { GAMES, fmtNim, isSoon, type GameId } from '../../../shared/types'
 
 export const GOALS = [10, 25, 50, 100, 250, 500, 1000, 5000]
@@ -27,11 +27,7 @@ route('/', async (root) => {
   } catch {
     /* keep cached profile */
   }
-  S.wallet.balance().then((b) => {
-    S.balance = b
-    const el = root.querySelector('.coin span')
-    if (el) el.textContent = b == null ? '—' : fmtNim(b)
-  })
+  void refreshBalance()
   const me = S.me
   const jar = me.jarLuna / 1e5
   const goal = me.plan.goalLuna / 1e5

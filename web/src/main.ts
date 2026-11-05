@@ -9,7 +9,7 @@ import './screens/match'
 import './screens/misc'
 import './screens/jar'
 import './screens/chests'
-import { netBadge } from './ui'
+import { netBadge, refreshBalance, openBalanceDialog } from './ui'
 
 const app = document.getElementById('app')!
 
@@ -52,7 +52,7 @@ async function boot() {
       setToken(nr.token)
     })
     S.me = r.profile
-    S.balance = await S.wallet.balance()
+    await refreshBalance()
   } catch (e: any) {
     return fatal(e?.message ?? String(e))
   }
@@ -66,3 +66,10 @@ async function boot() {
 }
 void boot()
 void go
+
+document.addEventListener('click', (ev) => {
+  const el = (ev.target as HTMLElement | null)?.closest?.('[data-act="balance"]')
+  if (!el) return
+  ev.preventDefault()
+  openBalanceDialog()
+})

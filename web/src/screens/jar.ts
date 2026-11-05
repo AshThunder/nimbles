@@ -1,7 +1,7 @@
 import { api, type JarInfo, type MatchView } from '../api'
 import { actions, esc, glyph, GLYPH_BG, ic, sfx, tap, toast, $ } from '../lib'
 import { S, route } from '../state'
-import { PAGE, errBox, pageRows, pipRow, tabs, topbar } from '../ui'
+import { PAGE, errBox, pageRows, pipRow, tabs, topbar, refreshBalance } from '../ui'
 import { GAMES, fmtNim } from '../../../shared/types'
 import { LOCK_TIERS, LOCK_XP_PCT } from '../../../shared/rewards'
 
@@ -142,6 +142,7 @@ route('/jar', async (root) => {
       toast(early ? 'Unlocked early, payout sent' : 'Withdrawal sent')
       confirm = false
       await refresh()
+      void refreshBalance()
     } catch (e: any) {
       err = e.message
       sfx('ui/error')

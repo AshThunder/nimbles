@@ -133,11 +133,23 @@ async function connectNimiqPay(onStatus: (msg: string) => void): Promise<Wallet>
       return memo ? nq.sendBasicTransactionWithData({ ...tx, data: memo }) : nq.sendBasicTransaction(tx)
     },
     async balance() {
+      // Confirmed connected-wallet NIM only. Never mix jar/escrow credits into this number.
+      // Prefer the host provider; fall back to the server's confirmed RPC lookup. Null means unavailable, not zero.
       try {
-        return await nq.getBalance(w.address)
+        if (typeof (nq as any).getBalance === 'function') {
+          const b = await nq.getBalance(w.address)
+          if (typeof b === 'number' && Number.isFinite(b) && b >= 0) return b
+        }
       } catch {
-        return null
+        /* host missing method or network blip: try RPC */
       }
+      try {
+        const r = await api.addressBalance(w.address)
+        if (typeof r?.luna === 'number' && Number.isFinite(r.luna) && r.luna >= 0) return r.luna
+      } catch {
+        /* leave as unavailable */
+      }
+      return null
     },
   }
   return w

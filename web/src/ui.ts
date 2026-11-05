@@ -1,6 +1,6 @@
 import { esc, glyph, GLYPH_BG, ic, avatar, lvBadge, pipImg } from './lib'
 import { S } from './state'
-import { fmtNim } from '../../shared/types'
+import { fmtNim, fmtNimCompact } from '../../shared/types'
 
 export const HEX = '<svg class="hex" viewBox="0 0 24 24"><path d="M12 1.8l8.8 5.1v10.2L12 22.2l-8.8-5.1V6.9z" fill="#F4B323" stroke="#1F2348" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 6l4.7 2.7v5.4L12 16.8l-4.7-2.7V8.7z" fill="none" stroke="#C98E0A" stroke-width="1.6" stroke-linejoin="round"/></svg>'
 export const FLAME = '<svg viewBox="0 0 48 56"><path d="M24 3c1.6 11 17 15 17 31a17 17 0 0 1-34 0c0-9 6.5-12.5 9-20 3 3.6 3.8 5.4 6.2 5.4C23 19 20 12 24 3z" fill="#F4B323" stroke="#1F2348" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 30c1.3 6 8 8 8 14a8 8 0 0 1-16 0c0-4.5 3.5-6 5-10 1.2 1.8 1.6 2.6 3 2.6z" fill="#FFFCF5"/></svg>'
@@ -14,10 +14,73 @@ export const netBadge = () => {
   return '<span class="net test">Testnet</span>'
 }
 
+export const coinLabel = (b: number | null | undefined = S.balance) =>
+  b === undefined ? '…' : b == null ? '—' : fmtNimCompact(b)
+
+/** Header chip: confirmed connected-wallet NIM only (compact). Tap opens exact amount. Jar stays on its own card. */
 export const coin = () => {
   const b = S.balance
-  const txt = b == null ? '—' : fmtNim(b)
-  return `<div class="coin nb" title="Wallet balance">${HEX}<span>${txt}</span><small>NIM</small></div>`
+  const txt = coinLabel(b)
+  const exact = b == null || b === undefined ? 'Wallet balance' : `${fmtNim(b)} NIM confirmed`
+  return `<button type="button" class="coin nb" data-act="balance" data-bal aria-haspopup="dialog" aria-label="${esc(exact)}. Tap for exact amount">${HEX}<span data-bal-txt>${txt}</span><small>NIM</small></button>`
+}
+
+/** Paint every header chip currently on screen after a balance refresh. */
+export const paintBalance = () => {
+  const txt = coinLabel()
+  document.querySelectorAll<HTMLElement>('[data-bal-txt]').forEach((el) => { el.textContent = txt })
+  document.querySelectorAll<HTMLElement>('[data-bal]').forEach((el) => {
+    const b = S.balance
+    el.setAttribute('aria-label', (b == null || b === undefined ? 'Wallet balance' : `${fmtNim(b)} NIM confirmed`) + '. Tap for exact amount')
+  })
+}
+
+export async function refreshBalance() {
+  if (!S.wallet) { S.balance = null; paintBalance(); return null }
+  try {
+    S.balance = await S.wallet.balance()
+  } catch {
+    S.balance = null
+  }
+  paintBalance()
+  return S.balance
+}
+
+let balDlg: HTMLDialogElement | null = null
+/** Wallet-only detail. Does not list the savings jar (that stays on the jar card). */
+export function openBalanceDialog() {
+  const b = S.balance
+  const exact = b === undefined ? 'Loading…' : b == null ? 'Unavailable' : `${fmtNim(b)} NIM`
+  const note = b === null
+    ? 'Could not read your connected wallet right now. Pending incoming NIM is never counted here.'
+    : 'Confirmed balance of the connected wallet. Pending incoming NIM is not included. Stakes locked in a match leave this total until the match ends.'
+  if (!balDlg) {
+    balDlg = document.createElement('dialog')
+    balDlg.id = 'bal-dlg'
+    balDlg.className = 'bal-dlg'
+    balDlg.setAttribute('aria-labelledby', 'bal-title')
+    // closedby is progressive enhancement; Esc + form method=dialog still work without it
+    balDlg.setAttribute('closedby', 'any')
+    document.body.appendChild(balDlg)
+    if (!('closedBy' in HTMLDialogElement.prototype)) {
+      let pressedOutside = false
+      const outside = (e: PointerEvent, d: HTMLDialogElement) => {
+        const r = d.getBoundingClientRect()
+        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom
+      }
+      balDlg.addEventListener('pointerdown', (e) => { pressedOutside = outside(e, balDlg!) })
+      balDlg.addEventListener('pointerup', (e) => { if (pressedOutside && outside(e, balDlg!)) balDlg!.close() })
+    }
+  }
+  balDlg.innerHTML = `<div class="bal-card"><h2 id="bal-title">Wallet</h2><div class="bal-exact mono">${esc(exact)}</div><p class="bal-note">${esc(note)}</p><form method="dialog"><button class="btn gold block" value="ok" autofocus>Close</button></form></div>`
+  if (!balDlg.open) balDlg.showModal()
+  // refresh while open so a stale chip does not stick
+  void refreshBalance().then(() => {
+    if (!balDlg?.open) return
+    const nb = S.balance
+    const el = balDlg.querySelector('.bal-exact')
+    if (el) el.textContent = nb === undefined ? 'Loading…' : nb == null ? 'Unavailable' : `${fmtNim(nb)} NIM`
+  })
 }
 
 export const topbar = (title: string, left: 'back' | 'close' | 'none' = 'back', right = coin()) =>

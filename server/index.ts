@@ -5,7 +5,7 @@ import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Engine, ApiError } from './engine'
 import { Store } from './store'
-import { MockChain, makeChain, resolveChainConfig, stateDir } from './chain'
+import { MockChain, makeChain, resolveChainConfig, stateDir, isNimiqAddress } from './chain'
 import { aiStatus, nimoChat, parseReceipt } from './ai'
 import { Challenges, addressFromProof, challengeText } from './auth'
 
@@ -115,6 +115,16 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
 
     const me = engine.auth(tok)
     limit('u:' + me, 600, 60_000)
+    if (method === 'GET' && path === '/address-balance') {
+      // Confirmed on-chain balance for a Nimiq address. Pending funds are never included.
+      // Defaults to the signed-in wallet. Public chain data, but still behind a session + rate limit.
+      limit('abal:' + me, 60, 60_000)
+      const raw = (q.get('address') || me).trim()
+      if (!isNimiqAddress(raw)) throw new ApiError(400, 'That is not a Nimiq address')
+      const luna = await chain.accountBalance(raw)
+      if (luna === null) throw new ApiError(502, 'Could not read the wallet balance right now')
+      return send(res, 200, { address: raw, luna, unit: 'luna', confirmed: true, pendingExcluded: true, serverNow: Date.now() })
+    }
     if (method === 'GET' && path === '/me') return send(res, 200, engine.profile(me))
     if (method === 'POST' && path === '/me') {
       const b = await readBody(req, 4096)

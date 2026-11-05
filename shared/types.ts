@@ -136,7 +136,26 @@ export function levelFor(xp: number) {
 }
 
 export const nim = (luna: number) => luna / LUNA
+
+/** Exact NIM for detail views. Floors to 0.01 NIM so the UI never overstates spendable funds. */
 export const fmtNim = (luna: number) => {
-  const v = luna / LUNA
-  return v.toLocaleString('en-US', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 })
+  const sign = luna < 0 ? '-' : ''
+  const v = Math.floor(Math.abs(luna) / 1000) / 100 // 1000 luna = 0.01 NIM
+  // min 0 so 1.50 NIM reads as 1.5; still never more than 2 dp after the floor
+  return sign + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+}
+
+/**
+ * Compact header amount. Floors so large balances never look bigger than the wallet.
+ * Under 10k NIM: same as fmtNim. 10k+: 12k / 100k. 1M+: 1.2M.
+ */
+export const fmtNimCompact = (luna: number) => {
+  const sign = luna < 0 ? '-' : ''
+  const abs = Math.abs(luna) / LUNA
+  if (abs >= 1_000_000) {
+    const m = Math.floor(abs / 100_000) / 10 // one decimal of millions, floored
+    return sign + (Number.isInteger(m) ? String(m) : m.toFixed(1)) + 'M'
+  }
+  if (abs >= 10_000) return sign + Math.floor(abs / 1000) + 'k'
+  return fmtNim(luna)
 }

@@ -4,7 +4,8 @@ import type { Config } from './api'
 import type { Wallet } from './wallet'
 
 export type Me = Profile & { vaultToday?: boolean }
-export const S: { cfg: Config; wallet: Wallet; me: Me; balance: number | null } = {} as never
+/** balance: undefined = still loading, null = unavailable (show —), number = confirmed luna */
+export const S: { cfg: Config; wallet: Wallet; me: Me; balance: number | null | undefined } = {} as never
 
 // ---- tiny router ----
 export type Cleanup = void | (() => void)

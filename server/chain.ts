@@ -18,6 +18,12 @@ export interface Chain {
   balance(): Promise<number>
   /** True when the address is an ordinary wallet that can receive a plain transfer (not an HTLC, vesting or other contract). */
   isWallet(address: string): Promise<boolean>
+  /**
+   * Confirmed on-chain balance for any address, in luna.
+   * Pending incoming funds are not included. Returns null when the lookup fails (never invents 0 on error).
+   * A missing account is a real zero.
+   */
+  accountBalance(address: string): Promise<number | null>
 }
 
 const norm = (a: string) => a.replace(/\s+/g, '').toUpperCase()
@@ -68,6 +74,14 @@ export class MockChain implements Chain {
 
   async balance() {
     return 1e12
+  }
+
+  /** Mock: known addresses can be seeded via `balances`; unknown addresses are 0 confirmed. */
+  balances = new Map<string, number>()
+  async accountBalance(address: string) {
+    if (!isNimiqAddress(address)) return null
+    for (const [a, luna] of this.balances) if (sameAddr(a, address)) return luna
+    return 0
   }
 }
 
@@ -226,6 +240,19 @@ export class NimiqChain implements Chain {
   async balance() {
     const a = await this.rpc('getAccountByAddress', [this.escrowAddress])
     return Number(a?.balance ?? 0)
+  }
+
+  async accountBalance(address: string) {
+    if (!isNimiqAddress(address)) return null
+    try {
+      const a = await this.rpc('getAccountByAddress', [address])
+      // Albatross account balance is confirmed only; pending mempool funds are excluded.
+      if (!a) return 0
+      const luna = Number(a.balance ?? 0)
+      return Number.isFinite(luna) && luna >= 0 ? luna : null
+    } catch {
+      return null
+    }
   }
 }
 

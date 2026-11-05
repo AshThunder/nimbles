@@ -112,4 +112,7 @@ export const api = {
   chat: (b: { text: string; history?: { role: string; text: string }[] }) => call<{ reply: string; source: string }>('POST', '/ai/chat', b),
   receipt: (b: { imageBase64?: string; mime?: string; text?: string }) => call<any>('POST', '/ai/receipt', b),
   mockTx: (b: { from: string; to: string; luna: number; memo: string }) => call<{ hash: string }>('POST', '/dev/mock-tx', b),
+  /** Confirmed wallet balance in luna. Pending incoming NIM is excluded. */
+  addressBalance: (address: string) => call<{ address: string; luna: number; confirmed: true; pendingExcluded: true }>('GET', '/address-balance?address=' + encodeURIComponent(address)),
 }
+

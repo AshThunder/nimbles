@@ -5,7 +5,7 @@ import { SEAT_COL } from '../games/splat'
 import { meOf, others, type GameInst } from '../games/common'
 import { actions, avatar, confetti, esc, fmtTime, glyph, GLYPH_BG, ic, pipImg, shortAddr, sfx, buzz, toast, tap, $ } from '../lib'
 import { S, go, route } from '../state'
-import { errBox, pipRow, topbar } from '../ui'
+import { errBox, pipRow, topbar, refreshBalance } from '../ui'
 import { friendlyWalletError } from '../wallet'
 import { GAMES, fmtNim } from '../../../shared/types'
 import { settleShares } from '../../../shared/economy'
@@ -268,7 +268,7 @@ route('/m/:id', async (root, { id }) => {
         await new Promise((r) => setTimeout(r, 2500))
       }
       sfx('reward/coin')
-      S.wallet.balance().then((b) => (S.balance = b))
+      void refreshBalance()
     } catch (e: any) {
       err = friendlyWalletError(e)
       sfx('ui/error')
@@ -388,7 +388,7 @@ route('/m/:id', async (root, { id }) => {
       else sfx('reward/lose')
       if (win) buzz([60, 40, 60])
       if (xp) setTimeout(() => sfx('reward/xp', 0.4), 700)
-      S.wallet.balance().then((b) => (S.balance = b))
+      void refreshBalance()
       api.me().then((p) => {
         S.me = p
         const slot = $('#chestslot', root)

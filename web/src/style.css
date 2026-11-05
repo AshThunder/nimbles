@@ -28,11 +28,13 @@ svg{display:block}
 .top{min-height:56px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 16px 12px}
 .ttl{font-size:20px;line-height:24px;font-weight:800;letter-spacing:-.01em;flex:1;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .back{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;margin-left:-8px;border:2px solid var(--ink);background:var(--card);box-shadow:0 3px 0 var(--ink);margin-left:0}
-.coin{height:40px;border-radius:12px;background:var(--card);border:2px solid var(--ink);box-shadow:0 3px 0 var(--ink);display:flex;align-items:center;gap:6px;padding:0 4px 0 8px;font-weight:800;font-size:16px}
+.coin{height:40px;border-radius:12px;background:var(--card);border:2px solid var(--ink);box-shadow:0 3px 0 var(--ink);display:inline-flex;align-items:center;gap:6px;padding:0 4px 0 8px;font-weight:800;font-size:16px;color:var(--ink);cursor:pointer;flex:none;max-width:46vw}
 .coin .pl{width:28px;height:28px;border-radius:8px;background:var(--green);color:#fff;display:grid;place-items:center}
 .coin .pl .i{width:16px;height:16px;stroke-width:3}
 .coin.nb{padding-right:12px}
 .coin small{font-size:12px;font-weight:600;color:var(--muted)}
+.coin span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.coin:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
 .hex{width:24px;height:24px;flex:none}
 
 .body{flex:1;min-height:0;padding:0 16px;display:flex;flex-direction:column;gap:12px}
@@ -752,3 +754,13 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .gc.soon .art svg.gl{opacity:.6}
 .gc.soon .n{color:var(--ink2)}
 .nb .bb .btn{display:flex;width:fit-content;margin-top:10px}
+
+
+/* wallet balance dialog: flat cream, native <dialog> */
+.bal-dlg{border:0;padding:0;background:transparent;max-width:calc(100vw - 32px);width:360px}
+.bal-dlg::backdrop{background:rgba(14,16,48,.45);overflow:hidden;overscroll-behavior:contain}
+.bal-dlg:modal{overscroll-behavior:contain}
+.bal-card{background:var(--bg);border:2px solid var(--ink);border-radius:20px;box-shadow:0 8px 0 var(--ink);padding:20px 18px 16px;display:flex;flex-direction:column;gap:12px;color:var(--ink)}
+.bal-card h2{font-size:20px;font-weight:800;letter-spacing:-.01em}
+.bal-exact{font-size:28px;font-weight:800;line-height:34px;letter-spacing:-.02em}
+.bal-note{font-size:13px;line-height:18px;color:var(--ink2);font-weight:600}

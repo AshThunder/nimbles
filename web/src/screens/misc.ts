@@ -2,7 +2,7 @@ import { api, type MatchView } from '../api'
 import { board } from '../games/sudoku'
 import { actions, avatar, confetti, esc, glyph, GLYPH_BG, ic, isMuted, lvBadge, pipImg, setMuted, sfx, shortAddr, tap, toast, $ } from '../lib'
 import { S, go, route } from '../state'
-import { FLAME, JAR, PAGE, errBox, pageRows, pipRow, tabs, topbar } from '../ui'
+import { FLAME, JAR, PAGE, errBox, pageRows, pipRow, tabs, topbar, refreshBalance } from '../ui'
 import { friendlyWalletError } from '../wallet'
 import { GAMES, fmtNim, type GameId } from '../../../shared/types'
 import { ALL_BADGES, COSMETICS } from '../../../shared/rewards'
@@ -244,6 +244,7 @@ route('/vault', async (root) => {
         }
         deposited = true
         sfx('reward/coin')
+        void refreshBalance()
       } catch (e: any) {
         err = friendlyWalletError(e)
         sfx('ui/error')
