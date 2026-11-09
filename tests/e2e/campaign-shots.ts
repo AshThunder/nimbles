@@ -95,8 +95,54 @@ try {
   db.profiles[A.chris].wins = 12; db.profiles[A.chris].played = 21
   db.profiles[A.ada].wins = 9; db.profiles[A.ada].played = 15
 
+  // v2 layout: compact Showdown card, Quick match pill, five tabs, Showdown in Rank, tidy jar card
+  const V2 = join(OUT, 'v2')
+  mkdirSync(V2, { recursive: true })
+  const shot2 = async (p: Page, name: string) => { await p.waitForTimeout(400); await p.screenshot({ path: join(V2, name + '.png') }); console.log('  saved v2/' + name) }
+  const layoutFits = async (p: Page, w: number) => {
+    // a string body: tsx would wrap named inner functions in a helper the page does not have
+    const r = (await p.evaluate(`(() => {
+      const one = (q) => { const e = document.querySelector(q); return e.getBoundingClientRect().height <= parseFloat(getComputedStyle(e).lineHeight) * 1.4 && e.scrollWidth <= e.clientWidth + 1 }
+      const tabsBad = [...document.querySelectorAll('.tabs .tab')].filter((t) => t.scrollWidth > t.clientWidth + 1 || t.getBoundingClientRect().right > innerWidth + 0.5).length
+      const qm = document.querySelector('.qm').getBoundingClientRect()
+      const m = document.querySelector('.jarc .m span')
+      return { tabs: document.querySelectorAll('.tabs .tab').length, tabsBad, qm: qm.right <= innerWidth - 8 && qm.height <= 36, jarN: one('.jarc .n'), jarK: one('.jarc .k'), jarM: m.getBoundingClientRect().height <= parseFloat(getComputedStyle(m).lineHeight) * 2 + 1, sd: one('.sdq .t .s') }
+    })()`)) as Record<string, number | boolean>
+    for (const [k, v] of Object.entries(r)) if (v === false || (k === 'tabs' && v !== 5) || (k === 'tabsBad' && v)) throw new Error(`layout at ${w}px: ${k} = ${v}`)
+  }
   await chris.goto('/#/')
-  await chris.waitForSelector('.sdc')
+  await chris.waitForSelector('.sdq')
+  const qh = await chris.evaluate(() => [document.querySelector('.sdq')!.getBoundingClientRect().height, document.querySelector('.quest')!.getBoundingClientRect().height])
+  if (qh[0] > qh[1] + 0.5) throw new Error(`Showdown card ${qh[0]}px is taller than the quest card ${qh[1]}px`)
+  await layoutFits(chris, 390)
+  await shot2(chris, 'play-home')
+  await chris.evaluate(() => document.querySelector('.glab')?.scrollIntoView({ block: 'start' }))
+  await shot2(chris, 'play-home-scrolled')
+  await chris.click('.qm')
+  await chris.waitForSelector('.lobr')
+  await shot2(chris, 'lobby')
+  await chris.goto('/#/friends'); await chris.waitForSelector('.fcode')
+  await shot2(chris, 'friends-tab')
+  await chris.goto('/#/rank'); await chris.waitForSelector('.seg')
+  await chris.click('[data-act="scope"][data-s="showdown"]')
+  await chris.waitForSelector('.sdq')
+  await shot2(chris, 'rank-showdown')
+  await chris.setViewportSize({ width: 360, height: 780 })
+  await chris.goto('/#/'); await chris.waitForSelector('.sdq')
+  await layoutFits(chris, 360)
+  await shot2(chris, 'play-home-360')
+  await chris.evaluate(() => document.querySelector('.duo')?.scrollIntoView({ block: 'center' }))
+  await shot2(chris, 'jar-360')
+  await chris.goto('/#/rank'); await chris.waitForSelector('.seg')
+  await chris.click('[data-act="scope"][data-s="showdown"]'); await chris.waitForSelector('.sdq')
+  const segOk = await chris.evaluate(`[...document.querySelectorAll('.sg b')].every((b) => { const r = document.createRange(); r.selectNodeContents(b); return r.getBoundingClientRect().width <= b.parentElement.clientWidth - 6 })`)
+  if (!segOk) throw new Error('Rank segments overflow at 360px: ' + JSON.stringify(await chris.evaluate(`[...document.querySelectorAll('.sg b')].map((b) => { const r = document.createRange(); r.selectNodeContents(b); return [Math.round(r.getBoundingClientRect().width), b.parentElement.clientWidth] })`)))
+  await shot2(chris, 'rank-showdown-360')
+  await chris.setViewportSize({ width: 390, height: 844 })
+  console.log(`  v2: card ${qh[0]}px vs quest ${qh[1]}px; 5 tabs, Quick match, jar card and Rank segments fit at 360 and 390`)
+
+  await chris.goto('/#/')
+  await chris.waitForSelector('.sdq')
   await shot(chris, 'campaign-card')
   await chris.goto('/#/showdown'); await chris.waitForSelector('.chk')
   await shot(chris, 'campaign-detail')

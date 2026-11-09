@@ -53,7 +53,7 @@ svg{display:block}
 .xpi span{font-family:var(--mono);font-size:11px;line-height:12px;color:var(--ink2)}
 
 /* tabs */
-.tabs{height:72px;flex:none;background:var(--card);border-top:2px solid var(--ink);display:grid;grid-template-columns:repeat(4,1fr);padding:8px 8px 0}
+.tabs{height:72px;flex:none;background:var(--card);border-top:2px solid var(--ink);display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:8px 4px 0}
 .tab{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;line-height:16px;color:var(--muted);font-weight:600;position:relative}
 .tab .p{width:48px;height:28px;border-radius:10px;display:grid;place-items:center;border:2px solid transparent}
 .tab.on{color:var(--ink);font-weight:800}.tab.on .p{background:var(--gold);border-color:var(--ink)}
@@ -813,20 +813,6 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .addf{display:flex;gap:8px}
 .addf .field{flex:1;min-width:0;padding:0 14px}
 .addf .field input{border:0;outline:0;background:transparent;font:inherit;font-weight:700;width:100%;height:48px;text-transform:uppercase;color:var(--ink)}
-.sdc{background:var(--ink);color:var(--bg);border:2px solid var(--ink);border-radius:16px;box-shadow:0 4px 0 var(--edge);padding:12px;display:flex;flex-direction:column;gap:10px;text-align:left;width:100%;cursor:pointer}
-.sdc .hd{display:flex;align-items:center;gap:10px}
-.sdc .hd .ic{width:40px;height:40px;border-radius:12px;background:var(--gold);color:var(--ink);display:grid;place-items:center;flex:none;border:2px solid var(--bg)}
-.sdc .hd .t{flex:1;min-width:0;display:flex;flex-direction:column}
-.sdc .hd .t b{font-size:18px;line-height:22px;font-weight:800}
-.sdc .hd .t span{font-size:12px;line-height:16px;color:#C9CCE0}
-.sdc .hd .e{text-align:right;display:flex;flex-direction:column}
-.sdc .hd .e b{font-size:20px;line-height:22px;font-weight:800;color:var(--gold)}
-.sdc .hd .e span{font-size:11px;line-height:14px;color:#C9CCE0;font-family:var(--mono)}
-.sdc .stp{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.sdc .stp i{font-style:normal;background:#2E3365;border-radius:10px;padding:6px 8px;display:flex;flex-direction:column;font-size:11px;line-height:14px;color:#C9CCE0}
-.sdc .stp i b{font-size:15px;line-height:18px;color:var(--bg);font-weight:800}
-.sdc .stp i.ok{background:var(--gold);color:var(--ink)}
-.sdc .stp i.ok b{color:var(--ink)}
 .chk{display:flex;flex-direction:column;gap:8px}
 .chk .it{display:flex;gap:10px;align-items:flex-start;background:var(--card);border:2px solid var(--line);border-radius:14px;padding:10px 12px}
 .chk .it.ok{border-color:var(--ink);background:var(--gold-tint)}
@@ -862,3 +848,32 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .adm .spark i{flex:1;background:var(--blue);border-radius:3px 3px 0 0;min-height:2px}
 .adm .alert{background:var(--coral-tint);border:2px solid var(--ink);border-radius:12px;padding:8px 10px;font-size:13px;font-weight:600}
 .scroll{overflow-anchor:auto}
+
+/* Showdown: one compact card in the quest card's style */
+.sdq{display:flex;gap:12px;align-items:center;background:var(--card);border:2px solid var(--ink);border-radius:16px;box-shadow:0 4px 0 var(--ink);padding:10px 12px;width:100%;text-align:left;cursor:pointer;touch-action:manipulation}
+.sdq:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.sdq>img{width:40px;height:40px;flex:none}
+.sdq .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.sdq .t b{font-size:16px;line-height:20px;font-weight:800;letter-spacing:-.01em}
+.sdq .t .s{font-size:12px;line-height:16px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sdq .sdl{display:block;height:6px;border-radius:3px;background:var(--raised);overflow:hidden;margin-top:4px}
+.sdq .sdl i{display:block;height:100%;background:var(--gold)}
+.sdq .e{display:flex;flex-direction:column;align-items:flex-end;flex:none}
+.sdq .e b{font-size:20px;line-height:24px;font-weight:800}
+.sdq .e small{font-family:var(--mono);font-size:11px;line-height:14px;color:var(--muted)}
+.glab{align-items:center}
+.glab>span{display:flex;align-items:baseline;gap:8px}
+.qm{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:16px;background:var(--card);border:2px solid var(--ink);box-shadow:0 2px 0 var(--ink);font-size:13px;font-weight:800;line-height:16px;color:var(--ink);cursor:pointer;touch-action:manipulation;white-space:nowrap}
+.qm:active{box-shadow:none;transform:translateY(2px)}
+.tab{min-width:0;text-decoration:none}
+.tab .p{width:44px}
+/* Savings jar card: keep the amount and labels on one line at 360px and up */
+.jarc .h{gap:8px;min-width:0}
+.jarc .h>div{min-width:0;flex:1}
+.jarc svg.jarart{width:40px;height:50px}
+.jarc .k,.jarc .n{white-space:nowrap}
+.jarc .n{font-size:24px;overflow:hidden;text-overflow:ellipsis}
+.jarc .n small{font-size:12px}
+.jarc .m{align-items:flex-start;margin-top:auto}
+.jarc .m .i{margin-top:0}
+.jarc .m span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}

@@ -51,5 +51,5 @@ The Showdown pays rewards from its own wallet, `NQ79 HN52 XV6A 22L6 7ALU F14P L0
 - On Fly it is the secret `CAMPAIGN_PRIVATE_KEY`. `EXPECTED_CAMPAIGN_ADDRESS` in `fly.mainnet.toml` makes a wrong key refuse to start.
 - Without the key the server still runs, and rewards wait in the queue.
 - Fund it with the 50,000 NIM budget. Payouts use fee 0 unless `PAY_FEE_LUNA` is raised. Half of each reward stays in this wallet as the player's locked jar until they withdraw it.
-- Kill switch: `CAMPAIGN_PAUSED=yes`, or the Pause button on `/admin`. The admin page only opens for `ADMIN_ADDRESSES`, which defaults to the owner wallet.
+- Kill switch: `CAMPAIGN_PAUSED=yes`, or the Pause button on `/admin`. The admin page only opens for `ADMIN_ADDRESSES`, set in `fly.mainnet.toml` to the owner wallet NQ20 9393 TV0B TTL5 R1X1 8DN6 P0CY 3C47 NHGR (confirmed by Chris).
 - Rewards queue instead of failing when the daily pace (3,000 NIM) is reached or the wallet is short. A send that was interrupted by a restart is marked for review and is never resent automatically.

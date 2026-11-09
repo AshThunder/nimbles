@@ -8,14 +8,16 @@ import { GAMES, fmtNim, type GameId } from '../../../shared/types'
 import { ALL_BADGES, COSMETICS } from '../../../shared/rewards'
 import { makeSudoku } from '../../../shared/puzzles'
 import { lockText } from './home'
+import { showdownCard } from './social'
 
 const AVATARS = ['ada', 'bisi', 'dee', 'ife', 'ivy', 'jay', 'kai', 'kemi', 'leo', 'max', 'me', 'mia', 'rue', 'sam', 'tobi', 'zoe']
 
 // ---------------- leaderboard ----------------
 route('/rank', async (root) => {
-  let scope: 'global' | 'friends' | 'savers' = 'global'
+  let scope: 'global' | 'friends' | 'savers' | 'showdown' = 'global'
   let shown = PAGE
-  const TABS = [['global', 'Players'], ['friends', 'Friends'], ['savers', 'Savers']] as const
+  const TABS = [['global', 'Players'], ['friends', 'Friends'], ['savers', 'Savers'], ...(S.cfg.showdown ? [['showdown', 'Showdown'] as const] : [])] as const
+  const day = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
   const medal = (r: number) => (r === 1 ? 'g' : r === 2 ? 's' : r === 3 ? 'b' : 'c')
   const load = async () => {
     const keep = root.querySelector('.scroll')?.scrollTop ?? 0
@@ -23,7 +25,16 @@ route('/rank', async (root) => {
     let list = ''
     let sub = 'This week<small>Resets Monday, UTC</small>'
     try {
-      if (scope === 'savers') {
+      if (scope === 'showdown') {
+        const [sd, b] = await Promise.all([api.showdown(), api.showdownBoard()])
+        const rows = b.rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${medal(r.rank)}">${r.rank}</span><span class="avs">${avatar(r.avatar, 'av', r.frame)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>${r.me ? 'Your place' : 'This week'}</span></span><span class="am"><b>${r.wins}</b><span>win${r.wins === 1 ? '' : 's'}</span></span></div>`)
+        const mine = b.me ? `<div class="rw me"><span class="med c">${b.me.rank}</span><span class="avs">${avatar(b.me.avatar, 'av', b.me.frame)}</span><span class="nm"><b>You</b><span>Climb into the top ${b.top}</span></span><span class="am"><b>${b.me.wins}</b><span>win${b.me.wins === 1 ? '' : 's'}</span></span></div>` : ''
+        const head = b.week >= 0 ? `Week ${b.week + 1} of ${b.weeks}<small>Ends ${day(b.endsAt - 1)}</small>` : `Weekly board<small>Starts ${day(b.start)}</small>`
+        list = `${showdownCard(sd)}<div class="lab" style="margin:0">${head}</div>
+          ${rows.length ? `<div class="rank" style="gap:8px">${pageRows(rows, shown, 'rmore')}${mine}</div>` : pipRow('sleepy', '<b>No wins yet this week.</b> Win a staked duel against a real player to get on the board')}
+          <p class="sm2">Top ${b.top} by wins in staked duels against real players. Skill only.</p>`
+        sub = ''
+      } else if (scope === 'savers') {
         const d = await api.savers()
         sub = 'Interest this week<small>Resets Monday, UTC</small>'
         list = d.rows.length
@@ -37,14 +48,14 @@ route('/rank', async (root) => {
       }
     } catch (e: any) { toast(e.message) }
     root.innerHTML = `${topbar('Leaderboard', 'none')}<div class="scroll" style="gap:12px">
-      <div class="seg" style="grid-template-columns:1fr 1fr 1fr">${TABS.map(([s, label]) => `<button class="sg ${scope === s ? 'on' : ''}" data-act="scope" data-s="${s}"><b style="font-size:15px">${label}</b>${scope === s ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div>
-      <div class="lab" style="margin:0">${sub}</div>
+      <div class="seg" style="grid-template-columns:repeat(${TABS.length},minmax(0,1fr));gap:${TABS.length > 3 ? 4 : 8}px">${TABS.map(([s, label]) => `<button class="sg ${scope === s ? 'on' : ''}" data-act="scope" data-s="${s}"><b style="font-size:${TABS.length > 3 ? 12.5 : 15}px;letter-spacing:-.01em">${label}</b>${scope === s ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div>
+      ${sub ? `<div class="lab" style="margin:0">${sub}</div>` : ''}
       ${list}</div>${tabs('Rank')}`
     const sc = root.querySelector('.scroll')
     if (sc) sc.scrollTop = keep
   }
   await load()
-  actions(root, { scope: (el) => ((scope = el.dataset.s as typeof scope), (shown = PAGE), sfx('ui/select'), void load()), rmore: () => ((shown += PAGE), sfx('ui/select'), void load()), tab: () => sfx('ui/select', 0.4) })
+  actions(root, { showdown: () => (tap(), go('/showdown')), scope: (el) => ((scope = el.dataset.s as typeof scope), (shown = PAGE), sfx('ui/select'), void load()), rmore: () => ((shown += PAGE), sfx('ui/select'), void load()), tab: () => sfx('ui/select', 0.4) })
 })
 
 // ---------------- Nimo: assistant, chat and receipt reader ----------------

@@ -136,6 +136,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
     if (method === 'GET' && path === '/me') return send(res, 200, engine.profile(me))
     // ----- Nimbles Showdown: the player's own progress and locked rewards -----
     if (method === 'GET' && path === '/showdown') return send(res, 200, campaign.me(me))
+    if (method === 'GET' && path === '/showdown/board') return send(res, 200, campaign.weekBoard(me))
     if (method === 'POST' && path === '/showdown/jar/withdraw') {
       limit('sdwd:' + me, 5, 60_000)
       const b = await readBody(req, 1024)

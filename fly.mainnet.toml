@@ -25,6 +25,7 @@ primary_region = "ams"
   CAMPAIGN_END = "2026-11-24T00:00:00+01:00"
   # set to "yes" to stop every campaign payout at once (the admin page has the same switch)
   CAMPAIGN_PAUSED = "no"
+  ADMIN_ADDRESSES = "NQ20 9393 TV0B TTL5 R1X1 8DN6 P0CY 3C47 NHGR"
 
 [[mounts]]
   source = "nimbles_mainnet_data"

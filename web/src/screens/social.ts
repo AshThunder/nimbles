@@ -2,7 +2,7 @@
 import { api, type Friends, type LobbyItem, type Showdown } from '../api'
 import { actions, avatar, esc, glyph, GLYPH_BG, ic, keepScroll, lvBadge, pipImg, sfx, tap, toast, $ } from '../lib'
 import { S, go, route } from '../state'
-import { errBox, pipRow, topbar, refreshBalance } from '../ui'
+import { errBox, pipRow, tabs, topbar, refreshBalance } from '../ui'
 import { GAMES, fmtNim, isSoon, type GameId } from '../../../shared/types'
 import { CAMPAIGN_NAME } from '../../../shared/campaign'
 
@@ -15,10 +15,15 @@ const MODE_NAME: Record<string, string> = { play: 'Play', win: 'Win', save: 'Sav
 export function showdownCard(sd: Showdown | null) {
   if (!sd || (!sd.live && sd.earned.total <= 0)) return ''
   const st = sd.steps
-  const welcome = st.welcome.got
-  const step = (ok: boolean, label: string, val: string) => `<i class="${ok ? 'ok' : ''}"><b>${val}</b>${label}</i>`
-  return `<button class="sdc" data-act="showdown"><div class="hd"><span class="ic">${ic('swords', 's20')}</span><span class="t"><b>${esc(sd.name)}</b><span>${sd.live ? `Until ${dateText(sd.end - 1)} · skill only` : 'Finished'}</span></span><span class="e"><b>${fmtNim(sd.earned.total)}</b><span>NIM earned</span></span></div>
-    <div class="stp">${step(welcome, 'Welcome', welcome ? 'Done' : `${st.welcome.done}/${st.welcome.need}`)}${step(st.friends.unlocked, 'Rivals faced', `${st.friends.opponents}/${st.friends.need}`)}${step(st.week.rank > 0, 'This week', st.week.rank > 0 ? '#' + st.week.rank : `${st.week.wins} wins`)}</div></button>`
+  const w = Math.min(st.welcome.done, st.welcome.need)
+  const o = Math.min(st.friends.opponents, st.friends.need)
+  // progress toward the two unlocks (welcome, then friend duels); after that the weekly board takes over
+  let next = ''
+  let pct = 100
+  if (!st.welcome.got) { next = `${w} of ${st.welcome.need} matches`; pct = (w / st.welcome.need) * 50 }
+  else if (!st.friends.unlocked) { next = `${o} of ${st.friends.need} rivals`; pct = 50 + (o / st.friends.need) * 50 }
+  else next = st.week.rank > 0 ? `#${st.week.rank} this week` : `${st.week.wins} win${st.week.wins === 1 ? '' : 's'} this week`
+  return `<button class="sdq" data-act="showdown" aria-label="${esc(sd.name)}, open progress"><img src="/badges/trophy-gold.svg" alt="" width="40" height="40"><span class="t"><b>${esc(sd.name)}</b><span class="s">${sd.live ? `Ends ${dateText(sd.end - 1)}` : 'Finished'} · ${next}</span><span class="sdl"><i style="width:${Math.round(pct)}%"></i></span></span><span class="e"><b>${fmtNim(sd.earned.total)}</b><small>NIM earned</small></span></button>`
 }
 
 route('/showdown', async (root) => {
@@ -163,11 +168,11 @@ route('/friends', async (root) => {
   const card = (x: Friends['friends'][number], right: string) => `<div class="rw"><span class="avs" style="position:relative">${avatar(x.avatar, 'av', x.frame)}<span class="dot ${x.online ? 'on' : ''}" style="position:absolute;right:-2px;bottom:-2px"></span></span><span class="nm"><b>${esc(x.name)}${lvBadge(x.level, 20)}</b><span>${x.online ? 'Online now' : 'Offline'}</span></span><span class="act">${right}</span></div>`
   const draw = () => {
     if (!f) {
-      root.innerHTML = `${topbar('Friends')}<div class="scroll">${err ? errBox(err) : `<div class="center">${pipImg('think')}</div>`}</div>`
+      root.innerHTML = `${topbar('Friends', 'none')}<div class="scroll">${err ? errBox(err) : `<div class="center">${pipImg('think')}</div>`}</div>${tabs('Friends')}`
       return
     }
     const picking = pick ? f.friends.find((x) => x.address === pick) : undefined
-    root.innerHTML = `${topbar('Friends')}<div class="scroll" style="gap:14px">
+    root.innerHTML = `${topbar('Friends', 'none')}<div class="scroll" style="gap:14px">
       ${f.challenges.length ? `<div class="lab" style="margin:0">Challenges for you</div><div class="lob">${f.challenges.map((c) => `<button class="rw lobr" data-act="join" data-code="${esc(c.code)}"><span class="avs" style="background:${GLYPH_BG[c.game]};border-radius:10px;padding:4px">${glyph(c.game)}</span><span class="nm"><b>${esc(c.from.name)}</b><span>${esc(GAMES[c.game as GameId]?.name ?? c.game)} · ${MODE_NAME[c.mode]}</span></span><span class="am"><b>${c.mode === 'play' ? 'Free' : c.stake + ' NIM'}</b><span>Accept</span></span></button>`).join('')}</div>` : ''}
       ${f.incoming.length ? `<div class="lab" style="margin:0">Friend requests</div><div class="lob">${f.incoming.map((x) => card(x, `<button class="btn ghost" data-act="decline" data-a="${esc(x.address)}" aria-label="Decline">${ic('x', 's16')}</button><button class="btn gold" data-act="accept" data-a="${esc(x.address)}">${ic('check', 's16')}Accept</button>`)).join('')}</div>` : ''}
       <div class="lab" style="margin:0">Your friends<small>${f.friends.filter((x) => x.online).length} online</small></div>
@@ -179,7 +184,7 @@ route('/friends', async (root) => {
       <div class="sec"><div class="lab">Add a friend</div><form class="addf" id="addf"><div class="field">${ic('user-plus')}<input id="fcode" placeholder="Friend code" maxlength="8" autocapitalize="characters" autocomplete="off" value="${esc(code)}" enterkeyhint="go" aria-label="Friend code"></div><button class="btn gold sm" type="submit" style="height:52px" ${code.replace(/[^A-Za-z0-9]/g, '').length < 6 ? 'disabled' : ''} id="addb">Add</button></form></div>
       ${f.recent.length ? `<div class="lab" style="margin:0">Recent opponents</div><div class="lob">${f.recent.map((x) => card(x, x.asked ? '<span class="chip">Asked</span>' : `<button class="btn ghost" data-act="request" data-a="${esc(x.address)}">${ic('user-plus', 's16')}Add</button>`)).join('')}</div>` : ''}
       ${err ? errBox(err) : ''}
-    </div>${picking ? `<div class="scrim" data-act="px"></div><div class="sheet mk" role="dialog" aria-label="Pick a game"><div class="grab"></div><div class="sh-h" style="align-items:center"><div><div class="sh-t">Challenge ${esc(picking.name)}</div><div class="sub">Pick a game</div></div><button class="sh-x" data-act="px" aria-label="Close">${ic('x', 's20')}</button></div><div class="pick">${(Object.keys(GAMES) as GameId[]).filter((g) => !isSoon(g) && g !== 'splat').map((g) => `<button class="pc" data-act="cgame" data-id="${g}">${esc(GAMES[g].name)}</button>`).join('')}</div></div>` : ''}`
+    </div>${tabs('Friends')}${picking ? `<div class="scrim" data-act="px"></div><div class="sheet mk" role="dialog" aria-label="Pick a game"><div class="grab"></div><div class="sh-h" style="align-items:center"><div><div class="sh-t">Challenge ${esc(picking.name)}</div><div class="sub">Pick a game</div></div><button class="sh-x" data-act="px" aria-label="Close">${ic('x', 's20')}</button></div><div class="pick">${(Object.keys(GAMES) as GameId[]).filter((g) => !isSoon(g) && g !== 'splat').map((g) => `<button class="pc" data-act="cgame" data-id="${g}">${esc(GAMES[g].name)}</button>`).join('')}</div></div>` : ''}`
   }
   const load = async () => {
     clearTimeout(timer)
@@ -217,6 +222,7 @@ route('/friends', async (root) => {
     request: (el) => doAct('request', { address: el.dataset.a }),
     challenge: (el) => ((pick = el.dataset.a!), sfx('ui/select'), draw()),
     px: () => ((pick = null), sfx('ui/back'), draw()),
+    tab: () => sfx('ui/select', 0.4),
     cgame: (el) => {
       const x = f?.friends.find((y) => y.address === pick)
       if (!x) return

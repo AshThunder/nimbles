@@ -103,6 +103,7 @@ export const TABS = [
   ['gamepad-2', 'Play', '/'],
   ['piggy-bank', 'Jar', '/jar'],
   ['trophy', 'Rank', '/rank'],
+  ['users', 'Friends', '/friends'],
   ['message-circle', 'Nimo', '/pip'],
 ] as const
 export const tabs = (on: string) =>

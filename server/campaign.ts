@@ -346,6 +346,22 @@ export class Campaign {
     }
   }
 
+  /** The weekly skill board as players see it: names and wins only, never prize amounts. */
+  weekBoard(a: string, now = Date.now()) {
+    const n = weekCount(this.window)
+    let wk = weekIndex(this.window, now)
+    if (wk < 0) wk = now >= this.window.end ? n - 1 : -1
+    const range = wk >= 0 ? weekRange(this.window, wk) : null
+    const all = wk >= 0 ? this.board(wk).filter((r) => r.wins > 0) : []
+    const row = (r: { address: string; wins: number }, i: number) => {
+      const p = this.db.profiles[r.address]
+      return { rank: i + 1, name: p?.name ?? 'Player', avatar: p?.avatar ?? '', frame: p?.frame ?? '', wins: r.wins, me: r.address === a }
+    }
+    const top = all.slice(0, RULES.leaderboardTop).map(row)
+    const mi = all.findIndex((r) => r.address === a)
+    return { week: wk, weeks: n, start: range?.start ?? this.window.start, endsAt: range?.end ?? this.window.end, top: RULES.leaderboardTop, live: this.live(now), rows: top, me: mi >= RULES.leaderboardTop ? row(all[mi], mi) : null }
+  }
+
   jarOf(a: string, now = Date.now()) {
     const p = this.db.profiles[a]
     const j = p?.cjar ?? { luna: 0, unlockAt: 0, startAt: 0 }

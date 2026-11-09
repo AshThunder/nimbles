@@ -93,12 +93,15 @@ export type Showdown = {
   history: { note: string; luna: number; wallet: number; jar: number; status: 'paid' | 'pending'; at: number; tx?: string }[]
   jar: { luna: number; unlockAt: number; locked: boolean; early: { fee: number; pct: number; net: number } }
 }
+export type ShowdownBoard = { week: number; weeks: number; start: number; endsAt: number; top: number; live: boolean; rows: SdRow[]; me: SdRow | null }
+export type SdRow = { rank: number; name: string; avatar: string; frame: string; wins: number; me: boolean }
 export type LobbyItem = { code: string; game: string; mode: string; stake: number; topic?: string; host: { name: string; avatar: string; frame: string }; players: number; size: number; waitingSec: number }
 export type FriendCard = { address: string; name: string; avatar: string; frame: string; level: number; online: boolean; asked?: boolean }
 export type Friends = { code: string; friends: FriendCard[]; recent: FriendCard[]; incoming: FriendCard[]; challenges: { code: string; game: string; mode: string; stake: number; from: FriendCard }[] }
 
 export const api = {
   showdown: () => call<Showdown>('GET', '/showdown'),
+  showdownBoard: () => call<ShowdownBoard>('GET', '/showdown/board'),
   showdownWithdraw: (early = false) => call<{ tx: string; luna: number; fee: number }>('POST', '/showdown/jar/withdraw', { early }),
   lobby: (game?: string, mode?: string) => call<{ open: LobbyItem[] }>('GET', `/lobby?game=${game ?? ''}&mode=${mode ?? ''}`),
   friends: () => call<Friends>('GET', '/friends'),
