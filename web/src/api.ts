@@ -85,10 +85,11 @@ export type Showdown = {
   steps: {
     welcome: { done: number; need: number; real: number; needReal: number; got: boolean }
     friends: { opponents: number; need: number; unlocked: boolean; friends: number }
-    invites: { rewarded: number; max: number }
+    invites: { rewarded: number; max: number; need: number; list: { name: string; done: number; need: number; real: boolean; earned: number }[] }
     nimo: { today: number; perDay: number; capped: boolean }
     week: { index: number; wins: number; rank: number; top: number; endsAt: number }
   }
+  byStep: Partial<Record<'welcome' | 'friend' | 'invite' | 'nimo' | 'leaderboard', number>>
   capped: boolean
   history: { note: string; luna: number; wallet: number; jar: number; status: 'paid' | 'pending'; at: number; tx?: string }[]
   jar: { luna: number; unlockAt: number; locked: boolean; early: { fee: number; pct: number; net: number } }

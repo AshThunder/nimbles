@@ -45,7 +45,7 @@ export class Social {
     const me = this.must(a)
     const code = String(codeIn || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^NF/, '')
     const them = Object.values(this.db.profiles).find((p) => p.friendCode === code)
-    if (!them) throw bad('No player with that friend code', 404)
+    if (!them) throw bad('No player with that invite code', 404)
     if (them.address === a) throw bad('That is your own code')
     if ((me.friendList ?? []).length >= MAX_FRIENDS) throw bad('Your friends list is full')
     // a brand new player who arrived through a friend's code is that friend's invite. Set once, never changed
@@ -60,7 +60,7 @@ export class Social {
     const me = this.must(a)
     const them = this.db.profiles[to]
     if (!them || them.address === a) throw bad('Unknown player', 404)
-    if (!me.friends.includes(to)) throw bad('You can ask players you have played. Or share your friend code')
+    if (!me.friends.includes(to)) throw bad('You can ask players you have played. Or share your invite code')
     if ((me.friendIn ?? []).includes(to)) return this.accept(a, to)
     if ((me.friendList ?? []).includes(to)) return this.list(a)
     me.friendOut = [...new Set([...(me.friendOut ?? []), to])].slice(-50)

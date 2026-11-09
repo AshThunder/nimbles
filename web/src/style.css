@@ -635,7 +635,8 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .lvl .pick{flex:1;flex-wrap:nowrap;gap:6px}
 .lvl .pc{flex:1;justify-content:center;padding:0 6px;height:40px}
 .lvl .pc.on{padding-left:6px}
-.stkrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stkrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stkrow .pc.cus{grid-column:span 2;font-size:16px}
 .stkrow .pc{justify-content:center;height:48px;font-size:18px;font-weight:800;padding:0 6px;gap:6px}
 .stkrow .pc.on{padding-left:6px}
 .stkrow .pc small{font-family:var(--mono);font-size:11px;font-weight:400;opacity:.7}
@@ -808,8 +809,10 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .dot.on{background:var(--green)}
 .rw .act{display:flex;gap:6px;flex:none}
 .rw .act .btn{height:36px;font-size:14px;padding:0 10px;border-radius:10px;box-shadow:0 3px 0 var(--ink)}
-.fcode{display:flex;align-items:center;gap:10px}
-.fcode .cd2{font-family:var(--mono);font-size:26px;line-height:32px;font-weight:500;letter-spacing:.12em;flex:1}
+.fcode{display:flex;flex-direction:column;align-items:stretch;gap:10px}
+.fcode .fbtn{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fcode .fbtn .btn{width:100%;min-width:0;justify-content:center;height:48px;min-height:48px;font-size:15px;box-shadow:0 4px 0 var(--ink)}
+.fcode .cd2{font-family:var(--mono);font-size:28px;line-height:36px;font-weight:500;letter-spacing:.16em;text-align:center;background:var(--raised);border-radius:12px;padding:8px 0}
 .addf{display:flex;gap:8px}
 .addf .field{flex:1;min-width:0;padding:0 14px}
 .addf .field input{border:0;outline:0;background:transparent;font:inherit;font-weight:700;width:100%;height:48px;text-transform:uppercase;color:var(--ink)}
@@ -877,3 +880,22 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .jarc .m{align-items:flex-start;margin-top:auto}
 .jarc .m .i{margin-top:0}
 .jarc .m span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* Showdown steps: each step says it pays, and shows what it earned */
+.chk .it .tx .th{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--ink)}
+.chk .it .tx .etag{display:inline-flex;align-items:center;gap:3px;height:20px;padding:0 8px;border-radius:10px;border:1.5px solid var(--ink);font-size:11px;font-weight:800;line-height:14px;color:var(--ink);background:var(--card);white-space:nowrap}
+.chk .it .tx .etag.got{background:var(--green);border-color:var(--green);color:#fff}
+.chk .it .tx .etag .i{width:12px;height:12px;stroke-width:3}
+.chk .it .tx .invl{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.chk .it .tx .ivr{display:flex;justify-content:space-between;gap:8px;align-items:center;background:var(--raised);border-radius:10px;padding:6px 10px}
+.chk .it .tx .ivr b{font-size:13px;line-height:18px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.chk .it .tx .ivr span{font-family:var(--mono);font-size:12px;line-height:16px;color:var(--ink2);white-space:nowrap;display:inline-flex;align-items:center;gap:3px}
+.chk .it .tx .ivr.ok{background:var(--green-tint)}
+.chk .it .tx{min-width:0}
+.chk .it .tx .ivr .em{white-space:normal;font-family:var(--sans);font-size:12px}
+/* Custom stake */
+.stkf{margin-top:10px;padding:0 14px;display:flex;align-items:center;gap:8px}
+.stkf input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:20px;font-weight:800;height:52px;color:var(--ink)}
+.stkf .u{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.stkf.bad{border-color:var(--coral)}
+.stkh{font-size:13px;line-height:18px;color:var(--ink2);margin-top:6px;min-height:18px}
+.stkh.bad{color:var(--coral);font-weight:700}

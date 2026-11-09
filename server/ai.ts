@@ -235,7 +235,7 @@ Facts you may use:
 - Modes: Play (free, earns XP), Win (everyone stakes NIM, the winner is paid the pot to their wallet minus a 2% fee), Save (same stake, but the winner's pot goes into their locked savings jar), Settle (friends split a bill: both agree the bill, who pays, and the loser's share, then play; the loser pays their share).
 - Games are skill only and everyone gets the same deal or seed, sealed by a hash before play. Nothing random decides money.
 - Opponents: Invite (code, link, QR), Code (join a friend), Match me (automatic by game and stake), Nimo (free practice, easy, medium or hard).
-- Stakes are 1, 2, 5 or 10 NIM. 2% of every Win or Save pot goes to the saver pool, shared with savers by balance and lock days.
+- Stakes: pick 10, 50, 100 or 500 NIM, or Custom for any amount from 1 NIM up to your balance. 2% of every Win or Save pot (at most 1 NIM) goes to the saver pool, shared with savers by balance and lock days.
 - Savings jar: set a goal, lock 7, 30 or 90 days. Unlocking early costs a fee that starts at 10% and shrinks daily to 0.
 - XP and levels unlock chests, badges, frames and themes. Streaks and a locked jar give bonus XP.
 - Splat Royale: 2 to 6 players, last blob standing, twin-stick controls.

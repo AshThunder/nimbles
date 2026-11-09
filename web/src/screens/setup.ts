@@ -3,7 +3,7 @@ import { actions, avatar, esc, glyph, GLYPH_BG, ic, keepScroll, lvBadge, pipImg,
 import { S, go, route } from '../state'
 import { coin, errBox, topbar } from '../ui'
 import { billOf, draftBody, draftOk, newDraft, termsActions, termsInput, termsLine, termsSheet, type TermsDraft } from './terms'
-import { GAMES, STAKES, isSoon, fmtNim, type GameId, type Mode, type OppKind, type PipLevel } from '../../../shared/types'
+import { GAMES, MIN_STAKE_NIM, STAKES, cleanStake, isSoon, fmtNim, type GameId, type Mode, type OppKind, type PipLevel } from '../../../shared/types'
 import { toLuna } from '../../../shared/economy'
 import { saveFee } from '../../../shared/rewards'
 
@@ -25,6 +25,7 @@ type Setup = {
   receipt?: { items: { name: string; price: number }[]; total: number; currency: string; merchant?: string }
   busy?: boolean; err?: string; scanning?: boolean; sheet?: boolean
   topicLocked: boolean
+  custom?: boolean; customText?: string // Custom stake: the typed amount
   open?: LobbyItem[] // Match me: open challenges for this game and mode
   suggest?: LobbyItem // the nearest open stake, waiting for the player to confirm
   challenge?: { address: string; name: string } // a direct challenge to a friend
@@ -36,7 +37,7 @@ route('/g/:id', (root, p) => {
   if (!g || isSoon(id)) return go('/')
   const canStake = !(S.wallet.kind === 'preview' && !S.cfg.mock)
   const st: Setup = {
-    mode: id === 'lastbite' ? 'settle' : 'play', opp: id === 'lastbite' ? 'invite' : 'pip', pip: 'med', stake: 2, d: newDraft(),
+    mode: id === 'lastbite' ? 'settle' : 'play', opp: id === 'lastbite' ? 'invite' : 'pip', pip: 'med', stake: STAKES[0], d: newDraft(),
     topic: TOPICS[0], count: 5, note: '', code: '', seats: 4, payout: 'wta', topicLocked: true,
   }
   try {
@@ -63,8 +64,17 @@ route('/g/:id', (root, p) => {
     const net = pot - saveFee(pot)
     return fmtNim(royale && st.payout === 'top3' && players() >= 3 ? net - Math.floor((net * 30) / 100) - Math.floor((net * 10) / 100) : net)
   }
+  /** Why this stake cannot be used, or ''. The balance is the only ceiling: there is no fixed maximum. */
+  const stakeErr = () => {
+    if (!paid() || st.opp === 'join') return ''
+    if (Number.isNaN(st.stake)) return st.custom && !(st.customText ?? '').trim() ? 'Enter an amount' : `Enter at least ${MIN_STAKE_NIM} NIM`
+    // Pay reports spendable NIM. The mock chain's stub wallets read 0, so there only a real number is checked
+    if (typeof S.balance === 'number' && (!S.cfg.mock || S.balance > 0) && toLuna(st.stake) > S.balance) return `That is more than your ${fmtNim(S.balance)} NIM. Lower the stake or add NIM`
+    return ''
+  }
   const valid = () => {
     if (st.opp === 'join') return st.code.replace(/[^A-Za-z0-9]/g, '').length >= 7
+    if (stakeErr()) return false
     if (st.mode === 'settle') return draftOk(st.d)
     if (id === 'trivia') return st.topic.trim().length >= 2
     return true
@@ -72,6 +82,8 @@ route('/g/:id', (root, p) => {
   const summary = () => {
     if (st.opp === 'join') return ['Mode and stake come from the match you join', '']
     if (st.mode === 'play') return ['Free play, earns XP', 'No NIM at risk']
+    if (paid() && Number.isNaN(st.stake)) return ['Pick or enter a stake', '']
+    if (paid() && stakeErr()) return ['Lower the stake to play', 'over your balance']
     if (paid()) {
       const where = st.mode === 'win' ? 'paid to wallet' : 'into the jar'
       if (royale && st.payout === 'top3' && st.seats >= 3) return [`<b>${st.stake} NIM</b> each · top 3 paid, 1st <b>${prize()}</b>`, where]
@@ -80,7 +92,7 @@ route('/g/:id', (root, p) => {
     return [place() ? `Bill <b>${billOf(st.d) || 0} NIM</b> · split by place` : `Bill <b>${billOf(st.d) || 0} NIM</b> · loser pays ${st.d.pct}%`, place() ? 'everyone agrees first' : 'both agree first']
   }
   const cta = () => {
-    const n = paid() ? ` · ${st.stake} NIM` : ''
+    const n = paid() && !Number.isNaN(st.stake) ? ` · ${st.stake} NIM` : ''
     if (st.opp === 'join') return ['Join match', 'scan-line']
     if (st.opp === 'pip') return [`Start vs Nimo (${LEVELS[st.pip]})`, 'zap']
     if (st.opp === 'invite' && st.challenge) return [`Challenge ${st.challenge.name}${n}`, 'swords']
@@ -123,7 +135,14 @@ route('/g/:id', (root, p) => {
     if (!list.length) return `<div class="sec"><div class="lab">Open challenges</div><div class="hint">None waiting right now. Yours will show here for others</div></div>`
     return `<div class="sec"><div class="lab">Open challenges<small>${list.length} waiting</small></div><div class="lob">${list.slice(0, 6).map(lobRow).join('')}</div></div>`
   }
-  const stakeBlock = () => `<div class="sec"><div class="lab">Stake<small>NIM each</small></div><div class="stkrow" role="radiogroup" aria-label="Stake">${STAKES.map((s) => `<button class="pc stk ${st.stake === s ? 'on' : ''}" data-act="stake" data-s="${s}" role="radio" aria-checked="${st.stake === s}">${st.stake === s ? ic('check') : ''}${s}<small>NIM</small></button>`).join('')}</div></div>`
+  const stakeBlock = () => {
+    const chip = (v: number) => { const on = !st.custom && st.stake === v; return `<button class="pc stk ${on ? 'on' : ''}" data-act="stake" data-s="${v}" role="radio" aria-checked="${on}">${on ? ic('check') : ''}${v}<small>NIM</small></button>` }
+    const err = stakeErr()
+    const bal = typeof S.balance === 'number' ? `You have ${fmtNim(S.balance)} NIM` : `At least ${MIN_STAKE_NIM} NIM`
+    return `<div class="sec"><div class="lab">Stake<small>NIM each</small></div><div class="stkrow" role="radiogroup" aria-label="Stake">${STAKES.map(chip).join('')}<button class="pc stk cus ${st.custom ? 'on' : ''}" data-act="stkc" role="radio" aria-checked="${!!st.custom}">${st.custom ? ic('check') : ic('pencil', 's16')}Custom</button></div>
+      ${st.custom ? `<form class="field stkf ${err && (st.customText ?? '').trim() ? 'bad' : ''}" id="stkf" autocomplete="off"><input id="stkin" inputmode="decimal" enterkeyhint="done" placeholder="Amount" value="${esc(st.customText ?? '')}" aria-label="Custom stake in NIM" aria-describedby="stkerr"><span class="u">NIM</span></form>` : ''}
+      <div class="stkh ${err ? 'bad' : ''}" id="stkerr" role="${err ? 'alert' : 'note'}">${err ? esc(err) : st.custom ? bal : ''}</div></div>`
+  }
   const settleCard = () => `<div class="sec"><div class="lab">Bill details</div><button class="bdc" data-act="bd"><span class="ic">${ic('receipt')}</span><span class="tx"><span class="n">${billOf(st.d) || 0} NIM bill</span><span class="m">${termsLine(st.d, place())}</span></span><span class="chip" style="background:var(--gold)">${ic('pencil', 's16')}Edit</span></button></div>`
   const sheet = () => {
     const r = st.receipt
@@ -184,6 +203,7 @@ route('/g/:id', (root, p) => {
 
   root.addEventListener('submit', (e) => {
     e.preventDefault()
+    if ((e.target as HTMLElement).id === 'stkf') return void ($('#stkin', root) as HTMLInputElement | null)?.blur()
     if ((e.target as HTMLElement).id !== 'tform') return
     lockTopic()
   })
@@ -206,6 +226,17 @@ route('/g/:id', (root, p) => {
     }
     termsInput(st.d, t, root, place())
     if (t.id === 'code') st.code = t.value.toUpperCase()
+    if (t.id === 'stkin') {
+      st.customText = t.value.replace(/[^0-9.,]/g, '').replace(',', '.')
+      if (t.value !== st.customText) t.value = st.customText
+      st.stake = cleanStake(st.customText || 'x')
+      const err = stakeErr()
+      const h = $('#stkerr', root)
+      if (h) { h.textContent = err || (typeof S.balance === 'number' ? `You have ${fmtNim(S.balance)} NIM` : `At least ${MIN_STAKE_NIM} NIM`); h.className = 'stkh' + (err ? ' bad' : ''); h.setAttribute('role', err ? 'alert' : 'note') }
+      $('#stkf', root)?.classList.toggle('bad', !!err && !!st.customText)
+      const g = $('#go', root)
+      if (g && !st.busy) { const [ct, ci] = cta(); g.innerHTML = ic(ci, 's20') + ct }
+    }
     const b = $('#go', root) as HTMLButtonElement | null
     if (b) b.disabled = !valid() || !!st.busy
     const [c1, c2] = summary()
@@ -296,7 +327,15 @@ route('/g/:id', (root, p) => {
     count: (el) => ((st.count = Number(el.dataset.n)), sfx('ui/select'), draw()),
     seats: (el) => ((st.seats = Number(el.dataset.n)), sfx('ui/select'), draw()),
     payout: (el) => ((st.payout = el.dataset.k as 'wta' | 'top3'), sfx('ui/select'), draw()),
-    stake: (el) => ((st.stake = Number(el.dataset.s)), sfx('ui/select'), draw()),
+    stake: (el) => ((st.stake = Number(el.dataset.s)), (st.custom = false), sfx('ui/select'), draw()),
+    stkc: () => {
+      st.custom = true
+      st.stake = cleanStake(st.customText || 'x')
+      sfx('ui/select')
+      draw()
+      const inp = $('#stkin', root) as HTMLInputElement | null
+      inp?.focus({ preventScroll: true })
+    },
     ...termsActions(st.d, () => (sfx('ui/select'), draw())),
     bd: () => ((st.sheet = true), sfx('ui/select'), draw()),
     shx: () => ((st.sheet = false), sfx('ui/back'), draw()),

@@ -53,7 +53,8 @@ async function boot() {
   // ?join=NMB-XXXX becomes a hash route so links from outside Nimiq Pay still land on the right screen
   const q = new URLSearchParams(location.search)
   if (q.get('join')) location.hash = '/join/' + q.get('join')
-  if (q.get('friend')) location.hash = '/friend/' + q.get('friend')
+  const inv = q.get('invite') || q.get('friend') // ?friend= kept for links already shared
+  if (inv) location.hash = '/friend/' + inv
   if (location.pathname.replace(/\/$/, '') === '/admin' && !location.hash) location.hash = '/admin'
   try {
     S.cfg = await api.config()

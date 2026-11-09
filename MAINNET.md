@@ -13,7 +13,7 @@ Mainnet is the same code behind a config switch. Nothing here runs until you dep
 | Nimiq network id | 5 | 24 |
 | RPC | `rpc.testnet.nimiqwatch.com` | `rpc.nimiqwatch.com`. `NIMIQ_RPC_URL` overrides it, comma separate several for failover |
 | Data | `DATA_DIR/db.json` | `DATA_DIR/mainnet/db.json`, stamped `mainnet`, on its own Fly volume |
-| Stake cap | 1000 | `MAX_STAKE_NIM` (25 default, 10 in `fly.mainnet.toml`) |
+| Stake cap | none (`fly.toml` sets 100) | none by default: presets 10/50/100/500 NIM or Custom from 1 NIM, up to the player's balance. `MAX_STAKE_NIM` sets a cap if ever needed |
 | Payout fee | 0 | 0. `PAY_FEE_LUNA` sets a fee if validators ever stop including free txs |
 
 Guards: a mainnet server will not load a database stamped testnet or an unstamped (older testnet or mock) one. The escrow refuses a payout it cannot cover. Payouts that fail are retried six times, then every 5 minutes for about 4 hours. The server logs escrow balance against what it owes every 5 minutes and logs `SHORTFALL` if it holds less.

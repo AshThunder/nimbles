@@ -30,8 +30,23 @@ const eng = () => app.engine as any
 
 test('Win: needs a real stake, never against Nimo', async () => {
   const t = await login(addr(1), 'W')
-  assert.equal((await call(t, 'POST', '/matches', { game: 'trivia', mode: 'win', stake: 3, opp: 'invite', config: { topic: 'Science', count: 5 } })).status, 400)
+  for (const bad of [0, 0.5, -5, 'abc', null]) assert.equal((await call(t, 'POST', '/matches', { game: 'trivia', mode: 'win', stake: bad, opp: 'invite', config: { topic: 'Science', count: 5 } })).status, 400, `stake ${bad} is refused`)
   assert.equal((await call(t, 'POST', '/matches', { game: 'trivia', mode: 'win', stake: 2, opp: 'pip' })).status, 400)
+})
+
+test('stakes are open: any amount from 1 NIM, no list and no fixed maximum, rounded to 0.01', async () => {
+  const t = await login(addr(40), 'Open')
+  for (const [stake, want] of [[1, 1], [3, 3], [37.5, 37.5], [12.345, 12.35], [500, 500], [2500, 2500]] as const) {
+    const r = await call(t, 'POST', '/matches', { game: 'trivia', mode: 'win', stake, opp: 'invite', config: { topic: 'Science', count: 5 } })
+    assert.equal(r.status, 200, `stake ${stake}: ${JSON.stringify(r.j)}`)
+    assert.equal(r.j.stake, want)
+    await call(t, 'POST', `/matches/${r.j.id}/cancel`)
+  }
+  const prev = process.env.MAX_STAKE_NIM
+  process.env.MAX_STAKE_NIM = '100' // an operator can still set a cap on purpose
+  assert.equal((await call(t, 'POST', '/matches', { game: 'trivia', mode: 'win', stake: 101, opp: 'invite', config: { topic: 'Science', count: 5 } })).status, 400)
+  if (prev === undefined) delete process.env.MAX_STAKE_NIM
+  else process.env.MAX_STAKE_NIM = prev
 })
 
 test('Win duel: the winner is paid to their wallet, pot minus 2%, nothing goes to the jar', async () => {

@@ -229,9 +229,17 @@ test('invites: a new player who adds a friend code and plays 5 matches earns the
   assert.equal(app.engine.db.profiles[guest].invitedBy, host)
   for (let i = 0; i < 4; i++) finished([guest], { mode: 'play', opp: 'pip', bot: true })
   assert.equal(rewardsOf(host).filter((r) => r.pool === 'invite').length, 0)
+  // the inviter sees each invited friend's own progress, and nothing earned yet (no amount shown before it is earned)
+  let sd = (await call(th, 'GET', '/showdown')).j
+  assert.deepEqual(sd.steps.invites.list.map((x: any) => [x.done, x.need, x.earned]), [[4, 5, 0]])
+  assert.equal(sd.byStep.invite, undefined)
   finished([guest, other], { mode: 'play' })
   assert.equal(rewardsOf(host).filter((r) => r.pool === 'invite').length, 1)
   assert.equal(rewardsOf(host)[0].luna, 100 * L)
+  sd = (await call(th, 'GET', '/showdown')).j
+  assert.equal(sd.steps.invites.list[0].earned, 100 * L, 'once earned, the step shows what it paid')
+  assert.equal(sd.byStep.invite, 100 * L)
+  assert.ok(!JSON.stringify(sd).includes('budget') && !JSON.stringify(sd.steps).includes('amount'), 'no budget or prices in the player view')
 })
 
 test('weekly leaderboard: top wins at the end of the week get the fixed tiers, once', async () => {
@@ -287,24 +295,28 @@ test('admin: only the owner wallet, exact match, on every admin call', async () 
   await call(ta, 'POST', '/admin/campaign', { paused: false, amounts: { friend: 20 } })
 })
 
-test('match me lobby: open challenges are listed, the nearest stake is offered and confirmed by joining', async () => {
+test('match me lobby: open challenges are listed, the nearest stake within 50% is offered and confirmed by joining', async () => {
   const [a, b] = [addr(101), addr(102)]
   const ta = await login(a), tb = await login(b)
-  const host = (await call(ta, 'POST', '/matches', { game: 'darts', mode: 'win', stake: 5, opp: 'auto' })).j
+  const host = (await call(ta, 'POST', '/matches', { game: 'darts', mode: 'win', stake: 50, opp: 'auto' })).j
   assert.equal(host.status, 'lobby')
   const list = (await call(tb, 'GET', '/lobby?game=darts&mode=win')).j.open
-  assert.ok(list.some((x: any) => x.code === host.code && x.stake === 5))
+  assert.ok(list.some((x: any) => x.code === host.code && x.stake === 50))
   assert.equal((await call(ta, 'GET', '/lobby')).j.open.some((x: any) => x.code === host.code), false, 'never your own')
-  const s = (await call(tb, 'POST', '/matches', { game: 'darts', mode: 'win', stake: 2, opp: 'auto' })).j
+  // 40 NIM: 50 is within ±50% of 40, so it is offered, never joined automatically
+  const s = (await call(tb, 'POST', '/matches', { game: 'darts', mode: 'win', stake: 40, opp: 'auto' })).j
   assert.equal(s.suggest.code, host.code)
-  assert.equal(s.suggest.stake, 5)
-  // too far apart (1 vs 5) is not offered
-  const far = (await call(tb, 'POST', '/matches', { game: 'darts', mode: 'win', stake: 1, opp: 'auto' })).j
+  assert.equal(s.suggest.stake, 50)
+  // a custom 75 is also close enough (50 is 33% below)
+  assert.equal((await call(tb, 'POST', '/matches', { game: 'darts', mode: 'win', stake: 75, opp: 'auto' })).j.suggest?.code, host.code)
+  // too far apart (10 vs 50) is not offered: a waiting match of its own is opened instead
+  const far = (await call(tb, 'POST', '/matches', { game: 'darts', mode: 'win', stake: 10, opp: 'auto' })).j
   assert.equal(far.suggest, undefined)
+  assert.equal(far.status, 'lobby')
   await call(tb, 'POST', `/matches/${far.id}/cancel`)
   const j = (await call(tb, 'POST', '/matches/join', { code: s.suggest.code })).j
   assert.equal(j.status, 'funding')
-  assert.equal(j.stake, 5)
+  assert.equal(j.stake, 50)
 })
 
 test('friends: request a recent opponent, accept, online, and challenge directly', async () => {

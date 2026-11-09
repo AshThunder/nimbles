@@ -335,15 +335,31 @@ export class Campaign {
       steps: {
         welcome: { done: Math.min(s.done, RULES.welcomeMatches), need: RULES.welcomeMatches, real: Math.min(s.human, RULES.welcomeMinHuman), needReal: RULES.welcomeMinHuman, got: !!this.st.rewards[`welcome:${a}`] },
         friends: { opponents: Math.min(s.opps.length, RULES.friendMinOpponents), need: RULES.friendMinOpponents, unlocked: s.opps.length >= RULES.friendMinOpponents, friends },
-        invites: { rewarded: s.invites, max: RULES.inviteMax },
+        invites: { rewarded: s.invites, max: RULES.inviteMax, need: RULES.inviteMatches, list: this.invitesOf(a) },
         nimo: { today: s.nimoDay === campaignDay(now) ? s.nimoToday : 0, perDay: RULES.nimoPerDay, capped: s.nimoLuna >= nimToLuna(RULES.nimoLifetimeNim) },
         week: { index: wk, wins: wk >= 0 ? s.weeks[String(wk)]?.wins ?? 0 : 0, rank: rank >= 0 ? rank + 1 : 0, top: RULES.leaderboardTop, endsAt: wk >= 0 ? weekRange(this.window, wk).end : 0 },
       },
+      // what each step has actually earned so far (never the reward price before it is earned)
+      byStep: mine.reduce((x, r) => ((x[r.pool] = (x[r.pool] ?? 0) + r.luna), x), {} as Record<string, number>),
       capped: this.earnedBy(a) >= nimToLuna(RULES.playerCapNim),
       history: mine.sort((x, y) => y.at - x.at).slice(0, 20).map((r) => ({ note: r.note, luna: r.luna, wallet: r.wallet, jar: r.jar, status: r.status === 'paid' ? 'paid' : 'pending', at: r.at, tx: r.tx })),
       jar: this.jarOf(a, now),
       serverNow: now,
     }
+  }
+
+  /** Players this person invited, with their own progress toward the invite step. Names and match counts only. */
+  invitesOf(a: string) {
+    return Object.values(this.db.profiles)
+      .filter((p) => p.invitedBy === a)
+      .map((p) => {
+        const st = this.st.players[p.address]
+        const r = this.st.rewards[`invite:${p.address}`]
+        const earned = r && r.player === a && r.status !== 'cancelled' ? r.luna : 0
+        return { name: p.name, done: Math.min(st?.done ?? 0, RULES.inviteMatches), need: RULES.inviteMatches, real: (st?.human ?? 0) >= RULES.inviteMinHuman, earned }
+      })
+      .sort((x, y) => Number(y.earned > 0) - Number(x.earned > 0) || y.done - x.done)
+      .slice(0, 20)
   }
 
   /** The weekly skill board as players see it: names and wins only, never prize amounts. */

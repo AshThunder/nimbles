@@ -6,7 +6,35 @@ import { errBox, pipRow, tabs, topbar, refreshBalance } from '../ui'
 import { GAMES, fmtNim, isSoon, type GameId } from '../../../shared/types'
 import { CAMPAIGN_NAME } from '../../../shared/campaign'
 
-const friendLink = (code: string) => `${location.origin}/?friend=${code}`
+const friendLink = (code: string) => `${location.origin}/?invite=${code}`
+
+/** Copy text in any webview: the Clipboard API first, then a hidden textarea. Returns false when both are blocked. */
+async function copyText(text: string) {
+  try { await navigator.clipboard.writeText(text); return true } catch { /* blocked in some webviews */ }
+  try {
+    const t = document.createElement('textarea')
+    t.value = text
+    t.setAttribute('readonly', '')
+    t.style.cssText = 'position:fixed;top:0;left:0;opacity:0'
+    document.body.appendChild(t)
+    t.select()
+    t.setSelectionRange(0, text.length)
+    const ok = document.execCommand('copy')
+    t.remove()
+    return ok
+  } catch { return false }
+}
+
+/** The native share sheet when the webview has one; otherwise copy the link and say so. A cancelled share does nothing. */
+async function shareInvite(code: string) {
+  const url = friendLink(code)
+  const text = `Add me on Nimbles and let's duel. My invite code is ${code}`
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
+  if (typeof nav.share === 'function' && (!nav.canShare || nav.canShare({ text, url }))) {
+    try { await nav.share({ title: 'Nimbles', text, url }); return } catch (e: any) { if (e?.name === 'AbortError') return }
+  }
+  toast((await copyText(`${text} ${url}`)) ? 'Link copied' : 'Your invite link is ' + url)
+}
 const dateText = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 const MODE_NAME: Record<string, string> = { play: 'Play', win: 'Win', save: 'Save', settle: 'Settle' }
 
@@ -34,7 +62,8 @@ route('/showdown', async (root) => {
   const load = async () => {
     try { sd = await api.showdown() } catch (e: any) { err = e.message }
   }
-  const item = (ok: boolean, title: string, sub: string, n = '') => `<div class="it ${ok ? 'ok' : ''}"><span class="bx">${ok ? ic('check') : ''}</span><span class="tx"><b>${title}</b><span>${sub}</span></span>${n ? `<span class="n">${n}</span>` : ''}</div>`
+  // Every step pays on its own. Before anything is earned the tag only says "Earns NIM"; after, it shows what that step really earned.
+  const item = (ok: boolean, title: string, sub: string, n: string, earned: number, more = '') => `<div class="it ${ok ? 'ok' : ''}"><span class="bx">${ok ? ic('check') : ''}</span><span class="tx"><span class="th"><b>${title}</b>${earned > 0 ? `<span class="etag got">${ic('check', 's16')}+${fmtNim(earned)} NIM</span>` : '<span class="etag">Earns NIM</span>'}</span><span>${sub}</span>${more}</span>${n ? `<span class="n">${n}</span>` : ''}</div>`
   const draw = () => {
     if (!sd) {
       root.innerHTML = `${topbar(CAMPAIGN_NAME)}<div class="scroll">${err ? errBox(err) : `<div class="center">${pipImg('think')}</div>`}</div>`
@@ -42,6 +71,10 @@ route('/showdown', async (root) => {
     }
     const s = sd.steps
     const jar = sd.jar
+    const by = sd.byStep ?? {}
+    const inv = s.invites.list.length
+      ? `<span class="invl">${s.invites.list.map((x) => `<span class="ivr ${x.earned > 0 ? 'ok' : ''}"><b>${esc(x.name)}</b><span>${x.earned > 0 ? `${ic('check', 's16')}+${fmtNim(x.earned)} NIM` : `${x.done}/${x.need} matches${x.done >= x.need && !x.real ? ' · needs a real-player match' : ''}`}</span></span>`).join('')}</span>`
+      : '<span class="invl"><span class="ivr"><span class="em">Nobody yet. Share your invite code from the Friends tab</span></span></span>'
     root.innerHTML = `${topbar(sd.name)}<div class="scroll" style="gap:14px">
       ${pipRow('cheer', sd.live ? `<b>Play friends, beat rivals, earn NIM.</b> Skill only, no luck. Half of what you earn is paid now, half is locked in your jar.` : '<b>The Showdown has ended.</b> Thanks for playing. Your locked rewards follow your jar rules.')}
       ${sd.paused ? '<div class="tip">Payouts are paused for a moment. Everything you earn is kept and paid later.</div>' : ''}
@@ -52,12 +85,13 @@ route('/showdown', async (root) => {
         ${sd.earned.pending > 0 ? `<div class="kv"><span>On its way</span><b>${fmtNim(sd.earned.pending)} NIM</b></div>` : ''}
       </div></div>
       <div class="lab" style="margin:0">How to earn<small>Ends ${dateText(sd.end - 1)}</small></div>
+      <div class="lab" style="margin:0;font-size:15px;line-height:20px">Each step pays on its own, as soon as you complete it</div>
       <div class="chk">
-        ${item(s.welcome.got, 'Welcome', `Finish ${s.welcome.need} matches, at least ${s.welcome.needReal} against a real player`, s.welcome.got ? '' : `${s.welcome.done}/${s.welcome.need}`)}
-        ${item(s.friends.unlocked, 'Friend duels', s.friends.unlocked ? 'Unlocked. Every finished staked duel with a friend earns, up to 3 a day per friend' : `Face ${s.friends.need} different players to unlock`, s.friends.unlocked ? `${s.friends.friends} friend${s.friends.friends === 1 ? '' : 's'}` : `${s.friends.opponents}/${s.friends.need}`)}
-        ${item(s.invites.rewarded >= s.invites.max, 'Invite friends', 'Earn when a friend you invite finishes 5 matches', `${s.invites.rewarded}/${s.invites.max}`)}
-        ${item(s.nimo.capped || s.nimo.today >= s.nimo.perDay, 'Beat Nimo on Hard', s.nimo.capped ? 'You earned all you can here. Try your friends' : `Up to ${s.nimo.perDay} wins a day count`, `${s.nimo.today}/${s.nimo.perDay}`)}
-        ${item(s.week.rank > 0 && s.week.rank <= s.week.top, 'Weekly skill board', s.week.index >= 0 ? `Top ${s.week.top} by wins in staked duels against real players. Week ends ${dateText(s.week.endsAt - 1)}` : 'Opens with the next week', s.week.rank > 0 ? '#' + s.week.rank : `${s.week.wins} wins`)}
+        ${item(s.welcome.got, 'Welcome', s.welcome.got ? 'Done. Earned for finishing your first matches' : `Earn NIM once you finish ${s.welcome.need} matches, at least ${s.welcome.needReal} against a real player`, s.welcome.got ? '' : `${s.welcome.done}/${s.welcome.need}`, by.welcome ?? 0)}
+        ${item(s.friends.unlocked, 'Friend duels', s.friends.unlocked ? 'Earn NIM for each staked duel you finish with a friend, up to 3 a day per friend' : `Earn NIM for each staked duel with a friend. Face ${s.friends.need} different players to unlock`, s.friends.unlocked ? `${s.friends.friends} friend${s.friends.friends === 1 ? '' : 's'}` : `${s.friends.opponents}/${s.friends.need}`, by.friend ?? 0)}
+        ${item(s.invites.rewarded >= s.invites.max, 'Invite friends', `Earn NIM for each friend who joins with your invite code and finishes ${s.invites.need} matches, up to ${s.invites.max} friends`, `${s.invites.rewarded}/${s.invites.max}`, by.invite ?? 0, inv)}
+        ${item(s.nimo.capped || s.nimo.today >= s.nimo.perDay, 'Beat Nimo on Hard', s.nimo.capped ? 'You earned all you can here. Try your friends' : `Earn NIM for each win against Nimo on Hard, up to ${s.nimo.perDay} wins a day`, `${s.nimo.today}/${s.nimo.perDay}`, by.nimo ?? 0)}
+        ${item(s.week.rank > 0 && s.week.rank <= s.week.top, 'Weekly skill board', s.week.index >= 0 ? `Earn NIM each week you finish in the top ${s.week.top} by wins in staked duels against real players. This week ends ${dateText(s.week.endsAt - 1)}` : 'Opens with the next week', s.week.rank > 0 ? '#' + s.week.rank : `${s.week.wins} wins`, by.leaderboard ?? 0)}
       </div>
       <div class="qrow"><button class="btn gold" data-act="friends">${ic('users', 's20')}Friends</button><button class="btn ghost" data-act="lobby">${ic('swords', 's20')}Match me</button></div>
       ${jar.luna > 0 ? `<div class="lab" style="margin:0">Locked rewards<small>${jar.locked ? 'Until ' + dateText(jar.unlockAt) : 'Unlocked'}</small></div>
@@ -176,12 +210,13 @@ route('/friends', async (root) => {
       ${f.challenges.length ? `<div class="lab" style="margin:0">Challenges for you</div><div class="lob">${f.challenges.map((c) => `<button class="rw lobr" data-act="join" data-code="${esc(c.code)}"><span class="avs" style="background:${GLYPH_BG[c.game]};border-radius:10px;padding:4px">${glyph(c.game)}</span><span class="nm"><b>${esc(c.from.name)}</b><span>${esc(GAMES[c.game as GameId]?.name ?? c.game)} · ${MODE_NAME[c.mode]}</span></span><span class="am"><b>${c.mode === 'play' ? 'Free' : c.stake + ' NIM'}</b><span>Accept</span></span></button>`).join('')}</div>` : ''}
       ${f.incoming.length ? `<div class="lab" style="margin:0">Friend requests</div><div class="lob">${f.incoming.map((x) => card(x, `<button class="btn ghost" data-act="decline" data-a="${esc(x.address)}" aria-label="Decline">${ic('x', 's16')}</button><button class="btn gold" data-act="accept" data-a="${esc(x.address)}">${ic('check', 's16')}Accept</button>`)).join('')}</div>` : ''}
       <div class="lab" style="margin:0">Your friends<small>${f.friends.filter((x) => x.online).length} online</small></div>
-      ${f.friends.length ? `<div class="lob">${f.friends.map((x) => card(x, `<button class="btn gold" data-act="challenge" data-a="${esc(x.address)}">${ic('swords', 's16')}Challenge</button>`)).join('')}</div>` : pipRow('happy', '<b>No friends yet.</b> Share your code, or add someone you played below')}
+      ${f.friends.length ? `<div class="lob">${f.friends.map((x) => card(x, `<button class="btn gold" data-act="challenge" data-a="${esc(x.address)}">${ic('swords', 's16')}Challenge</button>`)).join('')}</div>` : pipRow('happy', '<b>No friends yet.</b> Share your invite code, or add someone you played below')}
       <div class="card"><div class="tc">
-        <span class="sm2">Your friend code</span>
-        <div class="fcode"><span class="cd2">${esc(f.code)}</span><button class="btn ghost sm" data-act="copy" aria-label="Copy code">${ic('copy', 's16')}Copy</button><button class="btn gold sm" data-act="share">${ic('share-2', 's16')}Share</button></div>
+        <span class="sm2">Your invite code</span>
+        <div class="fcode"><span class="cd2">${esc(f.code)}</span><div class="fbtn"><button class="btn ghost sm" data-act="copy" aria-label="Copy invite code">${ic('copy', 's16')}Copy</button><button class="btn gold sm" data-act="share" aria-label="Share invite link">${ic('share-2', 's16')}Share</button></div></div>
+        <span class="sm2">New players who join with your code count as your invites in the Showdown</span>
       </div></div>
-      <div class="sec"><div class="lab">Add a friend</div><form class="addf" id="addf"><div class="field">${ic('user-plus')}<input id="fcode" placeholder="Friend code" maxlength="8" autocapitalize="characters" autocomplete="off" value="${esc(code)}" enterkeyhint="go" aria-label="Friend code"></div><button class="btn gold sm" type="submit" style="height:52px" ${code.replace(/[^A-Za-z0-9]/g, '').length < 6 ? 'disabled' : ''} id="addb">Add</button></form></div>
+      <div class="sec"><div class="lab">Add a friend</div><form class="addf" id="addf"><div class="field">${ic('user-plus')}<input id="fcode" placeholder="Enter invite code" maxlength="8" autocapitalize="characters" autocomplete="off" value="${esc(code)}" enterkeyhint="go" aria-label="Invite code"></div><button class="btn gold sm" type="submit" style="height:52px" ${code.replace(/[^A-Za-z0-9]/g, '').length < 6 ? 'disabled' : ''} id="addb">Add</button></form></div>
       ${f.recent.length ? `<div class="lab" style="margin:0">Recent opponents</div><div class="lob">${f.recent.map((x) => card(x, x.asked ? '<span class="chip">Asked</span>' : `<button class="btn ghost" data-act="request" data-a="${esc(x.address)}">${ic('user-plus', 's16')}Add</button>`)).join('')}</div>` : ''}
       ${err ? errBox(err) : ''}
     </div>${tabs('Friends')}${picking ? `<div class="scrim" data-act="px"></div><div class="sheet mk" role="dialog" aria-label="Pick a game"><div class="grab"></div><div class="sh-h" style="align-items:center"><div><div class="sh-t">Challenge ${esc(picking.name)}</div><div class="sub">Pick a game</div></div><button class="sh-x" data-act="px" aria-label="Close">${ic('x', 's20')}</button></div><div class="pick">${(Object.keys(GAMES) as GameId[]).filter((g) => !isSoon(g) && g !== 'splat').map((g) => `<button class="pc" data-act="cgame" data-id="${g}">${esc(GAMES[g].name)}</button>`).join('')}</div></div>` : ''}`
@@ -237,14 +272,8 @@ route('/friends', async (root) => {
         go('/m/' + m.id)
       } catch (e: any) { err = e.message; draw() }
     },
-    copy: async () => {
-      try { await navigator.clipboard.writeText(f!.code); toast('Code copied') } catch { toast('Your code is ' + f!.code) }
-    },
-    share: async () => {
-      const data = { title: 'Nimbles', text: `Add me on Nimbles and let's duel. My friend code is ${f!.code}`, url: friendLink(f!.code) }
-      if (navigator.share) await navigator.share(data).catch(() => {})
-      else { await navigator.clipboard?.writeText(`${data.text} ${data.url}`).catch(() => {}); toast('Link copied') }
-    },
+    copy: async () => { tap(); toast((await copyText(f!.code)) ? 'Invite code copied' : 'Your invite code is ' + f!.code) },
+    share: () => (tap(), void shareInvite(f!.code)),
   })
   return () => clearTimeout(timer)
 })

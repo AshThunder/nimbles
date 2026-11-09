@@ -23,7 +23,7 @@ import { REPLAYS } from '../shared/replays'
 import { makeSudoku } from '../shared/puzzles'
 import { COSMETICS, LOCK_XP_PCT, derivedBadges, lockXpPct, streakXpPct, unlockedCosmetics, withXpBonus, BOOST_TOTAL_MAX, CHEST_TITLES, CHEST_WHY, chestContents, chestsDue,  DEFAULT_GOAL_LUNA, MAX_GOAL_NIM, POOL_DAILY_CAP, POOL_DAILY_PCT, earlyFee, isTier, levelBoostPct, poolDay, poolWeight, saveFee, type LockDays, type Plan } from '../shared/rewards'
 import {
-  GAMES, LUNA, STAKES, isSoon, levelFor,
+  GAMES, LUNA, MIN_STAKE_NIM, cleanStake, isSoon, levelFor, nearStake,
   type GameId, type Mode, type OppKind, type Payee, type Payout, type PipLevel, type Profile, type PublicMatch, type Result, type Settlement, type SettleTerms,
 } from '../shared/types'
 
@@ -58,9 +58,10 @@ const wordDict = () => (DICT ??= new Set(readFileSync(fileURLToPath(new URL('../
 
 export class Engine {
   lockDays = Number(process.env.JAR_LOCK_DAYS ?? 30)
-  /** Per-match cap in NIM. Mainnet defaults to a small cap until it is raised on purpose. */
+  /** Optional per-match cap in NIM, only when MAX_STAKE_NIM is set. By default stakes are open and the player's balance is the limit. */
   get maxStakeNim() {
-    return Number(process.env.MAX_STAKE_NIM ?? (this.chain.network === 'mainnet' ? 25 : 1000))
+    const v = Number(process.env.MAX_STAKE_NIM)
+    return v > 0 ? v : Infinity
   }
   /** Live Splat Royale runs. The sim itself lives in shared/splat.ts. */
   splat = new SplatRuns((m, order, sim) => this.splatFinish(m, order, sim))
@@ -318,8 +319,8 @@ export class Engine {
 
     let stake = 0
     if (mode === 'save' || mode === 'win') {
-      stake = Number(b.stake)
-      if (!(STAKES as readonly number[]).includes(stake)) throw bad('Pick a stake from the list')
+      stake = cleanStake(b.stake)
+      if (Number.isNaN(stake)) throw bad(`A stake must be at least ${MIN_STAKE_NIM} NIM`)
     }
     let terms: SettleTerms | undefined
     if (mode === 'settle') {
@@ -342,11 +343,11 @@ export class Engine {
           (game !== 'trivia' || (m.config.topic as string) === cfgTopic),
       )
       if (waiting) return await this.join(host, waiting.code)
-      // nothing at this exact stake: offer the nearest open challenge one chip away. The player confirms it by joining
+      // nothing at this exact stake: offer the nearest open challenge within ±NEAR_STAKE_PCT%. The player confirms it by joining
       // (the host already chose that stake), so both sides agree to the amount before anything is locked
       if (game !== 'splat' && (mode === 'win' || mode === 'save') && !b.noNearby) {
         const near = this.openLobby(host, game, mode)
-          .filter((x) => Math.abs(STAKES.indexOf(x.stake as never) - STAKES.indexOf(stake as never)) === 1 && (game !== 'trivia' || x.topic === cfgTopic))
+          .filter((x) => nearStake(x.stake, stake) && (game !== 'trivia' || x.topic === cfgTopic))
           .sort((x, y) => Math.abs(x.stake - stake) - Math.abs(y.stake - stake) || y.waitingSec - x.waitingSec)[0]
         if (near) return { suggest: near } as any
       }

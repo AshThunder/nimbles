@@ -30,7 +30,17 @@ export const GAMES: Record<GameId, { name: string; blurb: string; tag?: 'Hot' | 
   splat: { name: 'Splat Royale', blurb: '2 to 6 players', tag: 'New', minutes: '3 min', level: 3, maxPlayers: 6 },
 }
 
-export const STAKES = [1, 2, 5, 10] as const
+/** Preset stake chips. Any amount from MIN_STAKE_NIM up is allowed with Custom; the wallet balance is the only ceiling. */
+export const STAKES = [10, 50, 100, 500] as const
+export const MIN_STAKE_NIM = 1
+/** Match me offers an open challenge whose stake is within this share of yours (both players confirm the amount). */
+export const NEAR_STAKE_PCT = 50
+/** A stake in NIM, rounded to 0.01. NaN when it is not a usable amount. */
+export const cleanStake = (v: unknown) => {
+  const n = Math.round(Number(v) * 100) / 100
+  return Number.isFinite(n) && n >= MIN_STAKE_NIM && n <= 1e9 ? n : NaN
+}
+export const nearStake = (theirs: number, mine: number) => theirs !== mine && Math.abs(theirs - mine) <= (mine * NEAR_STAKE_PCT) / 100
 
 export type Player = { address: string; name: string; avatar: string }
 

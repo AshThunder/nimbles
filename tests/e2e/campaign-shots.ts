@@ -23,12 +23,12 @@ const PORT = 8798
 await new Promise<void>((r) => app.server.listen(PORT, '127.0.0.1', r))
 const BASE = `http://127.0.0.1:${PORT}`
 
-async function open(browser: Browser, who: keyof typeof ADDR): Promise<Page> {
+async function open(browser: Browser, who: keyof typeof ADDR, htlc = false): Promise<Page> {
   const ctx = await browser.newContext({ ...devices['Pixel 7'], viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, baseURL: BASE })
   await ctx.addInitScript(`(() => {
     const addr = ${JSON.stringify(ADDR[who])}
     const call = async (recipient, value, data) => (await (await fetch('/api/dev/mock-tx', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: addr, to: recipient, luna: value, memo: data }) })).json()).hash
-    window.nimiq = { listAccounts: async () => [addr], getBalance: async () => 5000 * 1e5, sendBasicTransaction: async (t) => call(t.recipient, t.value, ''), sendBasicTransactionWithData: async (t) => call(t.recipient, t.value, t.data) }
+    window.nimiq = { listAccounts: async () => ${htlc ? "[addr, 'NQ07 0000 0000 0000 0000 0000 0000 0000 0099']" : '[addr]'}, getBalance: async () => 5000 * 1e5, sendBasicTransaction: async (t) => call(t.recipient, t.value, ''), sendBasicTransactionWithData: async (t) => call(t.recipient, t.value, t.data) }
     window.nimiqPay = { network: 'testnet', language: 'en' }
     localStorage.setItem('nb:muted', '1')
   })()`)
@@ -94,6 +94,66 @@ try {
   }
   db.profiles[A.chris].wins = 12; db.profiles[A.chris].played = 21
   db.profiles[A.ada].wins = 9; db.profiles[A.ada].played = 15
+
+  // v3: invite code card that fits, per-step earnings, invited friends with their own progress
+  db.profiles[A.kemi].invitedBy = A.chris
+  ;(c as any).stat(A.kemi).done = 3
+  db.profiles[A.tobi].invitedBy = A.chris
+  ;(c as any).stat(A.tobi).done = 5; (c as any).stat(A.tobi).human = 2
+  c.award('invite', A.chris, 100, 'invite:' + A.tobi, 'Invite: Tobi joined and played')
+  ;(c as any).stat(A.chris).invites = 1
+  const V3 = join(OUT, 'v3')
+  mkdirSync(V3, { recursive: true })
+  for (const [w, h, sfx] of [[390, 844, ''], [360, 780, '-360']] as const) {
+    await chris.setViewportSize({ width: w, height: h })
+    await chris.goto('/#/friends'); await chris.waitForSelector('.fcode')
+    await chris.evaluate(() => document.querySelector('.fcode')?.scrollIntoView({ block: 'center' }))
+    const fit = await chris.evaluate(`(() => { const card = document.querySelector('.fcode').closest('.card').getBoundingClientRect(); return [...document.querySelectorAll('.fcode .btn, .fcode .cd2')].every((b) => { const r = b.getBoundingClientRect(); return r.left >= card.left && r.right <= card.right }) })()`)
+    if (!fit) throw new Error(`invite code card overflows at ${w}px`)
+    await chris.waitForTimeout(300)
+    await chris.screenshot({ path: join(V3, `friends-tab${sfx}.png`) }); console.log('  saved v3/friends-tab' + sfx)
+    if (!sfx) {
+      // Share without a native share sheet copies the invite link
+      await chris.evaluate(`Object.defineProperty(navigator, 'share', { value: undefined, configurable: true })`)
+      await chris.click('[data-act="share"]')
+      await chris.waitForSelector('.toast:has-text("Link copied"), [role="status"]:has-text("Link copied")', { timeout: 3000 }).catch(async () => { throw new Error('Share fallback did not say Link copied: ' + (await chris.evaluate(() => document.body.innerText.slice(-200)))) })
+      console.log('  share fallback: Link copied')
+    }
+    await chris.goto('/#/showdown'); await chris.waitForSelector('.chk')
+    await chris.evaluate(() => document.querySelector('.chk')?.scrollIntoView({ block: 'start' }))
+    await chris.waitForTimeout(300)
+    await chris.screenshot({ path: join(V3, `showdown-steps${sfx}.png`) }); console.log('  saved v3/showdown-steps' + sfx)
+    await chris.evaluate(() => document.querySelectorAll('.chk .it')[3]?.scrollIntoView({ block: 'start' }))
+    await chris.waitForTimeout(300)
+    await chris.screenshot({ path: join(V3, `showdown-steps${sfx}-2.png`) })
+    const tags = await chris.locator('.chk .etag').count()
+    if (tags !== 5) throw new Error('expected an earnings tag on all 5 steps, got ' + tags)
+  }
+  // open stakes: presets 10/50/100/500 plus Custom, checked against the balance (this stub wallet has a Pay HTLC holding 5000 NIM)
+  const payer = await open(browser, 'chris', true)
+  for (const [w, h, sfx] of [[390, 844, ''], [360, 780, '-360']] as const) {
+    const chris = payer
+    await chris.setViewportSize({ width: w, height: h })
+    await chris.goto('/#/g/darts'); await chris.waitForSelector('#go')
+    await chris.click('[data-act="mode"][data-m="win"]')
+    await chris.click('[data-act="opp"][data-k="invite"]')
+    const chips = await chris.locator('.stkrow .pc').allInnerTexts()
+    if (chips.map((t) => t.replace(/\s+/g, '')).join(',') !== '10NIM,50NIM,100NIM,500NIM,Custom') throw new Error('stake chips: ' + chips.join(','))
+    await chris.click('[data-act="stkc"]')
+    await chris.fill('#stkin', '9000')
+    if (!(await chris.isDisabled('#go'))) throw new Error('a stake above the balance must not start')
+    if (!/more than your 5,?000/.test(await chris.locator('#stkerr').innerText())) throw new Error('missing balance error: ' + (await chris.locator('#stkerr').innerText()))
+    await chris.evaluate(() => document.querySelector('.stkrow')?.scrollIntoView({ block: 'center' }))
+    await chris.waitForTimeout(300)
+    await chris.screenshot({ path: join(V3, `stake-custom-error${sfx}.png`) }); console.log('  saved v3/stake-custom-error' + sfx)
+    await chris.fill('#stkin', '25')
+    if (await chris.isDisabled('#go')) throw new Error('25 NIM should be allowed')
+    if (!/25 NIM/.test(await chris.locator('#go').innerText())) throw new Error('button should show the custom stake')
+    await chris.waitForTimeout(200)
+    await chris.screenshot({ path: join(V3, `stake-custom${sfx}.png`) }); console.log('  saved v3/stake-custom' + sfx)
+  }
+  console.log('  stakes: presets 10/50/100/500 + Custom, balance check works')
+  await chris.setViewportSize({ width: 390, height: 844 })
 
   // v2 layout: compact Showdown card, Quick match pill, five tabs, Showdown in Rank, tidy jar card
   const V2 = join(OUT, 'v2')

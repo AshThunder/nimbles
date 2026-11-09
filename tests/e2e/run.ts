@@ -38,6 +38,13 @@ const errors: string[] = []
 let step = 0
 const log = (s: string) => console.log(`  ✓ ${s}`)
 
+/** Stakes are open now: 2 or 5 NIM go through the Custom chip and its numeric input */
+async function customStake(p: Page, nim: number) {
+  await p.locator('[data-act=stkc]').click()
+  await p.locator('#stkin').fill(String(nim))
+  await p.locator('#stkin').press('Enter')
+}
+
 async function player(browser: Browser, name: keyof typeof ADDR): Promise<{ ctx: BrowserContext; page: Page }> {
   const ctx = await browser.newContext({ ...devices['Pixel 7'], viewport: VP, baseURL: BASE })
   // plain string so the transpiler cannot inject helpers into the page context
@@ -182,7 +189,7 @@ try {
   await c.locator('.gc[data-id=trivia]').click()
   await c.locator('[data-act=mode][data-m=save]').click()
   await c.locator('[data-act=opp][data-k=invite]').click()
-  await c.locator('[data-act=stake][data-s="2"]').click()
+  await customStake(c, 2)
   await shot(c, 'setup-save-invite')
   await c.locator('#go').click()
   await c.waitForSelector('#code')
@@ -578,7 +585,7 @@ try {
   await c.waitForSelector('#go')
   await c.locator('[data-act=mode][data-m=save]').click()
   await c.locator('[data-act=opp][data-k=invite]').click()
-  await c.locator('[data-act=stake][data-s="2"]').click()
+  await customStake(c, 2)
   await c.locator('#go').click()
   await c.waitForSelector('#code')
   const chCode = (await c.locator('#code').innerText()).trim()
@@ -664,7 +671,7 @@ try {
   assert.equal(await c.locator('[data-act=opp][data-k=pip].on').count(), 0, 'Nimo is not allowed in Win')
   assert.match(await c.locator('.sumr').innerText(), /paid to wallet/)
   await c.locator('[data-act=opp][data-k=invite]').click()
-  await c.locator('[data-act=stake][data-s="5"]').click()
+  await customStake(c, 5)
   await shot(c, 'setup-win')
   await c.locator('#go').click()
   await c.waitForSelector('#code')

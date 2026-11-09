@@ -15,8 +15,8 @@ primary_region = "ams"
   EXPECTED_ESCROW_ADDRESS = "NQ87 51PJ 4Q0P RRQV DVCY L28T N3FK YUK6 P8DR"
   PORT = "8080"
   DATA_DIR = "/data"
-  # launch cap: the biggest stake chip is 10 NIM. Raise on purpose, after the first real matches
-  MAX_STAKE_NIM = "10"
+  # stakes are open: presets 10/50/100/500 NIM or Custom from 1 NIM, limited only by the player's balance.
+  # Set MAX_STAKE_NIM here to bring back a per-match cap.
   MIN_CONFIRMATIONS = "2"
   # Nimbles Showdown: a SEPARATE campaign wallet pays rewards, never the game escrow. Its key is the platform secret
   # CAMPAIGN_PRIVATE_KEY, never in this file. Without it the server runs and rewards wait in the queue.
