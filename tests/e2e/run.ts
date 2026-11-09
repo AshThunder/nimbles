@@ -61,6 +61,7 @@ async function player(browser: Browser, name: keyof typeof ADDR): Promise<{ ctx:
       sendBasicTransactionWithData: async (t) => call(t.recipient, t.value, t.data),
     }
     window.nimiqPay = { network: 'testnet', language: 'en' }
+    localStorage.setItem('nb:pay-approved', '1') // returning player: connects without the Connect wallet tap
   })()`)
   const page = await ctx.newPage()
   pages.set(name, page)
@@ -875,7 +876,7 @@ try {
     const { createHash } = await import('node:crypto')
     const post = async (tok: string | null, method: string, path: string, body?: unknown) =>
       (await fetch(`${BASE}/api${path}`, { method, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined })).json() as Promise<any>
-    const flaky = async (opts: { sender: string; accounts: string[]; canSign: boolean; kp?: any }) => {
+    const flaky = async (opts: { sender: string; accounts: string[]; canSign: boolean; kp?: any; approved?: boolean }) => {
       const ctx = await browser.newContext({ ...devices['Pixel 7'], viewport: VP, baseURL: BASE })
       if (opts.canSign) {
         await ctx.exposeFunction('__sign', (msg: string) => {
@@ -889,6 +890,7 @@ try {
         const sender = ${JSON.stringify(opts.sender)}, accounts = ${JSON.stringify(opts.accounts)}, canSign = ${opts.canSign}
         window.__listCalls = 0
         window.nimiqPay = { network: 'testnet', language: 'en' }
+        if (${!!opts.approved}) localStorage.setItem('nb:pay-approved', '1')
         const send = async (recipient, value, data) => {
           const r = await fetch('/api/dev/mock-tx', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: sender, to: recipient, luna: value, memo: data }) })
           return (await r.json()).hash
@@ -924,11 +926,15 @@ try {
     const signerAddr = signer.publicKey.toAddress().toUserFriendlyAddress()
     const pa = await flaky({ sender: signerAddr, accounts: [ADDR.tobi, signerAddr], canSign: true, kp: signer })
     await pa.goto('/')
-    await pa.waitForSelector('text=Connecting to Nimiq Pay')
-    await shot(pa, 'wallet-connecting')
+    // first open: no request until the player taps Connect wallet, so Pay's sheet opens in front of the app
+    await pa.waitForSelector('#connect-wallet', { timeout: 30000 })
+    assert.equal(await pa.evaluate(() => (window as any).__listCalls), 0, 'no wallet request before the tap')
+    await shot(pa, 'wallet-connect-button')
+    await pa.click('#connect-wallet')
     await pa.waitForSelector('.gcs', { timeout: 30000 })
     assert.equal(await pa.evaluate(() => performance.getEntriesByType('navigation').length), 1, 'no reload was needed')
     assert.ok((await pa.evaluate(() => (window as any).__listCalls)) >= 3, 'retried through the error and the empty answer')
+    assert.equal(await pa.evaluate(() => localStorage.getItem('nb:pay-approved')), '1', 'approval remembered')
     const me = await post((await pa.evaluate(() => sessionStorage.getItem('nb:token')))!, 'GET', '/me')
     assert.equal(me.address, signerAddr, 'identity is the account that signs, not accounts[0]')
     const l = await lockScreen(pa, ADDR.ada, 2)
@@ -941,7 +947,7 @@ try {
     log('wallet connects without a reload (late provider, error, empty list) and uses the signing account')
 
     // (b) Nimiq Pay pays from another account than the one it signs with: the payment counts, a small note says where from
-    const pb = await flaky({ sender: ADDR.ada.replace(/2$/, '9'), accounts: [ADDR.tobi], canSign: false })
+    const pb = await flaky({ sender: ADDR.ada.replace(/2$/, '9'), accounts: [ADDR.tobi], canSign: false, approved: true })
     await pb.goto('/')
     await pb.waitForSelector('.gcs', { timeout: 30000 })
     const lb = await lockScreen(pb, ADDR.ada, 2)

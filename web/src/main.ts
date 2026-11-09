@@ -22,9 +22,18 @@ function fatal(msg: string) {
   app.innerHTML = `<div class="view"><div class="scroll center" style="justify-content:center;gap:14px;padding:24px 20px">${pipImg('sad')}<b style="font-size:22px">Cannot start Nimbles</b><div style="color:var(--ink2);max-width:300px">${esc(msg)}</div><div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:320px;margin-top:4px"><button class="btn gold block" onclick="location.reload()">Try again</button><a class="btn ghost block" href="${openPay}">Open in Nimiq Pay</a><div style="display:flex;gap:8px"><a class="btn ghost sm" style="flex:1" href="${appStore}" target="_blank" rel="noopener">App Store</a><a class="btn ghost sm" style="flex:1" href="${playStore}" target="_blank" rel="noopener">Google Play</a></div></div></div></div>`
 }
 
-const connecting = (msg: string, retry = false) => {
-  app.innerHTML = `<div class="view"><div class="scroll center" style="justify-content:center;gap:12px">${pipImg('wink')}<b>${esc(msg)}</b>${retry ? '<button class="btn gold" id="again">Try again</button>' : ''}</div></div>`
-  document.getElementById('again')?.addEventListener('click', () => void boot())
+const connecting = (msg: string) => {
+  app.innerHTML = `<div class="view"><div class="scroll center" style="justify-content:center;gap:12px">${pipImg('wink')}<b>${esc(msg)}</b></div></div>`
+}
+
+/** Connect wallet screen. The tap starts the Nimiq Pay request while the app is in front, so its sheet shows on top. */
+function connectScreen(e: ConnectError) {
+  const title = e.kind === 'denied' ? 'Address not shared' : e.kind === 'needs-tap' ? 'Connect your wallet' : 'Not connected yet'
+  app.innerHTML = `<div class="view"><div class="scroll center" style="justify-content:center;gap:14px;padding:24px 20px">${pipImg(e.kind === 'denied' ? 'sad' : 'wink')}<b style="font-size:22px">${title}</b><div style="color:var(--ink2);max-width:300px">${esc(e.message)}</div><button class="btn gold block" id="connect-wallet" style="max-width:320px;margin-top:4px">Connect wallet</button><div style="color:var(--muted);font-size:13px;line-height:18px;max-width:300px">Nimiq Pay will ask you to share your address with Nimbles.</div></div></div>`
+  const btn = document.getElementById('connect-wallet') as HTMLButtonElement | null
+  btn?.addEventListener('click', () => { btn.disabled = true; void boot({ userTap: true }) }, { once: true })
+  // Approved after our timeout: carry on without another tap
+  e.late?.then(() => { if (document.getElementById('connect-wallet') === btn) void boot() }, () => {})
 }
 
 let booted = false
@@ -48,7 +57,7 @@ function bindBalanceLifecycle() {
   window.addEventListener('focus', onResume)
 }
 
-async function boot() {
+async function boot(opts: { userTap?: boolean } = {}) {
   connecting('Starting Nimbles…')
   // ?join=NMB-XXXX becomes a hash route so links from outside Nimiq Pay still land on the right screen
   const q = new URLSearchParams(location.search)
@@ -57,11 +66,12 @@ async function boot() {
   if (inv) location.hash = '/friend/' + inv
   if (location.pathname.replace(/\/$/, '') === '/admin' && !location.hash) location.hash = '/admin'
   try {
-    S.cfg = await api.config()
+    // Config is cached so a Connect wallet tap goes straight to Nimiq Pay
+    S.cfg ??= await api.config()
     try {
-      S.wallet = await connect(S.cfg, (m) => connecting(m))
+      S.wallet = await connect(S.cfg, (m) => connecting(m), opts)
     } catch (e) {
-      if (e instanceof ConnectError) return connecting(e.message, true)
+      if (e instanceof ConnectError) return connectScreen(e)
       throw e
     }
     const saved = JSON.parse(localStorage.getItem('nb:profile') || '{}')

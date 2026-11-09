@@ -58,7 +58,12 @@ export function friendlyWalletError(e: unknown): string {
 export const sameAddress = (a: string, b: string) => a.replace(/\s+/g, '').toUpperCase() === b.replace(/\s+/g, '').toUpperCase()
 
 export class ConnectError extends Error {
-  constructor(message: string, readonly kind: 'denied' | 'unavailable') {
+  constructor(
+    message: string,
+    readonly kind: 'denied' | 'unavailable' | 'needs-tap',
+    /** still-pending listAccounts after a timeout: resolves if the user approves late */
+    readonly late?: Promise<unknown>,
+  ) {
     super(message)
   }
 }
@@ -81,37 +86,124 @@ const isDenied = (e: unknown) => {
   try { return NimiqProviderError.is(e) && (e as any).type === 'PERMISSION_DENIED' } catch { return false }
 }
 
+/** Set after Nimiq Pay shared accounts once. Without it we never auto-request, the user taps Connect wallet. */
+const APPROVED_KEY = 'nb:pay-approved'
+/** How long we wait for listAccounts before showing Connect wallet again (the request itself stays alive) */
+const ACCOUNTS_TIMEOUT_MS = 8000
+/** After a tap the user is reading Pay's sheet, so give them a little longer */
+const TAP_TIMEOUT_MS = 15000
+const hasApproved = () => { try { return localStorage.getItem(APPROVED_KEY) === '1' } catch { return false } }
+const setApproved = (on: boolean) => {
+  try { on ? localStorage.setItem(APPROVED_KEY, '1') : localStorage.removeItem(APPROVED_KEY) } catch { /* private mode */ }
+}
+
+/**
+ * Waits until the mini app is really on screen: page loaded, visible, two painted frames and a short settle.
+ * A wallet request fired before that can open Nimiq Pay's sheet behind the app on a cold start.
+ */
+async function appSettled() {
+  if (document.readyState !== 'complete') await new Promise<void>((r) => window.addEventListener('load', () => r(), { once: true }))
+  if (document.visibilityState !== 'visible') {
+    await new Promise<void>((r) => {
+      const on = () => { if (document.visibilityState === 'visible') { document.removeEventListener('visibilitychange', on); r() } }
+      document.addEventListener('visibilitychange', on)
+    })
+  }
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+  await sleep(600)
+}
+
+// Only one listAccounts may be in flight. A late answer (after our timeout) is kept for the next connect.
+let inflight: Promise<string[]> | null = null
+let lateAccounts: string[] | null = null
+function requestAccounts(nq: Awaited<ReturnType<typeof init>>): Promise<string[]> {
+  if (lateAccounts) {
+    const a = lateAccounts
+    lateAccounts = null
+    return Promise.resolve(a)
+  }
+  if (!inflight) {
+    const p: Promise<string[]> = nq.listAccounts().then((a) => {
+      if (!Array.isArray(a) || !a.length) throw new Error('Nimiq Pay shared no account')
+      setApproved(true)
+      return a
+    }, (e) => {
+      if (isDenied(e)) setApproved(false)
+      throw e
+    })
+    inflight = p
+    p.then(() => {}, () => {}).finally(() => { if (inflight === p) inflight = null })
+  }
+  return inflight
+}
+
 /**
  * Connects to the wallet. Outside Nimiq Pay it returns a preview identity. Inside Nimiq Pay it never drops to
- * preview: it keeps retrying (provider not injected yet, host still waking, empty first answer) and only gives
- * up with a ConnectError the UI turns into a Try again button, so no manual page reload is needed.
+ * preview. First open (no approval remembered) throws ConnectError('needs-tap') so the UI shows a Connect wallet
+ * button: the tap starts listAccounts while the app is in front, so Pay's sheet opens on top. Returning users
+ * connect automatically once the app is visible and settled. Timeouts and declines come back as ConnectError too.
  */
-export async function connect(cfg: Config, onStatus: (msg: string) => void = () => {}): Promise<Wallet> {
+export async function connect(
+  cfg: Config,
+  onStatus: (msg: string) => void = () => {},
+  opts: { userTap?: boolean } = {},
+): Promise<Wallet> {
   const wantPreview = new URLSearchParams(location.search).has('preview')
   const inside = await waitForHost(wantPreview ? 0 : 1500)
-  if (inside) return connectNimiqPay(onStatus)
+  if (inside) return connectNimiqPay(onStatus, !!opts.userTap)
   return previewWallet(cfg)
 }
 
-async function connectNimiqPay(onStatus: (msg: string) => void): Promise<Wallet> {
+async function connectNimiqPay(onStatus: (msg: string) => void, userTap: boolean): Promise<Wallet> {
   let nq: Awaited<ReturnType<typeof init>>
-  let accounts: string[]
   try {
-    ;({ nq, accounts } = await retry(
+    // Retry only the provider injection. listAccounts below is a single request, never one per retry.
+    nq = await retry(
       async (attempt) => {
-        onStatus(attempt ? `Connecting to Nimiq Pay, try ${attempt + 1}…` : 'Connecting to Nimiq Pay…')
-        const nq = await init({ timeout: 5000 + attempt * 2500 })
-        onStatus('Approve sharing your address in Nimiq Pay')
-        const accounts = await withTimeout(nq.listAccounts(), 25000, 'Nimiq Pay')
-        if (!Array.isArray(accounts) || !accounts.length) throw new Error('Nimiq Pay shared no account')
-        return { nq, accounts }
+        if (attempt) onStatus(`Connecting to Nimiq Pay, try ${attempt + 1}…`)
+        return init({ timeout: 3000 + attempt * 2000 })
       },
-      { deadlineMs: 45000, fatal: isDenied },
-    ))
-  } catch (e) {
-    if (isDenied(e)) throw new ConnectError('You declined sharing your address. Nimbles needs it to know where your winnings go.', 'denied')
-    throw new ConnectError('Nimiq Pay did not answer. Keep it open and try again.', 'unavailable')
+      { deadlineMs: 15000 },
+    )
+  } catch {
+    throw new ConnectError('Nimiq Pay did not answer. Keep it open and tap Connect wallet.', 'unavailable')
   }
+
+  if (!userTap && !hasApproved() && !lateAccounts && !inflight) {
+    throw new ConnectError('Nimbles uses your Nimiq Pay address to send your winnings to you.', 'needs-tap')
+  }
+  if (!userTap && !lateAccounts) {
+    onStatus('Connecting to Nimiq Pay…')
+    await appSettled()
+  }
+
+  let accounts: string[]
+  onStatus(userTap ? 'Approve sharing your address in Nimiq Pay' : 'Connecting to Nimiq Pay…')
+  // One request at a time. A quick error or empty answer (host still waking) is retried after it finished;
+  // a request that hangs is never repeated: after ~8s the UI shows Connect wallet and the request stays alive.
+  const end = Date.now() + (userTap ? TAP_TIMEOUT_MS : ACCOUNTS_TIMEOUT_MS)
+  for (let attempt = 0; ; attempt++) {
+    const req = requestAccounts(nq)
+    try {
+      accounts = await withTimeout(req, Math.max(500, end - Date.now()), 'Nimiq Pay')
+      break
+    } catch (e) {
+      if (isDenied(e)) throw new ConnectError('You declined sharing your address. Nimbles needs it to know where your winnings go.', 'denied')
+      if (/timed out/.test(String((e as any)?.message))) {
+        // If the user approves now, the next connect picks the answer up without a new request.
+        const late = req.then((a) => { lateAccounts = a; return a })
+        late.catch(() => {})
+        throw new ConnectError('Nimiq Pay did not answer yet. Tap Connect wallet to try again.', 'unavailable', late)
+      }
+      const wait = Math.min(2000, 400 * 2 ** attempt)
+      if (Date.now() + wait >= end) {
+        throw new ConnectError('Nimiq Pay did not share your address. Tap Connect wallet to try again.', 'unavailable')
+      }
+      onStatus(`Connecting to Nimiq Pay, try ${attempt + 2}…`)
+      await sleep(wait)
+    }
+  }
+  lateAccounts = null
 
   // Identity is the basic wallet address (accounts[0]). Sign-in proves that address; HTLC is balance only.
   const signIn: Wallet['signIn'] = async (status = onStatus) => {

@@ -30,7 +30,7 @@ async function open(browser: Browser, who: keyof typeof ADDR, htlc = false): Pro
     const call = async (recipient, value, data) => (await (await fetch('/api/dev/mock-tx', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: addr, to: recipient, luna: value, memo: data }) })).json()).hash
     window.nimiq = { listAccounts: async () => ${htlc ? "[addr, 'NQ07 0000 0000 0000 0000 0000 0000 0000 0099']" : '[addr]'}, getBalance: async () => 5000 * 1e5, sendBasicTransaction: async (t) => call(t.recipient, t.value, ''), sendBasicTransactionWithData: async (t) => call(t.recipient, t.value, t.data) }
     window.nimiqPay = { network: 'testnet', language: 'en' }
-    localStorage.setItem('nb:muted', '1')
+    localStorage.setItem('nb:muted', '1'); localStorage.setItem('nb:pay-approved', '1')
   })()`)
   const page = await ctx.newPage()
   page.on('pageerror', (e) => console.error(`[${who}] pageerror`, e.message))
