@@ -39,7 +39,7 @@ export class MockChain implements Chain {
   readonly kind = 'mock' as const
   /** MOCK_NETWORK=mainnet lets the offline mock present itself as mainnet, to rehearse the mainnet UI without touching a chain. */
   readonly network: 'testnet' | 'mainnet' = process.env.MOCK_NETWORK === 'mainnet' ? 'mainnet' : 'testnet'
-  readonly escrowAddress = 'NQ07 0000 0000 0000 0000 0000 0000 0000 0000'
+  constructor(readonly escrowAddress = 'NQ07 0000 0000 0000 0000 0000 0000 0000 0000') {}
   txs = new Map<string, MockTx>()
   paid: { to: string; luna: number; memo: string; tx: string }[] = []
   /** Test hook: addresses that behave like contracts */
@@ -66,14 +66,21 @@ export class MockChain implements Chain {
     return { ok: true, from: t.from, owner, related: [t.from, ...(owner ? [owner] : [])] }
   }
 
+  /** Test hook: make the next pays fail */
+  failPays = false
   async pay(to: string, luna: number, memo: string): Promise<string> {
+    if (this.failPays) throw new Error('mock send failed')
+    if (luna > this.ownBalance) throw new Error('Escrow balance is too low for this payout')
+    this.ownBalance -= luna
     const tx = 'mock:payout:' + randomBytes(8).toString('hex')
     this.paid.push({ to, luna, memo, tx })
     return tx
   }
 
+  /** Test hook: what balance() reports (the campaign mock starts empty-able) */
+  ownBalance = 1e12
   async balance() {
-    return 1e12
+    return this.ownBalance
   }
 
   /** Mock: known addresses can be seeded via `balances`; unknown addresses are 0 confirmed. */
@@ -114,9 +121,11 @@ export class NimiqChain implements Chain {
   /** Network fee per payout in luna. Nimiq accepts fee 0, and that is the default. Raise it with PAY_FEE_LUNA if validators ever stop including free txs. */
   readonly payFee: bigint
   /** The escrow address this deploy was meant to run, so a wrong key can never go live. Required on mainnet. */
-  private expected = (process.env.EXPECTED_ESCROW_ADDRESS || '').trim()
+  private get expected() {
+    return (this.keyOpts ? this.keyOpts.expected : process.env.EXPECTED_ESCROW_ADDRESS || '').trim()
+  }
 
-  constructor(private dataDir: string, readonly network: Network = 'testnet') {
+  constructor(private dataDir: string, readonly network: Network = 'testnet', private keyOpts?: { load: () => { hex: string; source: string } | null; expected: string; label: string }) {
     this.rpcUrls = (process.env.NIMIQ_RPC_URL || DEFAULT_RPC[network]).split(',').map((u) => u.trim()).filter(Boolean)
     this.rpcUrl = this.rpcUrls[0]
     const fee = Number(process.env.PAY_FEE_LUNA ?? 0)
@@ -126,7 +135,8 @@ export class NimiqChain implements Chain {
 
   async start() {
     const N = (this.Nimiq = await import('@nimiq/core'))
-    let found = loadEscrowKey(this.network, this.dataDir)
+    let found = this.keyOpts ? this.keyOpts.load() : loadEscrowKey(this.network, this.dataDir)
+    if (!found && this.keyOpts) throw new Error(`No ${this.keyOpts.label} key`)
     if (!found) {
       if (this.network === 'mainnet') throw new Error('No mainnet escrow key. Set ESCROW_PRIVATE_KEY or ESCROW_KEY_FILE (run `npm run wallet:mainnet` to create one). Mainnet never auto-generates a key.')
       mkdirSync(this.dataDir, { recursive: true })
@@ -142,7 +152,7 @@ export class NimiqChain implements Chain {
     if (this.expected && !sameAddr(this.expected, this.escrowAddress)) {
       throw new Error(`The escrow key derives ${this.escrowAddress}, but EXPECTED_ESCROW_ADDRESS is ${this.expected}. Refusing to start.`)
     }
-    console.log(`[chain] ${this.network} escrow ${this.escrowAddress} (key from ${found.source === 'env' ? 'env' : found.source === 'generated' ? 'new file' : 'file'}), rpc ${this.rpcUrl}`)
+    console.log(`[chain] ${this.network} ${this.keyOpts?.label ?? 'escrow'} ${this.escrowAddress} (key from ${found.source === 'env' ? 'env' : found.source === 'generated' ? 'new file' : 'file'}), rpc ${this.rpcUrl}`)
   }
 
   /** Tries each RPC in NIMIQ_RPC_URL (comma separated) in turn when one is unreachable. A JSON-RPC error is an answer, not an outage, so it is not retried elsewhere. */
@@ -292,5 +302,30 @@ export async function makeChain(dataDir: string): Promise<Chain> {
   }
   const c = new NimiqChain(dataDir, network)
   await c.start()
+  return c
+}
+
+/** The Nimbles Showdown wallet: a separate key that only ever holds campaign rewards, never game escrow.
+ *  Key sources, in order: CAMPAIGN_PRIVATE_KEY (hex), CAMPAIGN_KEY_FILE, data/campaign.<network>.key. Never generated here. */
+export function loadCampaignKey(network: Network, dataDir: string): { hex: string; source: string } | null {
+  const env = (process.env.CAMPAIGN_PRIVATE_KEY || '').trim()
+  if (env) return { hex: env, source: 'env' }
+  for (const f of [process.env.CAMPAIGN_KEY_FILE, join(dataDir, `campaign.${network}.key`)].filter(Boolean) as string[]) if (existsSync(f)) return { hex: readFileSync(f, 'utf8').trim(), source: f }
+  return null
+}
+
+/** The campaign payer, or null when no campaign key is configured (rewards then wait in the queue, nothing fails). */
+export async function makeCampaignChain(dataDir: string, main: Chain): Promise<Chain | null> {
+  if (main.kind === 'mock') return new MockChain('NQ55 CAMP AIGN 0000 0000 0000 0000 0000 0000')
+  const network = main.network
+  if (!loadCampaignKey(network, dataDir)) {
+    console.log('[campaign] no campaign wallet key configured, rewards will queue until one is set')
+    return null
+  }
+  const expected = (process.env.EXPECTED_CAMPAIGN_ADDRESS || '').trim()
+  if (network === 'mainnet' && !expected) throw new Error('Mainnet needs EXPECTED_CAMPAIGN_ADDRESS, the public campaign wallet address, so a wrong key can never go live.')
+  const c = new NimiqChain(dataDir, network, { load: () => loadCampaignKey(network, dataDir), expected, label: 'campaign wallet' })
+  await c.start()
+  if (sameAddr(c.escrowAddress, main.escrowAddress)) throw new Error('The campaign wallet must not be the game escrow. Use a separate key.')
   return c
 }

@@ -40,6 +40,13 @@ export type ProfileRec = {
   frame?: string // worn avatar frame
   theme?: string // worn table theme
   boosts?: { pct: number; until: number }[] // temporary saver pool lifts from chests
+  lastSeen?: number // last signed-in API call, for the friends list "online" dot
+  friendCode?: string // the player's own add-me code
+  friendList?: string[] // accepted friends (both sides accepted)
+  friendIn?: string[] // requests waiting for this player to accept
+  friendOut?: string[] // requests this player sent
+  invitedBy?: string // set once, when a brand new player adds a friend code before their first match
+  cjar?: { luna: number; unlockAt: number; startAt: number } // Nimbles Showdown locked rewards, held in the campaign wallet
 }
 
 export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
@@ -69,6 +76,7 @@ export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
   settlement?: Settlement
   settled?: boolean
   live?: ChessLive | PoolLive
+  challengeTo?: string // a direct challenge to one friend
 }
 
 export type DB = {
@@ -77,6 +85,7 @@ export type DB = {
   authSecret?: string // HMAC key for session tokens
   matches: Record<string, MatchRec>
   usedTx: Record<string, string>
+  campaign?: unknown // Nimbles Showdown state, owned by server/campaign.ts
   pool?: { luna: number; lastPayDay?: string; paidTotal?: number; feesTotal?: number } // the saver interest pool, held in the escrow wallet like jar balances
   version: 1
   /** Which network this database belongs to. A mainnet server refuses a database that is not stamped mainnet. */

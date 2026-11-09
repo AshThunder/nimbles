@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "wallet:mainnet": "tsx scripts/mainnet-wallet.ts",
-    "e2e": "tsx tests/e2e/run.ts"
+    "e2e": "tsx tests/e2e/run.ts",
+    "wallet:campaign": "tsx scripts/campaign-wallet.ts"
   },
   "dependencies": {
     "@nimiq/core": "^2.23.0",

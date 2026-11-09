@@ -5,7 +5,10 @@ import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Engine, ApiError } from './engine'
 import { Store } from './store'
-import { MockChain, makeChain, resolveChainConfig, stateDir, isNimiqAddress } from './chain'
+import { MockChain, makeChain, makeCampaignChain, resolveChainConfig, stateDir, isNimiqAddress } from './chain'
+import { Campaign, isAdmin } from './campaign'
+import { Social } from './social'
+import { appStats } from './stats'
 import { aiStatus, nimoChat, parseReceipt } from './ai'
 import { Challenges, addressFromProof, challengeText } from './auth'
 
@@ -56,6 +59,8 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
   const store = new Store(stateDir(dataDir), opts.persist ?? true, net)
   const chain = await makeChain(dataDir)
   const engine = new Engine(store, chain)
+  const campaign = new Campaign(engine, await makeCampaignChain(dataDir, chain))
+  const social = new Social(engine)
   const challenges = new Challenges(chain.network)
   const distDir = join(ROOT, 'dist')
 
@@ -75,7 +80,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
     if (method === 'GET' && path === '/config') {
       return send(res, 200, {
         chain: chain.kind, network: chain.network, escrow: chain.escrowAddress, lockDays: engine.lockDays, ai: aiStatus(),
-        mock: chain.kind === 'mock', serverNow: Date.now(),
+        mock: chain.kind === 'mock', serverNow: Date.now(), showdown: { name: campaign.name, start: campaign.window.start, end: campaign.window.end },
       })
     }
     if (method === 'POST' && path === '/session') {
@@ -129,6 +134,42 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       return send(res, 200, { address: raw, luna, unit: 'luna', confirmed: true, pendingExcluded: true, serverNow: Date.now() })
     }
     if (method === 'GET' && path === '/me') return send(res, 200, engine.profile(me))
+    // ----- Nimbles Showdown: the player's own progress and locked rewards -----
+    if (method === 'GET' && path === '/showdown') return send(res, 200, campaign.me(me))
+    if (method === 'POST' && path === '/showdown/jar/withdraw') {
+      limit('sdwd:' + me, 5, 60_000)
+      const b = await readBody(req, 1024)
+      return send(res, 200, await campaign.withdrawJar(me, b?.early === true))
+    }
+    // ----- Match me lobby -----
+    if (method === 'GET' && path === '/lobby') return send(res, 200, { open: engine.openLobby(me, q.get('game') || undefined, q.get('mode') || undefined), serverNow: Date.now() })
+    // ----- friends -----
+    if (method === 'GET' && path === '/friends') return send(res, 200, social.list(me))
+    if (method === 'POST' && (m = path.match(/^\/friends\/(add|request|accept|decline|remove)$/))) {
+      limit('fr:' + me, 30, 60_000)
+      const b = await readBody(req, 1024)
+      const who = String(b?.address ?? '').trim().toUpperCase().replace(/\s+/g, ' ')
+      if (m[1] === 'add') return send(res, 200, social.addByCode(me, String(b?.code ?? '')))
+      if (m[1] === 'request') return send(res, 200, social.request(me, who))
+      if (m[1] === 'accept') return send(res, 200, social.accept(me, who))
+      if (m[1] === 'decline') return send(res, 200, social.decline(me, who))
+      return send(res, 200, social.remove(me, who))
+    }
+    // ----- admin: the owner's signed-in wallet only, checked on every call -----
+    if (path.startsWith('/admin/')) {
+      const sess = engine.sessions.check(tok)
+      const ok = !!sess && isAdmin(sess.address) && (sess.verified || chain.kind === 'mock')
+      if (path === '/admin/me' && method === 'GET') return send(res, 200, { admin: ok })
+      if (!ok) throw new ApiError(403, 'Not allowed')
+      if (method === 'GET' && path === '/admin/campaign') return send(res, 200, await campaign.adminView())
+      if (method === 'POST' && path === '/admin/campaign') {
+        limit('adm:' + me, 60, 60_000)
+        campaign.adminSet(await readBody(req, 4096))
+        return send(res, 200, await campaign.adminView())
+      }
+      if (method === 'GET' && path === '/admin/stats') return send(res, 200, appStats(store.db))
+      throw new ApiError(404, 'Not found')
+    }
     if (method === 'POST' && path === '/me') {
       const b = await readBody(req, 4096)
       return send(res, 200, engine.setProfile(me, b.name, b.avatar))
@@ -230,8 +271,10 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
   })
   const timer = setInterval(() => engine.tickAll(), 1000)
   timer.unref()
+  const ctimer = setInterval(() => void campaign.tick().catch((e) => console.error('[campaign] tick', e)), Number(process.env.CAMPAIGN_TICK_MS ?? 10_000))
+  ctimer.unref()
   const ws = attachSplat(server, engine)
-  return { server, engine, chain, store, close: () => { clearInterval(timer); ws.close(); store.flush(); server.close() } }
+  return { server, engine, chain, store, campaign, social, close: () => { clearInterval(timer); clearInterval(ctimer); ws.close(); store.flush(); server.close() } }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

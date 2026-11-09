@@ -116,8 +116,17 @@ export class Engine {
     const s = this.sessions.check(token)
     if (!s) throw bad('Sign in again', 401)
     if (this.requireSigned && !s.verified) throw bad('Sign in again', 401)
+    const p = this.db.profiles[s.address]
+    const now = Date.now()
+    if (p && now - (p.lastSeen ?? 0) > 30_000) {
+      p.lastSeen = now
+      this.store.save()
+    }
     return s.address
   }
+
+  /** Called after every settlement (the campaign listens here). Errors never break a settlement. */
+  onSettled?: (m: MatchRec, forfeit: boolean) => void
 
   /** The current run of days, and the first day of it. Today not played yet does not break the run. */
   streakOf(p: ProfileRec, now = Date.now()) {
@@ -178,7 +187,7 @@ export class Engine {
     all.forEach((p) => this.rollWeek(p))
     const me = this.must(address)
     let rows = all
-    if (scope === 'friends') rows = all.filter((p) => p.address === address || me.friends.includes(p.address))
+    if (scope === 'friends') rows = all.filter((p) => p.address === address || me.friends.includes(p.address) || (me.friendList ?? []).includes(p.address))
     rows = [...rows].sort((a, b) => b.weekXp - a.weekXp || b.xp - a.xp)
     const list = rows.map((p, i) => ({
       rank: i + 1, address: p.address, name: p.name, avatar: p.avatar, frame: p.frame ?? '', weekXp: p.weekXp, level: levelFor(p.xp).level, me: p.address === address,
@@ -239,6 +248,24 @@ export class Engine {
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 60)
       .map((m) => this.view(m, address))
+  }
+
+  /** Open "Match me" challenges anyone can join: game, mode, stake, how long they have waited. Never the viewer's own. */
+  openLobby(viewer: string, game?: string, mode?: string) {
+    const now = Date.now()
+    return Object.values(this.db.matches)
+      .filter((m) => m.opp === 'auto' && m.status === 'lobby' && m.players.length < m.size && now - m.createdAt < LOBBY_TTL &&
+        !m.players.some((p) => p.player.address === viewer) && (!game || m.game === game) && (!mode || m.mode === mode))
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, 40)
+      .map((m) => {
+        const h = this.db.profiles[m.host]
+        return {
+          code: m.code, game: m.game, mode: m.mode, stake: m.stake, topic: m.game === 'trivia' ? String(m.config.topic ?? '') : undefined,
+          host: { name: h?.name ?? 'Player', avatar: h?.avatar ?? 'me', frame: h?.frame ?? '' }, players: m.players.length, size: m.size,
+          waitingSec: Math.round((now - m.createdAt) / 1000),
+        }
+      })
   }
 
   private playerOf(address: string) {
@@ -315,9 +342,18 @@ export class Engine {
           (game !== 'trivia' || (m.config.topic as string) === cfgTopic),
       )
       if (waiting) return await this.join(host, waiting.code)
+      // nothing at this exact stake: offer the nearest open challenge one chip away. The player confirms it by joining
+      // (the host already chose that stake), so both sides agree to the amount before anything is locked
+      if (game !== 'splat' && (mode === 'win' || mode === 'save') && !b.noNearby) {
+        const near = this.openLobby(host, game, mode)
+          .filter((x) => Math.abs(STAKES.indexOf(x.stake as never) - STAKES.indexOf(stake as never)) === 1 && (game !== 'trivia' || x.topic === cfgTopic))
+          .sort((x, y) => Math.abs(x.stake - stake) - Math.abs(y.stake - stake) || y.waitingSec - x.waitingSec)[0]
+        if (near) return { suggest: near } as any
+      }
       b.config = { ...(b.config || {}), topic: cfgTopic }
     }
 
+    let m_challenge: string | undefined
     const id = rid(6)
     let code = ''
     do {
@@ -343,11 +379,18 @@ export class Engine {
       config.topic = set.topic
       config.count = set.questions.length
     }
+    if (opp === 'invite' && typeof b.challenge === 'string' && b.challenge) {
+      const to = normAddr(b.challenge)
+      const me = this.must(host)
+      if (!(me.friendList ?? []).includes(to)) throw bad('You can challenge friends from your list')
+      m_challenge = to
+    }
     if (mode === 'settle') {
       const r = b.config?.receipt
       config.billNote = String(b.config?.note || '').slice(0, 40)
       if (r && typeof r === 'object') config.receiptItems = Array.isArray(r.items) ? r.items.slice(0, 40).map((i: any) => ({ name: String(i.name).slice(0, 40), price: Number(i.price) || 0 })) : []
     }
+    if (m_challenge) m.challengeTo = m_challenge
     this.db.matches[id] = m
     if (opp === 'pip') {
       if (game === 'splat') this.fillBots(m)
@@ -888,6 +931,7 @@ export class Engine {
     }
     this.store.save()
     this.runPayouts(m)
+    try { this.onSettled?.(m, forfeit) } catch (e) { console.error('[campaign] settle hook failed', e) }
   }
 
   /** The saver's plan. Older jars have no stored plan, so they get the default tier and an inferred lock start. */
