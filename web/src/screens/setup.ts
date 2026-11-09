@@ -1,5 +1,5 @@
-import { api } from '../api'
-import { actions, esc, glyph, GLYPH_BG, ic, lvBadge, pipImg, sfx, toast, $, $$ } from '../lib'
+import { api, type LobbyItem } from '../api'
+import { actions, avatar, esc, glyph, GLYPH_BG, ic, keepScroll, lvBadge, pipImg, sfx, toast, $, $$ } from '../lib'
 import { S, go, route } from '../state'
 import { coin, errBox, topbar } from '../ui'
 import { billOf, draftBody, draftOk, newDraft, termsActions, termsInput, termsLine, termsSheet, type TermsDraft } from './terms'
@@ -15,7 +15,7 @@ const MODES: [Mode, string, string, string, string][] = [
   ['settle', 'receipt', 'Settle', 'Split a bill', '#F6D8D1'],
 ]
 const OPPS: [string, string, string][] = [['invite', 'users', 'Invite'], ['join', 'scan-line', 'Code'], ['auto', 'swords', 'Match me'], ['pip', '', 'Nimo']]
-const HINT: Record<string, string> = { invite: 'Get a code, link and QR to share', join: "Enter a friend's code", auto: 'Automatic, same game and stake', pip: 'Free practice. You can pick how tough' }
+const HINT: Record<string, string> = { invite: 'Get a code, link and QR to share', join: "Enter a friend's code", auto: 'Same game and mode, nearest stake. Or join one below', pip: 'Free practice. You can pick how tough' }
 const LEVELS: Record<PipLevel, string> = { easy: 'Easy', med: 'Medium', hard: 'Hard' }
 const GCOL: Record<string, string> = GLYPH_BG
 
@@ -24,6 +24,10 @@ type Setup = {
   topic: string; count: number; note: string; code: string; seats: number; payout: 'wta' | 'top3'
   receipt?: { items: { name: string; price: number }[]; total: number; currency: string; merchant?: string }
   busy?: boolean; err?: string; scanning?: boolean; sheet?: boolean
+  topicLocked: boolean
+  open?: LobbyItem[] // Match me: open challenges for this game and mode
+  suggest?: LobbyItem // the nearest open stake, waiting for the player to confirm
+  challenge?: { address: string; name: string } // a direct challenge to a friend
 }
 
 route('/g/:id', (root, p) => {
@@ -33,8 +37,15 @@ route('/g/:id', (root, p) => {
   const canStake = !(S.wallet.kind === 'preview' && !S.cfg.mock)
   const st: Setup = {
     mode: id === 'lastbite' ? 'settle' : 'play', opp: id === 'lastbite' ? 'invite' : 'pip', pip: 'med', stake: 2, d: newDraft(),
-    topic: TOPICS[0], count: 5, note: '', code: '', seats: 4, payout: 'wta',
+    topic: TOPICS[0], count: 5, note: '', code: '', seats: 4, payout: 'wta', topicLocked: true,
   }
+  try {
+    const ch = JSON.parse(sessionStorage.getItem('nb:challenge') || 'null')
+    if (ch?.address) { st.challenge = { address: String(ch.address), name: String(ch.name || 'your friend') }; st.opp = 'invite'; if (id !== 'lastbite') st.mode = canStake ? 'win' : 'play' }
+  } catch { /* none */ }
+  sessionStorage.removeItem('nb:challenge')
+  if (sessionStorage.getItem('nb:opp') === 'auto' && id !== 'lastbite') { st.opp = 'auto'; st.mode = canStake ? 'win' : 'play'; if (st.mode === 'play') st.opp = 'pip' }
+  sessionStorage.removeItem('nb:opp')
   const royale = id === 'splat'
   const pre = sessionStorage.getItem('nb:bill')
   if (pre) { st.d.bill = pre; st.mode = 'settle'; st.opp = 'invite'; sessionStorage.removeItem('nb:bill') }
@@ -72,6 +83,7 @@ route('/g/:id', (root, p) => {
     const n = paid() ? ` · ${st.stake} NIM` : ''
     if (st.opp === 'join') return ['Join match', 'scan-line']
     if (st.opp === 'pip') return [`Start vs Nimo (${LEVELS[st.pip]})`, 'zap']
+    if (st.opp === 'invite' && st.challenge) return [`Challenge ${st.challenge.name}${n}`, 'swords']
     if (st.opp === 'invite') return [`Create invite${n}`, 'send']
     return [`Find opponent${n}`, 'swords']
   }
@@ -92,8 +104,8 @@ route('/g/:id', (root, p) => {
   const oppBlock = () => {
     const hint = st.opp === 'join'
       ? `<div class="field">${ic('scan-line')}<input id="code" class="field" placeholder="Enter code, like NMB-XXXX" value="${esc(st.code)}" maxlength="9" autocapitalize="characters" autocomplete="off" style="border:0;box-shadow:none;height:48px;padding:0"></div>`
-      : st.opp === 'pip' && st.mode === 'play' ? '' : `<div class="hint">${st.opp === 'auto' && royale ? 'Matched with others, starts with 2 or more' : HINT[st.opp]}</div>`
-    return `<div class="sec"><div class="lab">Opponent</div>${chips()}${hint}</div>${
+      : st.opp === 'pip' && st.mode === 'play' ? '' : `<div class="hint">${st.opp === 'invite' && st.challenge ? `Only ${esc(st.challenge.name)} gets this challenge` : st.opp === 'auto' && royale ? 'Matched with others, starts with 2 or more' : HINT[st.opp]}</div>`
+    return `<div class="sec"><div class="lab">Opponent</div>${chips()}${hint}</div>${st.opp === 'auto' && !royale ? openBlock() : ''}${
       st.opp === 'pip' && st.mode === 'play'
         ? `<div class="sec"><div class="lab">Nimo level<small>Easy to hard</small></div><div class="lvl">${pipImg('think')}<div class="pick" role="radiogroup" aria-label="Nimo level">${(['easy', 'med', 'hard'] as PipLevel[]).map((l) => `<button class="pc ${st.pip === l ? 'on' : ''}" data-act="pip" data-l="${l}" role="radio" aria-checked="${st.pip === l}">${st.pip === l ? ic('check') : ''}${LEVELS[l]}</button>`).join('')}</div></div></div>`
         : ''
@@ -104,6 +116,13 @@ route('/g/:id', (root, p) => {
       ? `<div class="sec"><div class="lab">Prizes<small>after the 2% fee</small></div><div class="prz">${([['wta', 'Winner takes all'], ['top3', 'Top 3: 60/30/10']] as const).map(([k, n]) => `<button class="pc ${st.payout === k ? 'on' : ''}" data-act="payout" data-k="${k}">${st.payout === k ? ic('check') : ''}${n}</button>`).join('')}</div></div>`
       : ''
   }`
+  /** Match me: waiting challenges for this game and mode. Tap one to join it at its stake. */
+  const openBlock = () => {
+    const list = st.open
+    if (!list) return `<div class="sec"><div class="lab">Open challenges</div><div class="hint">Looking…</div></div>`
+    if (!list.length) return `<div class="sec"><div class="lab">Open challenges</div><div class="hint">None waiting right now. Yours will show here for others</div></div>`
+    return `<div class="sec"><div class="lab">Open challenges<small>${list.length} waiting</small></div><div class="lob">${list.slice(0, 6).map(lobRow).join('')}</div></div>`
+  }
   const stakeBlock = () => `<div class="sec"><div class="lab">Stake<small>NIM each</small></div><div class="stkrow" role="radiogroup" aria-label="Stake">${STAKES.map((s) => `<button class="pc stk ${st.stake === s ? 'on' : ''}" data-act="stake" data-s="${s}" role="radio" aria-checked="${st.stake === s}">${st.stake === s ? ic('check') : ''}${s}<small>NIM</small></button>`).join('')}</div></div>`
   const settleCard = () => `<div class="sec"><div class="lab">Bill details</div><button class="bdc" data-act="bd"><span class="ic">${ic('receipt')}</span><span class="tx"><span class="n">${billOf(st.d) || 0} NIM bill</span><span class="m">${termsLine(st.d, place())}</span></span><span class="chip" style="background:var(--gold)">${ic('pencil', 's16')}Edit</span></button></div>`
   const sheet = () => {
@@ -117,6 +136,10 @@ route('/g/:id', (root, p) => {
       <button class="btn gold block" data-act="shdone">${ic('check', 's20')}Done</button></div>`
   }
 
+  /** The topic box: type, then Enter or the enter button locks it in. Locked shows a solid fill with a tick, and Edit. */
+  const topicField = () => st.topicLocked
+    ? `<div class="tpk" role="status"><span class="tck">${ic('check')}</span><span class="tx"><small>Topic locked in</small><b>${esc(st.topic)}</b></span><button class="tpe" data-act="tedit" aria-label="Edit topic">${ic('pencil', 's16')}Edit</button></div>`
+    : `<form class="field tpf" id="tform" autocomplete="off">${ic('search')}<input id="topic" value="${esc(st.topic)}" maxlength="60" placeholder="Type any topic" enterkeyhint="done" aria-label="Trivia topic"><button type="submit" class="tps" data-act="tlock" aria-label="Lock in topic" ${st.topic.trim().length < 2 ? 'disabled' : ''}>${ic('corner-down-left', 's20')}</button></form>`
   const draw = () => {
     pickOpp()
     const [c1, c2] = summary()
@@ -127,7 +150,7 @@ route('/g/:id', (root, p) => {
       <div class="sec"><div class="lab">Mode</div>${tiles()}</div>
       ${
         id === 'trivia'
-          ? `<div class="sec"><div class="lab">Topic<small>Nimo writes the questions</small></div><div class="field">${ic('search')}<input id="topic" class="field" style="border:0;box-shadow:none;height:48px;padding:0" value="${esc(st.topic)}" maxlength="60" placeholder="Any topic" autocomplete="off"></div><div class="pick">${TOPICS.map((t) => `<button class="pc ${st.topic === t ? 'on' : ''}" data-act="topic" data-t="${esc(t)}">${st.topic === t ? ic('check') : ''}${t}</button>`).join('')}</div></div>
+          ? `<div class="sec"><div class="lab">Topic<small>Nimo writes the questions</small></div>${topicField()}<div class="pick">${TOPICS.map((t) => `<button class="pc ${st.topicLocked && st.topic === t ? 'on' : ''}" data-act="topic" data-t="${esc(t)}">${st.topicLocked && st.topic === t ? ic('check') : ''}${t}</button>`).join('')}</div></div>
       <div class="sec"><div class="lab">Questions<small>More questions, more XP</small></div><div class="seg">${[5, 7, 10].map((n) => `<button class="sg ${st.count === n ? 'on' : ''}" data-act="count" data-n="${n}"><b>${n}</b><small>${n * 12} XP</small>${st.count === n ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div></div>`
           : ''
       }
@@ -135,15 +158,52 @@ route('/g/:id', (root, p) => {
       ${royale && st.opp !== 'join' ? seatsBlock() : ''}
       ${st.opp === 'join' ? '' : paid() ? stakeBlock() : st.mode === 'settle' ? settleCard() : ''}
       ${st.err ? errBox(st.err) : ''}
-    </div>
+    </div>${st.suggest ? suggestSheet(st.suggest) : ''}
     <div class="foot" style="gap:8px;border-top:2px solid var(--ink);background:var(--bg);padding-top:12px"><div class="sumr"><span id="sum1">${c1}</span><span class="mono" id="sum2">${c2}</span></div>
       <button class="btn gold block" data-act="go" id="go" ${valid() && !st.busy ? '' : 'disabled'}>${st.busy ? ic('refresh-cw', 's20 spin') + 'Working…' : ic(ctaIcon, 's20') + ctaTxt}</button></div>${st.sheet && st.mode === 'settle' ? sheet() : ''}`
   }
+  const suggestSheet = (x: LobbyItem) => `<div class="scrim" data-act="sgx"></div><div class="sheet mk" role="dialog" aria-label="Nearest stake"><div class="grab"></div>
+    <div class="sh-h" style="align-items:center"><div><div class="sh-t">Play at ${x.stake} NIM?</div><div class="sub">Nobody is waiting at ${st.stake} NIM. ${esc(x.host.name)} is waiting at ${x.stake} NIM</div></div><button class="sh-x" data-act="sgx" aria-label="Close">${ic('x', 's20')}</button></div>
+    ${lobRow(x).replace('data-act="ljoin"', 'data-act="none"')}
+    <button class="btn gold block" data-act="ljoin" data-code="${esc(x.code)}" data-stake="${x.stake}">${ic('swords', 's20')}Join at ${x.stake} NIM</button>
+    <button class="btn ghost block" data-act="mine">Wait at ${st.stake} NIM instead</button></div>`
+  const lobRow = (x: LobbyItem) => `<button class="rw lobr" data-act="ljoin" data-code="${esc(x.code)}" data-stake="${x.stake}"><span class="avs">${avatar(x.host.avatar, 'av', x.host.frame)}</span><span class="nm"><b>${esc(x.host.name)}</b><span>${x.mode === 'save' ? 'Save' : x.mode === 'win' ? 'Win' : 'Play'}${x.topic ? ' · ' + esc(x.topic) : ''} · waiting ${x.waitingSec < 60 ? x.waitingSec + 's' : Math.floor(x.waitingSec / 60) + 'm'}</span></span><span class="am"><b>${x.mode === 'play' ? 'Free' : x.stake + ' NIM'}</b><span>Join</span></span></button>`
+  let lobbyTimer: ReturnType<typeof setTimeout> | undefined
+  const loadLobby = async () => {
+    clearTimeout(lobbyTimer)
+    if (st.opp !== 'auto' || royale || !root.isConnected) return
+    try {
+      const r = await api.lobby(id, st.mode)
+      st.open = r.open
+      if (st.opp === 'auto' && !st.busy && !st.sheet && !st.suggest && document.activeElement?.id !== 'topic') { const back = keepScroll(root); draw(); back() }
+    } catch { /* the lobby is a bonus, matching still works */ }
+    lobbyTimer = setTimeout(() => void loadLobby(), 5000)
+  }
   draw()
+  void loadLobby()
+
+  root.addEventListener('submit', (e) => {
+    e.preventDefault()
+    if ((e.target as HTMLElement).id !== 'tform') return
+    lockTopic()
+  })
+  const lockTopic = () => {
+    if (st.topic.trim().length < 2) return toast('Type a topic first')
+    st.topic = st.topic.trim()
+    st.topicLocked = true
+    sfx('ui/confirm')
+    const back = keepScroll(root)
+    draw()
+    back()
+  }
 
   root.addEventListener('input', (e) => {
     const t = e.target as HTMLInputElement
-    if (t.id === 'topic') st.topic = t.value
+    if (t.id === 'topic') {
+      st.topic = t.value
+      const lb = $('.tps', root) as HTMLButtonElement | null
+      if (lb) lb.disabled = st.topic.trim().length < 2
+    }
     termsInput(st.d, t, root, place())
     if (t.id === 'code') st.code = t.value.toUpperCase()
     const b = $('#go', root) as HTMLButtonElement | null
@@ -182,18 +242,57 @@ route('/g/:id', (root, p) => {
       sfx('ui/select')
       st.mode = m
       if (m === 'play' && st.opp === 'auto') st.opp = 'pip'
+      st.open = undefined
       draw()
+      void loadLobby()
     },
     opp: (el) => {
       const k = el.dataset.k as Setup['opp']
       if (k === 'pip' && staked()) return toast('Nimo plays free matches only')
       sfx('ui/select')
       st.opp = k
+      if (k !== 'invite') st.challenge = undefined
+      st.open = undefined
       draw()
+      void loadLobby()
       if (k === 'join') ($('#code', root) as HTMLInputElement | null)?.focus()
     },
     pip: (el) => ((st.pip = el.dataset.l as PipLevel), sfx('ui/select'), draw()),
-    topic: (el) => ((st.topic = el.dataset.t!), sfx('ui/select'), draw()),
+    topic: (el) => ((st.topic = el.dataset.t!), (st.topicLocked = true), sfx('ui/select'), draw()),
+    tedit: () => {
+      st.topicLocked = false
+      sfx('ui/select')
+      draw()
+      const inp = $('#topic', root) as HTMLInputElement | null
+      inp?.focus({ preventScroll: true })
+      inp?.select()
+    },
+    tlock: () => { /* the form submit handles it */ },
+    sgx: () => ((st.suggest = undefined), sfx('ui/back'), draw()),
+    none: () => {},
+    mine: async () => {
+      st.suggest = undefined
+      await startMatch(true)
+    },
+    ljoin: async (el) => {
+      if (st.busy) return
+      const stake = Number(el.dataset.stake)
+      if (stake > 0 && !canStake) return toast('Open Nimbles inside Nimiq Pay to stake NIM')
+      st.busy = true
+      st.suggest = undefined
+      draw()
+      try {
+        const m = await api.join(el.dataset.code!)
+        sfx('ui/confirm')
+        go('/m/' + m.id)
+      } catch (e: any) {
+        st.err = e.message
+        st.busy = false
+        sfx('ui/error')
+        draw()
+        void loadLobby()
+      }
+    },
     count: (el) => ((st.count = Number(el.dataset.n)), sfx('ui/select'), draw()),
     seats: (el) => ((st.seats = Number(el.dataset.n)), sfx('ui/select'), draw()),
     payout: (el) => ((st.payout = el.dataset.k as 'wta' | 'top3'), sfx('ui/select'), draw()),
@@ -208,31 +307,42 @@ route('/g/:id', (root, p) => {
       draw()
     },
     scan: () => $('#rfile', root)!.click(),
-    go: async () => {
-      if (!valid() || st.busy) return
-      st.busy = true
-      st.err = ''
-      draw()
-      try {
-        let m
-        if (st.opp === 'join') m = await api.join(st.code)
-        else {
-          m = await api.create({
-            game: id, mode: st.mode, opp: st.opp, pipLevel: st.opp === 'pip' ? st.pip : undefined,
-            stake: paid() ? st.stake : 0, terms: st.mode === 'settle' ? draftBody(st.d) : undefined,
-            config: royale ? { seats: st.seats, payout: st.payout } : { topic: st.topic, count: st.count, note: st.note, receipt: st.receipt },
-          })
-        }
-        sfx('ui/confirm')
-        go('/m/' + m.id)
-      } catch (e: any) {
-        st.err = e.message
-        st.busy = false
-        sfx('ui/error')
-        draw()
-      }
-    },
+    go: () => startMatch(false),
   })
+  async function startMatch(noNearby: boolean) {
+    if (!valid() || st.busy) return
+    if (id === 'trivia') { st.topic = st.topic.trim(); st.topicLocked = true }
+    st.busy = true
+    st.err = ''
+    draw()
+    try {
+      let m: any
+      if (st.opp === 'join') m = await api.join(st.code)
+      else {
+        m = await api.create({
+          game: id, mode: st.mode, opp: st.opp, pipLevel: st.opp === 'pip' ? st.pip : undefined,
+          stake: paid() ? st.stake : 0, terms: st.mode === 'settle' ? draftBody(st.d) : undefined, noNearby,
+          challenge: st.opp === 'invite' ? st.challenge?.address : undefined,
+          config: royale ? { seats: st.seats, payout: st.payout } : { topic: st.topic, count: st.count, note: st.note, receipt: st.receipt },
+        })
+      }
+      if (m?.suggest) {
+        st.busy = false
+        st.suggest = m.suggest
+        sfx('ui/select')
+        draw()
+        return
+      }
+      sfx('ui/confirm')
+      go('/m/' + m.id)
+    } catch (e: any) {
+      st.err = e.message
+      st.busy = false
+      sfx('ui/error')
+      draw()
+    }
+  }
+  return () => clearTimeout(lobbyTimer)
 })
 
 async function downscale(file: File): Promise<{ b64: string; mime: string }> {

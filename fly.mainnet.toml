@@ -18,6 +18,13 @@ primary_region = "ams"
   # launch cap: the biggest stake chip is 10 NIM. Raise on purpose, after the first real matches
   MAX_STAKE_NIM = "10"
   MIN_CONFIRMATIONS = "2"
+  # Nimbles Showdown: a SEPARATE campaign wallet pays rewards, never the game escrow. Its key is the platform secret
+  # CAMPAIGN_PRIVATE_KEY, never in this file. Without it the server runs and rewards wait in the queue.
+  EXPECTED_CAMPAIGN_ADDRESS = "NQ79 HN52 XV6A 22L6 7ALU F14P L0BG 9YQP KMQ7"
+  CAMPAIGN_START = "2026-11-09T00:00:00+01:00"
+  CAMPAIGN_END = "2026-11-24T00:00:00+01:00"
+  # set to "yes" to stop every campaign payout at once (the admin page has the same switch)
+  CAMPAIGN_PAUSED = "no"
 
 [[mounts]]
   source = "nimbles_mainnet_data"

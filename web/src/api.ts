@@ -55,7 +55,7 @@ export type JarInfo = {
   boost: { levelPct: number; totalPct: number }
   interest: { last: number; lastDay: string; week: number; total: number }
 }
-export type Config = { chain: 'mock' | 'nimiq'; network: 'testnet' | 'mainnet'; escrow: string; lockDays: number; ai: { gemini: boolean; model: string | null }; mock: boolean; serverNow: number }
+export type Config = { chain: 'mock' | 'nimiq'; network: 'testnet' | 'mainnet'; escrow: string; lockDays: number; ai: { gemini: boolean; model: string | null }; mock: boolean; serverNow: number; showdown?: { name: string; start: number; end: number } }
 export type SaverRow = { rank: number; address: string; name: string; avatar: string; frame: string; level: number; interest: number; saved: number; lockDays: number; locked: boolean; me: boolean }
 export type Row = { rank: number; address: string; name: string; avatar: string; frame: string; weekXp: number; level: number; me: boolean }
 export type MatchView = Omit<PublicMatch, 'players'> & {
@@ -79,7 +79,34 @@ export type ChestView = {
 }
 export type ChestList = { chests: ChestView[]; boost: { levelPct: number; chestPct: number; until: number; totalPct: number }; badges: string[]; cosmetics: string[] }
 
+export type Showdown = {
+  name: string; live: boolean; start: number; end: number; paused: boolean
+  earned: { total: number; wallet: number; jar: number; pending: number }
+  steps: {
+    welcome: { done: number; need: number; real: number; needReal: number; got: boolean }
+    friends: { opponents: number; need: number; unlocked: boolean; friends: number }
+    invites: { rewarded: number; max: number }
+    nimo: { today: number; perDay: number; capped: boolean }
+    week: { index: number; wins: number; rank: number; top: number; endsAt: number }
+  }
+  capped: boolean
+  history: { note: string; luna: number; wallet: number; jar: number; status: 'paid' | 'pending'; at: number; tx?: string }[]
+  jar: { luna: number; unlockAt: number; locked: boolean; early: { fee: number; pct: number; net: number } }
+}
+export type LobbyItem = { code: string; game: string; mode: string; stake: number; topic?: string; host: { name: string; avatar: string; frame: string }; players: number; size: number; waitingSec: number }
+export type FriendCard = { address: string; name: string; avatar: string; frame: string; level: number; online: boolean; asked?: boolean }
+export type Friends = { code: string; friends: FriendCard[]; recent: FriendCard[]; incoming: FriendCard[]; challenges: { code: string; game: string; mode: string; stake: number; from: FriendCard }[] }
+
 export const api = {
+  showdown: () => call<Showdown>('GET', '/showdown'),
+  showdownWithdraw: (early = false) => call<{ tx: string; luna: number; fee: number }>('POST', '/showdown/jar/withdraw', { early }),
+  lobby: (game?: string, mode?: string) => call<{ open: LobbyItem[] }>('GET', `/lobby?game=${game ?? ''}&mode=${mode ?? ''}`),
+  friends: () => call<Friends>('GET', '/friends'),
+  friendDo: (act: 'add' | 'request' | 'accept' | 'decline' | 'remove', b: { code?: string; address?: string }) => call<Friends>('POST', '/friends/' + act, b),
+  adminMe: () => call<{ admin: boolean }>('GET', '/admin/me'),
+  adminCampaign: () => call<any>('GET', '/admin/campaign'),
+  adminSet: (b: unknown) => call<any>('POST', '/admin/campaign', b),
+  adminStats: () => call<any>('GET', '/admin/stats'),
   config: () => call<Config>('GET', '/config'),
   challenge: () => call<{ nonce: string; message: string }>('GET', '/auth/challenge'),
   session: (address: string, name?: string, avatar?: string, proof?: { nonce: string; publicKey: string; signature: string }) =>

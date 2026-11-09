@@ -1,4 +1,5 @@
-import { api } from '../api'
+import { api, type Showdown } from '../api'
+import { showdownCard } from './social'
 import { actions, avatar, esc, glyph, ic, lvBadge, GLYPH_BG, sfx, tap, toast } from '../lib'
 import { BUILT } from '../games'
 import { S, go, route } from '../state'
@@ -22,8 +23,11 @@ export const lockText = (luna: number, unlockAt: number) =>
   luna <= 0 ? 'Win a Save duel to fill it' : unlockAt > Date.now() ? `Locked to ${new Date(unlockAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Unlocked, ready to withdraw'
 
 route('/', async (root) => {
+  let sd: Showdown | null = null
   try {
-    S.me = await api.me()
+    const [me, s] = await Promise.all([api.me(), api.showdown().catch(() => null)])
+    S.me = me
+    sd = s
   } catch {
     /* keep cached profile */
   }
@@ -44,6 +48,8 @@ route('/', async (root) => {
     ${pipRow(quest >= 3 ? 'cheer' : 'happy', msg)}
     ${preview ? `<div class="card flat row" style="gap:10px"><span style="flex:1;font-size:13px;line-height:18px;font-weight:600">You are in preview. Free play works here. To stake NIM, open Nimbles inside Nimiq Pay. ${netBadge()}</span><button class="btn gold sm" data-act="openpay">Open</button></div>` : ''}
     ${me.chests > 0 ? `<button class="card chr" data-act="chests" style="background:var(--gold-tint)"><img src="/badges/chest-closed.svg" alt="" width="56" height="56"><span class="nm"><b>${me.chests} chest${me.chests === 1 ? '' : 's'} ready</b><span>Hold to open. See what is inside first</span></span><span class="chip gold">Open</span></button>` : ''}
+    ${showdownCard(sd)}
+    <div class="qrow"><button class="btn gold" data-act="lobby">${ic('swords', 's20')}Match me</button><button class="btn ghost" data-act="friends">${ic('users', 's20')}Friends</button></div>
     <div class="quest"><img src="/badges/chest-open.svg" alt="" width="68" height="68"><div class="t"><span class="k">Daily quest</span><span class="n">Win 3 duels</span><div class="pbar"><i style="width:${(quest / 3) * 100}%"></i></div><span class="r">Opens a Hot hand chest</span></div><span class="cnt">${quest}/3</span></div>
     <div class="duo">
       <button class="jarc" data-act="jar" style="text-align:left"><div class="h">${JAR}<div><div class="k">Savings jar</div><div class="n">${fmtNim(me.jarLuna)}<small> / ${fmtNim(me.plan.goalLuna)}</small></div></div></div><div class="bar"><i style="width:${Math.min(100, (jar / goal) * 100)}%"></i></div><div class="m">${ic('lock', 's16')}${lockText(me.jarLuna, me.jarUnlockAt)}</div></button>
@@ -54,6 +60,9 @@ route('/', async (root) => {
   </div>${tabs('Play')}`
   actions(root, {
     chests: () => go('/chests'),
+    showdown: () => (tap(), go('/showdown')),
+    lobby: () => (tap(), go('/lobby')),
+    friends: () => (tap(), go('/friends')),
     game: (el) => (tap(), BUILT.has(el.dataset.id!) ? go('/g/' + el.dataset.id) : toast('Coming soon. Nimo is still setting this one up')),
     jar: () => (tap(), go('/jar')),
     vault: () => (tap(), go('/vault')),

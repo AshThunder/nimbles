@@ -1,6 +1,6 @@
-import { api, type JarInfo, type MatchView } from '../api'
+import { api, type JarInfo, type MatchView, type Showdown } from '../api'
 import { actions, esc, glyph, GLYPH_BG, ic, sfx, tap, toast, $ } from '../lib'
-import { S, route } from '../state'
+import { S, go, route } from '../state'
 import { PAGE, errBox, pageRows, pipRow, tabs, topbar, refreshBalance } from '../ui'
 import { GAMES, fmtNim } from '../../../shared/types'
 import { LOCK_TIERS, LOCK_XP_PCT } from '../../../shared/rewards'
@@ -34,6 +34,7 @@ const poolCard = (i: JarInfo, locked: boolean) => `<div class="lab" style="margi
 route('/jar', async (root) => {
   try { S.me = await api.me() } catch { /* cached */ }
   let info = await api.jar().catch(() => null)
+  const sd: Showdown | null = await api.showdown().catch(() => null)
   let hist: MatchView[] = []
   try { hist = (await api.matches()).filter((m) => m.status === 'settled').slice(0, 60) } catch { /* ignore */ }
   let err = ''
@@ -121,6 +122,7 @@ route('/jar', async (root) => {
       <div class="lab" style="margin:0">Lock length<small>${canTier ? 'Applies to your next deposit' : 'Fixed while locked'}</small></div>
       <div class="seg">${LOCK_TIERS.map((d) => { const on = plan.lockDays === d; return `<button class="sg ${on ? 'on' : ''}" data-act="tier" data-d="${d}" ${canTier ? '' : 'disabled'}><b>${d}</b><small>days</small>${on ? `<span class="ck">${ic('check')}</span>` : ''}</button>` }).join('')}</div>
       <div style="font-size:13px;line-height:19px;color:var(--ink2)">While locked, duel XP is higher: ${LOCK_TIERS.map((d) => `<b>${d} days +${LOCK_XP_PCT[d]}%`).join('</b>, ')}</b>.</div>
+      ${sd && sd.jar.luna > 0 ? `<button class="card chr" data-act="sd" style="background:var(--gold-tint)"><span class="avs" style="width:44px;height:44px;border-radius:12px;background:var(--ink);color:var(--gold);display:grid;place-items:center;flex:none">${ic('swords', 's20')}</span><span class="nm"><b>${fmtNim(sd.jar.luna)} NIM Showdown rewards</b><span>${sd.jar.locked ? 'Locked until ' + dateText(sd.jar.unlockAt) : 'Unlocked, ready to withdraw'}. Same jar rules</span></span>${ic('chevron-right', 's20')}</button>` : ''}
       ${info ? poolCard(info, locked) : ''}
       ${pipRow(locked ? 'sleepy' : 'happy', locked ? '<b>New deposits join the lock</b> without restarting it. Your date stays put' : '<b>Pick a goal and a lock.</b> Win Save duels or add to the vault to fill the jar')}
       <div class="lab">Recent games<small>${hist.length ? '' : 'Nothing yet'}</small></div>
@@ -165,6 +167,7 @@ route('/jar', async (root) => {
   draw()
   const keepScroll = (fn: () => void) => { const y = root.querySelector('.scroll')?.scrollTop ?? 0; fn(); const sc = root.querySelector('.scroll'); if (sc) sc.scrollTop = y }
   actions(root, {
+    sd: () => (tap(), go("/showdown")),
     htab: (el) => (tap(), (tab = el.dataset.k!), (shown = PAGE), keepScroll(draw)),
     hmore: () => (tap(), (shown += PAGE), keepScroll(draw)),
     withdraw: () => withdraw(false),

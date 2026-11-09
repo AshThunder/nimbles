@@ -42,3 +42,14 @@ fly logs -a nimbles-mainnet               # expect: [chain] mainnet escrow NQ87 
 Then send the float to `NQ87 51PJ 4Q0P RRQV DVCY L28T N3FK YUK6 P8DR` from your own wallet, wait for the next `[escrow]` log line to show it, and smoke test: in Nimiq Pay open `https://nimbles-mainnet.fly.dev`, solve the vault puzzle, deposit 0.5 NIM, and withdraw it early. That proves deposit verification and payouts on mainnet with one wallet.
 
 Back up `~/.nimbles/secrets/mainnet-escrow.key` somewhere safe before funding. Whoever holds it holds the escrow.
+
+## Nimbles Showdown campaign wallet
+
+The Showdown pays rewards from its own wallet, `NQ79 HN52 XV6A 22L6 7ALU F14P L0BG 9YQP KMQ7`, never from the game escrow.
+
+- The key was created once with `npm run wallet:campaign` into `~/.nimbles/secrets/campaign-wallet.key` (mode 600). The script prints only the address.
+- On Fly it is the secret `CAMPAIGN_PRIVATE_KEY`. `EXPECTED_CAMPAIGN_ADDRESS` in `fly.mainnet.toml` makes a wrong key refuse to start.
+- Without the key the server still runs, and rewards wait in the queue.
+- Fund it with the 50,000 NIM budget. Payouts use fee 0 unless `PAY_FEE_LUNA` is raised. Half of each reward stays in this wallet as the player's locked jar until they withdraw it.
+- Kill switch: `CAMPAIGN_PAUSED=yes`, or the Pause button on `/admin`. The admin page only opens for `ADMIN_ADDRESSES`, which defaults to the owner wallet.
+- Rewards queue instead of failing when the daily pace (3,000 NIM) is reached or the wallet is short. A send that was interrupted by a restart is marked for review and is never resent automatically.

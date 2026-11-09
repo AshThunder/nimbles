@@ -147,14 +147,33 @@ export function toast(msg: string, ms = 3200) {
 }
 
 /** Event delegation: one listener per view root, handlers keyed by data-act. */
+/**
+ * Screens redraw with innerHTML, which swaps the scroll box for a new one at the top. That reset is the "jump" after a
+ * tap. Take the scroll positions now, and put them back on the new boxes after the redraw. Only boxes that were
+ * replaced and sit at the top are touched, so a real scroll by the player always wins, and a new screen is left alone.
+ */
+export function keepScroll(root: HTMLElement) {
+  const before = [...root.querySelectorAll<HTMLElement>('.scroll')]
+  const tops = before.map((e) => e.scrollTop)
+  return () => {
+    if (!root.isConnected) return
+    const now = [...root.querySelectorAll<HTMLElement>('.scroll')]
+    now.forEach((e, i) => {
+      if (before[i] && before[i] !== e && tops[i] > 0 && e.scrollTop === 0) e.scrollTop = tops[i]
+    })
+  }
+}
+
 export function actions(root: HTMLElement, map: Record<string, (el: HTMLElement, ev: Event) => void | Promise<void>>) {
   root.addEventListener('click', (ev) => {
     const el = (ev.target as HTMLElement).closest<HTMLElement>('[data-act]')
     if (!el || !root.contains(el)) return
     const fn = map[el.dataset.act!]
     if (!fn) return
+    const restore = keepScroll(root)
     const r = fn(el, ev)
-    if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch((e) => toast(e?.message || 'Something went wrong'))
+    restore()
+    if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).then(restore, (e) => toast(e?.message || 'Something went wrong'))
   })
 }
 

@@ -280,9 +280,13 @@ route('/me', (root) => {
       ${styleBlock(me)}
       <div class="opt ${isMuted() ? '' : 'on'}" data-act="mute" role="switch" aria-checked="${!isMuted()}" tabindex="0" style="min-height:52px"><span class="ic" style="width:36px;height:36px">${ic(isMuted() ? 'volume-x' : 'volume-2', 's20')}</span><span class="tx"><span class="n">Sound</span><span class="m">${isMuted() ? 'Off' : 'On'}</span></span>${isMuted() ? '<span class="ring"></span>' : `<span class="ck">${ic('check')}</span>`}</div>
       <div class="card flat" style="font-size:13px;line-height:19px;color:var(--ink2)"><div class="row"><b style="color:var(--ink)">Wallet</b><span class="sp"></span><span class="mono">${S.wallet.kind === 'nimiq-pay' ? 'Nimiq Pay' : 'Preview'}</span></div><div class="row"><b style="color:var(--ink)">Network</b><span class="sp"></span><span class="mono">${esc(S.wallet.network)} (server: ${esc(S.cfg.network)}${S.cfg.mock ? ', mock chain' : ''})</span></div><div class="row"><b style="color:var(--ink)">AI</b><span class="sp"></span><span class="mono">${S.cfg.ai.gemini ? 'Gemini' : 'Built-in bank'}</span></div></div>
+      <button class="btn ghost block" data-act="friends">${ic('users', 's20')}Friends</button>
+      ${isAdminMe ? `<button class="btn ghost block" data-act="admin">${ic('chart-column', 's20')}Admin</button>` : ''}
       <button class="btn ghost block" data-act="credits">${ic('heart', 's20')}Credits</button></div>`
   }
+  let isAdminMe = false
   draw()
+  void api.adminMe().then((r) => { if (r.admin && root.isConnected) { isAdminMe = true; draw() } }).catch(() => {})
   root.addEventListener('change', async (e) => {
     const t = e.target as HTMLInputElement
     if (t.id === 'nm' && t.value.trim()) {
@@ -306,6 +310,8 @@ route('/me', (root) => {
     },
     mute: () => (setMuted(!isMuted()), tap(), draw()),
     credits: () => go('/credits'),
+    friends: () => go('/friends'),
+    admin: () => go('/admin'),
   })
 })
 
