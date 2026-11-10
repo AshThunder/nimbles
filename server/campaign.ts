@@ -13,9 +13,10 @@ import {
 import { LUNA } from '../shared/types'
 import { REPLAYS } from '../shared/replays'
 
-/** Games whose result the server works out itself: it runs them (trivia, Splat Royale), scores them (Word Rush) or
- *  replays the move log from the match seed. Chess, pool, Sudoku and Last Bite against Nimo are scored on the device. */
-export const SERVER_SCORED = new Set<string>(['trivia', 'word', 'splat', 'solitaire', 'bubble', ...Object.keys(REPLAYS)])
+/** Games the server replays from the move log and the match seed; a win there must pass the replay. Trivia, Splat Royale
+ *  and Word Rush are scored by the server itself, and Chess and Pool between two people run on the server. Chess, Pool,
+ *  Sudoku and Last Bite against Nimo are scored on the device. */
+export const REPLAYED = new Set<string>(['solitaire', 'bubble', ...Object.keys(REPLAYS)])
 
 export type RewardStatus = 'queued' | 'sending' | 'paid' | 'review' | 'cancelled'
 export type RewardRec = {
@@ -36,7 +37,7 @@ export type RewardRec = {
   lastTryAt?: number
   error?: string
   paidAt?: number
-  match?: string // the match that earned it (Beat Nimo on Hard)
+  match?: string // the match that earned it (First Win Bonus)
   game?: string
 }
 export type PlayerStat = {
@@ -72,7 +73,7 @@ export class Campaign {
   readonly window: Window
   private running = false
   private rerun = false
-  /** Beat Nimo on Hard counts wins from here on. BEAT_NIMO_START overrides; otherwise the first boot stamps it. */
+  /** The First Win Bonus counts wins from here on. BEAT_NIMO_START overrides; otherwise the first boot stamps it. */
   readonly beatNimoStart: number
   private cachedBalance: { luna: number; at: number } | null = null
   constructor(private engine: Engine, public payer: Chain | null, env: Record<string, string | undefined> = process.env) {
@@ -121,7 +122,7 @@ export class Campaign {
     return s
   }
   remaining(pool: PoolId) { return Math.max(0, this.st.caps[pool] - this.allocated(pool)) }
-  /** Showdown earnings toward the 1,000 NIM player cap. Beat Nimo on Hard is a separate campaign and does not count. */
+  /** Showdown earnings toward the 1,000 NIM player cap. The First Win Bonus is a separate line and does not count. */
   earnedBy(a: string) {
     let s = 0
     for (const r of Object.values(this.st.rewards)) if (r.player === a && r.status !== 'cancelled' && r.pool !== 'beatnimo') s += r.luna
@@ -174,7 +175,7 @@ export class Campaign {
     return !!d && d.verified === true
   }
 
-  // ---------------- Beat Nimo on Hard ----------------
+  // ---------------- First Win Bonus (internal id: beatnimo) ----------------
   bnRewards() { return Object.values(this.st.rewards).filter((r) => r.pool === 'beatnimo' && r.status !== 'cancelled') }
   bnLeft() { return Math.max(0, BEAT_NIMO.slots - this.bnRewards().length) }
   bnOf(a: string) {
@@ -182,29 +183,32 @@ export class Campaign {
     return Object.values(this.st.rewards).find((r) => r.pool === 'beatnimo' && walletKey(r.player) === k) ?? null
   }
 
-  /** Why a finished match does not qualify, or '' when it does. Same server-side verification as the Nimo on Hard step,
-   *  plus a server-measured minimum play time, and only matches that started after the campaign start. */
+  /** Why a finished match does not qualify, or '' when it does. A win against Nimo, any game, any level (Nimo is always
+   *  free play, no stake). Matches against real players never count. A draw or a forfeit never counts. Where
+   *  the server scores or replays the game, that check must pass. Plus a server-measured minimum play time, and only
+   *  matches that started after the campaign start. */
   beatNimoCheck(m: MatchRec, forfeit: boolean, now = Date.now()): string {
-    if (m.opp !== 'pip' || m.pipLevel !== 'hard' || m.mode !== 'play') return 'not a Hard match against Nimo'
-    const humans = m.players.filter((p) => !p.isBot)
-    if (humans.length !== 1 || !m.players.some((p) => p.isBot)) return 'not a solo match against Nimo'
+    if (m.opp !== 'pip' || !m.players.some((p) => p.isBot) || m.players.filter((p) => !p.isBot).length !== 1) return 'not a match against Nimo'
     if (forfeit || m.status !== 'settled' || !m.settlement) return 'not finished'
-    const h = humans[0]
-    const a = h.player.address
-    if (m.settlement.winner !== a || m.settlement.draw) return 'not a win'
-    if (!SERVER_SCORED.has(m.game)) return 'this game is not scored by the server'
-    if (!h.result || h.result.score < 0 || !this.verifiedWin(m, h)) return 'result not verified by the server'
+    const st = m.settlement
+    if (st.draw || !st.winner) return 'no winner'
+    const w = m.players.find((p) => p.player.address === st.winner)
+    if (!w || w.isBot) return 'won by Nimo'
+    if (!w.result || w.result.score < 0) return 'winner did not finish'
+    const d = w.result.detail as any
+    // server-checked games must pass their check; device-scored games (Chess, Pool, Sudoku, Last Bite against Nimo) are accepted
+    if (REPLAYED.has(m.game) && d?.verified !== true) return 'result not verified by the server'
     if (!m.startsAt || m.startsAt < this.beatNimoStart) return 'started before the campaign'
     if (now - m.startsAt < BEAT_NIMO.minMatchMs) return 'finished too fast'
-    if (!this.db.profiles[a]) return 'not a registered player'
+    if (!this.db.profiles[w.player.address]) return 'not a registered player'
     return ''
   }
 
-  /** Allocates a slot. Synchronous from check to write (one Node thread, no await in between), so slots can never go
-   *  past 50, and the deterministic per-wallet id plus the wallet scan mean one reward per wallet, ever. */
+  /** Allocates a slot to the winner. Synchronous from check to write (one Node thread, no await in between), so slots can
+   *  never go past 50, and the deterministic per-wallet id plus the wallet scan mean one reward per wallet, ever. */
   claimBeatNimo(m: MatchRec, now = Date.now()): RewardRec | null {
-    const a = m.players.find((p) => !p.isBot)?.player.address
-    if (!a) return null
+    const a = m.settlement?.winner ?? m.players.find((p) => !p.isBot)?.player.address
+    if (!a || m.players.find((p) => p.player.address === a)?.isBot) return null
     const id = `beatnimo:${walletKey(a)}`
     if (this.st.rewards[id] || this.bnOf(a)) return null
     if (this.bnLeft() <= 0) return null
@@ -214,7 +218,7 @@ export class Campaign {
     const r: RewardRec = { id, pool: 'beatnimo', player: a, luna, wallet: luna, jar: 0, note: BEAT_NIMO.name, at: now, status: 'queued', attempts: 0, match: m.id, game: m.game }
     this.st.rewards[id] = r
     this.engine.store.flush()
-    console.log(`[campaign] Beat Nimo on Hard slot ${BEAT_NIMO.slots - this.bnLeft()}/${BEAT_NIMO.slots} match ${m.id}`)
+    console.log(`[campaign] ${BEAT_NIMO.name} slot ${BEAT_NIMO.slots - this.bnLeft()}/${BEAT_NIMO.slots} match ${m.id}`)
     void this.tick().catch((e) => console.error('[campaign] tick', e)) // pay now, not on the next batch
     return r
   }
@@ -508,7 +512,7 @@ export class Campaign {
     }
     const rewards = Object.values(st.rewards).sort((a, b) => b.at - a.at)
     const bal = await this.walletBalance()
-    const totalCap = POOL_IDS.reduce((s, p) => s + st.caps[p], 0) // 50,000, Beat Nimo on Hard included
+    const totalCap = POOL_IDS.reduce((s, p) => s + st.caps[p], 0) // 50,000, the First Win Bonus included
     const allocated = POOL_IDS.reduce((s, p) => s + (p === 'reserve' ? 0 : this.allocated(p)), 0)
     const runway = runwayDays(nonLb, days)
     return {

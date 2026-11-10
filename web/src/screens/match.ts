@@ -391,17 +391,17 @@ route('/m/:id', async (root, { id }) => {
       if (win) buzz([60, 40, 60])
       if (xp) setTimeout(() => sfx('reward/xp', 0.4), 700)
       void refreshBalance()
-      // Beat Nimo on Hard: a qualifying win shows its reward here, and the slot updates once the payout is sent
-      if (win && m.opp === 'pip' && m.pipLevel === 'hard') {
+      // First Win Bonus: a win against Nimo shows its reward here, and updates once the payout is sent
+      if (win && m.opp === 'pip') {
         const bn = async (left: number) => {
           const b = (await api.showdown().catch(() => null))?.beatNimo
           const slot = $('#bnslot', root)
           if (!b || !slot) return
           if (b.mine && b.mine.match === m.id) {
             const paid = b.mine.status === 'paid'
-            slot.innerHTML = bnHtml = `<div class="bnr" role="status"><span class="t"><b>You beat Nimo on Hard</b><span>${paid ? 'Paid to your wallet' : b.paused ? 'Payouts are paused for a moment, yours is kept' : 'Sending to your wallet now'} · one of ${b.slots} rewards</span></span><span class="etag got">${ic('check', 's16')}+${fmtNim(b.mine.luna)} NIM</span></div>`
+            slot.innerHTML = bnHtml = `<div class="bnr" role="status"><span class="t"><b>First Win Bonus</b><span>${paid ? 'Beat Nimo, paid to your wallet' : b.paused ? 'Payouts are paused for a moment, yours is kept' : 'Sending to your wallet now'} · ${b.claimed}/${b.slots} claimed</span></span><span class="etag got">${ic('check', 's16')}+${fmtNim(b.mine.luna)} NIM</span></div>`
             if (paid) { sfx('reward/coin'); void refreshBalance() } else if (left > 0) setTimeout(() => void bn(left - 1), 3000)
-          } else if (!b.mine && b.left <= 0) slot.innerHTML = bnHtml = `<div class="hint">All ${b.slots} Beat Nimo rewards claimed</div>`
+          } else if (!b.mine && b.left <= 0) slot.innerHTML = bnHtml = `<div class="hint">All ${b.slots} First Win Bonus rewards claimed</div>`
         }
         void bn(6)
       }

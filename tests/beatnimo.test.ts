@@ -60,23 +60,43 @@ test('start time is stamped and a match that started before it never counts', as
   const a = addr(1); reg(a)
   nimoMatch(a, { startsAt: START - 1000 })
   assert.equal(bn().length, 0, 'started before the campaign')
+  assert.equal(BEAT_NIMO.name, 'First Win Bonus')
   nimoMatch(a, { startsAt: START + 1000 })
   assert.equal(bn().length, 1)
 })
 
-test('only verified Hard wins with a real play time qualify', async () => {
+test('wins against Nimo only, any game, any level; PvP, draws, forfeits, failed replays and quick wins do not count', async () => {
   reset()
-  const a = addr(2); reg(a)
-  nimoMatch(a, { level: 'med' })
-  nimoMatch(a, { verified: false })
-  nimoMatch(a, { win: false })
-  nimoMatch(a, { startedAgoMs: 5_000 })
-  nimoMatch(a, { game: 'chess' }) // scored on the device, even if it claims verified
-  nimoMatch(a, { game: 'sudoku' })
-  const ghost = addr(3) // never signed in, no profile
-  nimoMatch(ghost)
-  assert.equal(bn().length, 0)
-  nimoMatch(a, { game: 'trivia', verified: false }) // trivia is scored by the server itself
+  const a = addr(2), b = addr(3); reg(a); reg(b)
+  nimoMatch(a, { win: false }) // Nimo won
+  nimoMatch(a, { verified: false }) // a replayed game whose replay failed
+  nimoMatch(a, { startedAgoMs: 5_000 }) // under 20 seconds
+  nimoMatch(addr(4)) // never signed in, no profile
+  const pvp = (o: { winner?: string; draw?: boolean; forfeit?: boolean; detail?: any; game?: string; mode?: string } = {}) => {
+    const m: any = {
+      id: 'pv' + ++seq, code: 'NMB-P' + seq, game: o.game ?? 'chess', mode: o.mode ?? 'win', opp: 'invite', stake: 1, status: 'settled', host: a, size: 2, seed: 's', seedCommit: 'c', config: {},
+      createdAt: Date.now() - 70_000, startsAt: Date.now() - 60_000,
+      players: [a, b].map((x) => ({ player: { address: x, name: 'x', avatar: 'ada' }, funded: true, escrowed: L, result: { score: 1, time: 50_000, detail: o.detail ?? { live: true, reason: 'checkmate' } } })),
+    }
+    m.settlement = { winner: o.draw ? undefined : o.winner ?? b, draw: o.draw, ranks: [], payouts: [], xp: {}, jarCredit: {}, reason: 'x' }
+    app.engine.db.matches[m.id] = m
+    C().onSettled(m, !!o.forfeit)
+    return m
+  }
+  pvp({ draw: true })
+  pvp({ forfeit: true })
+  pvp({ winner: b }) // a staked live chess win against a real player
+  pvp({ winner: b, mode: 'play', game: 'trivia', detail: {} }) // a free match against a real player
+  assert.equal(bn().length, 0, 'matches against real players never count')
+  nimoMatch(a, { level: 'easy', game: 'sudoku' }) // device-scored, easy Nimo: accepted
+  assert.deepEqual(bn().map((r) => r.player), [a])
+  reset()
+  const c = addr(5); reg(c)
+  nimoMatch(c, { level: 'med', game: 'chess' })
+  assert.equal(bn().length, 1, 'chess against Nimo on Medium counts')
+  reset()
+  const e = addr(6); reg(e)
+  nimoMatch(e, { game: 'trivia', verified: false }) // scored by the server itself, no replay flag needed
   assert.equal(bn().length, 1)
 })
 
@@ -182,6 +202,7 @@ test('over HTTP: a real server-scored trivia win against Nimo on Hard claims a s
   assert.equal(sd.beatNimo.left, 49)
   assert.equal(sd.beatNimo.mine.match, c.id)
   assert.equal(sd.beatNimo.mine.status, 'paid')
+  assert.equal(sd.beatNimo.claimed, 1)
   // a client cannot claim a device-scored chess win as verified
   const ch = await call(t, 'POST', '/matches', { game: 'chess', mode: 'play', opp: 'pip', pipLevel: 'hard' })
   const cm = app.engine.db.matches[ch.id]

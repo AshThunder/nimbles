@@ -59,7 +59,7 @@ route('/admin', async (root) => {
       <div class="card" style="padding:8px">${rows.length ? `<table><tr><th>When</th><th>Player</th><th>Why</th><th class="n">NIM</th><th>State</th></tr>${rows.map((r: any) => `<tr><td>${when(r.at)}</td><td class="mono">${short(r.player)}</td><td>${esc(r.note)}${r.wait ? `<br><span class="sm2">${esc(r.wait)}</span>` : ''}${r.error ? `<br><span class="sm2" style="color:var(--coral)">${esc(r.error)}</span>` : ''}</td><td class="n">${nimS(r.luna)}</td><td><span class="st ${r.status}">${r.status}</span>${r.status === 'queued' && !r.released ? `<br><button class="chip" style="margin-top:4px" data-act="cancel" data-id="${esc(r.id)}">Cancel</button>` : ''}${r.status === 'review' ? `<br><button class="chip" style="margin-top:4px" data-act="retry" data-id="${esc(r.id)}">Retry</button>` : ''}</td></tr>`).join('')}</table>` : '<div class="hint" style="padding:8px">Nothing here yet</div>'}</div>`
   }
   const beatNimoBox = (b: any) => `
-      <div class="lab" style="margin:0">Beat Nimo on Hard<small>since ${when(b.start)}</small></div>
+      <div class="lab" style="margin:0">First Win Bonus<small>since ${when(b.start)}</small></div>
       <div class="kpis">
         <div class="kpi ${b.left === 0 ? 'warn' : ''}"><span>Claimed</span><b>${b.used}/${b.slots}</b><span>${b.left ? nimS(b.committed) + ' NIM committed' : 'All ' + b.slots + ' rewards claimed'}</span></div>
         <div class="kpi"><span>Budget left</span><b>${nimS(b.remaining)}</b><span>of ${nimS(b.budget)} NIM · ${nimS(b.paid)} paid</span></div>

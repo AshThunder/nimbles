@@ -899,12 +899,13 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .stkf.bad{border-color:var(--coral)}
 .stkh{font-size:13px;line-height:18px;color:var(--ink2);margin-top:6px;min-height:18px}
 .stkh.bad{color:var(--coral);font-weight:700}
-/* Beat Nimo on Hard card: flat fills only */
+/* First Win Bonus card: flat fills only */
 .bnq{display:flex;gap:12px;align-items:center;background:var(--gold-tint);border:2px solid var(--ink);border-radius:16px;box-shadow:0 4px 0 var(--ink);padding:10px 12px;width:100%;text-align:left}
 .bnq>img{width:40px;height:40px;flex:none}
 .bnq .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bnq .t>b{font-size:15px;line-height:20px;font-weight:800;letter-spacing:-.01em}
 .bnq .t .s{font-size:12px;line-height:16px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bnq .t .s2{font-size:13px;line-height:17px;font-weight:700;color:var(--ink)}
 .bnq .t .s .left{color:var(--ink);font-weight:800}
 .bnq.got{background:var(--green-tint)}
 .bnq.out{background:var(--raised)}
@@ -930,3 +931,4 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .strk .wk i .i{width:60%;height:60%;max-width:12px;max-height:12px}
 .strk .btn{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:6px;padding-right:6px}
 @media (max-width:359px){.strk{padding:10px}}
+.bnq .t .s{white-space:normal;overflow:visible}

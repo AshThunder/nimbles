@@ -54,17 +54,17 @@ export function showdownCard(sd: Showdown | null) {
   return `<button class="sdq" data-act="showdown" aria-label="${esc(sd.name)}, open progress"><img src="/badges/trophy-gold.svg" alt="" width="40" height="40"><span class="t"><b>${esc(sd.name)}</b><span class="s">${sd.live ? `Ends ${dateText(sd.end - 1)}` : 'Finished'} · ${next}</span><span class="sdl"><i style="width:${Math.round(pct)}%"></i></span></span><span class="e"><b>${fmtNim(sd.earned.total)}</b><small>NIM earned</small></span></button>`
 }
 
-// ---------------- Beat Nimo on Hard card (home and Showdown) ----------------
+// ---------------- First Win Bonus card (home and Showdown) ----------------
 /** Live slot counter, the Earns NIM tag, and the claimed state with the amount once this wallet has won it. */
 export function beatNimoCard(b: BeatNimo | null | undefined) {
   if (!b) return ''
   const amt = fmtNim(b.reward)
   if (b.mine) {
     const paid = b.mine.status === 'paid'
-    return `<div class="bnq got" role="status"><img src="/pip/pip-cheer.svg" alt="" width="40" height="40"><span class="t"><b>You beat Nimo on Hard</b><span class="s">${paid ? 'Paid to your wallet' : b.paused ? 'Payouts paused, yours is kept' : 'On its way to your wallet'}</span></span><span class="etag got">${ic('check', 's16')}+${fmtNim(b.mine.luna)} NIM</span></div>`
+    return `<div class="bnq got" role="status"><img src="/pip/pip-cheer.svg" alt="" width="40" height="40"><span class="t"><b>First Win Bonus</b><span class="s">${paid ? 'Paid to your wallet' : b.paused ? 'Payouts paused, yours is kept' : 'On its way to your wallet'}</span></span><span class="etag got">${ic('check', 's16')}+${fmtNim(b.mine.luna)} NIM</span></div>`
   }
-  if (b.left <= 0) return `<div class="bnq out" role="status"><img src="/pip/pip-cool.svg" alt="" width="40" height="40"><span class="t"><b>Beat Nimo on Hard</b><span class="s">All ${b.slots} rewards claimed</span></span></div>`
-  return `<div class="bnq"><img src="/pip/pip-cool.svg" alt="" width="40" height="40"><span class="t"><b>Beat Nimo on Hard, win ${amt} NIM</b><span class="s"><b class="left">${b.claimed}/${b.slots} claimed</b> · first win only</span></span><span class="etag">Earns NIM</span></div>`
+  if (b.left <= 0) return `<div class="bnq out" role="status"><img src="/pip/pip-cool.svg" alt="" width="40" height="40"><span class="t"><b>First Win Bonus</b><span class="s">All ${b.slots} rewards claimed</span></span></div>`
+  return `<div class="bnq"><img src="/pip/pip-cool.svg" alt="" width="40" height="40"><span class="t"><b>First Win Bonus</b><span class="s2">Beat Nimo in any game, any level, get ${amt} NIM</span><span class="s"><b class="left">${b.claimed}/${b.slots} claimed</b> · Free to play, no stake</span></span><span class="etag">Earns NIM</span></div>`
 }
 
 route('/showdown', async (root) => {
