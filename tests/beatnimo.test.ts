@@ -11,7 +11,8 @@ const START = Date.now() - 3600_000
 process.env.BEAT_NIMO_START = new Date(START).toISOString()
 
 const { createApp } = await import('../server/index')
-const { BEAT_NIMO, campaignDay } = await import('../shared/campaign')
+const { BEAT_NIMO, BUDGET_NIM, POOL_CAPS_NIM, campaignDay } = await import('../shared/campaign')
+const { Campaign } = await import('../server/campaign')
 
 let app: Awaited<ReturnType<typeof createApp>>
 before(async () => { app = await createApp({ persist: false }) })
@@ -190,4 +191,22 @@ test('over HTTP: a real server-scored trivia win against Nimo on Hard claims a s
     await call(t, 'POST', `/matches/${ch.id}/result`, { score: 1, time: 50_000, detail: { verified: true } })
     assert.notEqual((cm.players[0].result?.detail as any)?.verified, true)
   }
+})
+
+test('funded from the Showdown budget: total stays 50,000, an older database moves 3,000 reserve and 2,000 Nimo Hard wins once', async () => {
+  assert.equal(BUDGET_NIM, 50_000)
+  assert.deepEqual([POOL_CAPS_NIM.reserve, POOL_CAPS_NIM.nimo, POOL_CAPS_NIM.beatnimo], [0, 3_000, 5_000])
+  const st = C().st as any
+  const saved = { ...st.caps }
+  st.caps = { welcome: 5_000 * L, friend: 20_000 * L, invite: 5_000 * L, leaderboard: 12_000 * L, nimo: 5_000 * L, reserve: 3_000 * L }
+  new Campaign(app.engine, null, {})
+  assert.deepEqual([st.caps.reserve, st.caps.nimo, st.caps.beatnimo].map((x: number) => x / L), [0, 3_000, 5_000])
+  assert.equal(Object.values(st.caps as Record<string, number>).reduce((a, b) => a + b, 0), 50_000 * L)
+  new Campaign(app.engine, null, {}) // a second boot changes nothing
+  assert.equal(st.caps.beatnimo, 5_000 * L)
+  const v = await C().adminView()
+  assert.equal(v.budget, 50_000 * L)
+  st.caps = saved
+  reset()
+  assert.equal(C().beatNimoView().claimed, 0)
 })

@@ -6,7 +6,7 @@ import { ApiError, type Engine } from './engine'
 import type { MatchRec, ProfileRec } from './store'
 import { earlyFee } from '../shared/rewards'
 import {
-  BEAT_NIMO, CAMPAIGN_NAME, DEFAULT_AMOUNTS, LEADERBOARD_TIERS_NIM, MAX_AMOUNTS, POOL_CAPS_NIM, POOL_IDS, POOL_LABEL, RULES,
+  BEAT_NIMO, BEAT_NIMO_FUNDING_NIM, CAMPAIGN_NAME, DEFAULT_AMOUNTS, LEADERBOARD_TIERS_NIM, MAX_AMOUNTS, POOL_CAPS_NIM, POOL_IDS, POOL_LABEL, RULES,
   campaignDay, campaignWindow, isLive, nimToLuna, rankBoard, runwayDays, splitReward, walletKey, weekCount, weekIndex, weekRange,
   type Amounts, type PoolId, type Window,
 } from '../shared/campaign'
@@ -84,7 +84,16 @@ export class Campaign {
     if (Number.isFinite(envStart)) this.st.beatNimoStart = envStart
     this.st.beatNimoStart ??= Date.now()
     this.beatNimoStart = this.st.beatNimoStart
-    this.st.caps.beatnimo ??= nimToLuna(BEAT_NIMO.budgetNim)
+    if (this.st.caps.beatnimo === undefined) {
+      // an older database: fund the new line from the reserve and Nimo Hard wins, so the total stays the same
+      let got = 0
+      for (const [p, nim] of Object.entries(BEAT_NIMO_FUNDING_NIM) as [PoolId, number][]) {
+        const take = Math.min(nimToLuna(nim), Math.max(0, this.st.caps[p] - (p === 'reserve' ? 0 : this.allocated(p))))
+        this.st.caps[p] -= take
+        got += take
+      }
+      this.st.caps.beatnimo = got
+    }
     engine.store.save()
     for (const r of Object.values(this.st.rewards)) if (r.status === 'sending') { r.status = 'review'; r.error = 'Server restarted during the send. Check the wallet history before retrying' }
   }
@@ -421,7 +430,7 @@ export class Campaign {
   beatNimoView(a?: string) {
     const r = a ? this.bnOf(a) : null
     const mine = r && r.status !== 'cancelled' ? { luna: r.luna, status: r.status === 'paid' ? 'paid' : 'pending', tx: r.tx, match: r.match, at: r.at } : null
-    return { name: BEAT_NIMO.name, start: this.beatNimoStart, slots: BEAT_NIMO.slots, left: this.bnLeft(), reward: nimToLuna(BEAT_NIMO.rewardNim), paused: this.paused, mine }
+    return { name: BEAT_NIMO.name, start: this.beatNimoStart, slots: BEAT_NIMO.slots, left: this.bnLeft(), claimed: BEAT_NIMO.slots - this.bnLeft(), reward: nimToLuna(BEAT_NIMO.rewardNim), paused: this.paused, mine }
   }
 
   /** Players this person invited, with their own progress toward the invite step. Names and match counts only. */
@@ -490,7 +499,7 @@ export class Campaign {
   // ---------------- admin ----------------
   async adminView(now = Date.now()) {
     const st = this.st
-    const pools = POOL_IDS.filter((p) => p !== 'beatnimo').map((p) => ({ id: p, label: POOL_LABEL[p], cap: st.caps[p], allocated: p === 'reserve' ? 0 : this.allocated(p), remaining: p === 'reserve' ? st.caps[p] : this.remaining(p) }))
+    const pools = POOL_IDS.map((p) => ({ id: p, label: POOL_LABEL[p], cap: st.caps[p], allocated: p === 'reserve' ? 0 : this.allocated(p), remaining: p === 'reserve' ? st.caps[p] : this.remaining(p) }))
     const nonLb = pools.filter((p) => p.id !== 'leaderboard' && p.id !== 'reserve').reduce((s, p) => s + p.remaining, 0)
     const days: number[] = []
     for (let i = 0; i < 3; i++) {
@@ -499,17 +508,15 @@ export class Campaign {
     }
     const rewards = Object.values(st.rewards).sort((a, b) => b.at - a.at)
     const bal = await this.walletBalance()
-    // the Showdown budget; Beat Nimo on Hard is its own line, shown on its own
-    const sdPools = POOL_IDS.filter((p) => p !== 'beatnimo')
-    const totalCap = sdPools.reduce((s, p) => s + st.caps[p], 0)
-    const allocated = sdPools.reduce((s, p) => s + (p === 'reserve' ? 0 : this.allocated(p)), 0)
+    const totalCap = POOL_IDS.reduce((s, p) => s + st.caps[p], 0) // 50,000, Beat Nimo on Hard included
+    const allocated = POOL_IDS.reduce((s, p) => s + (p === 'reserve' ? 0 : this.allocated(p)), 0)
     const runway = runwayDays(nonLb, days)
     return {
       name: CAMPAIGN_NAME, live: this.live(now), start: this.window.start, end: this.window.end,
       paused: this.paused, pausedBy: this.envPaused ? 'env' : st.paused ? 'admin' : '',
       amounts: st.amounts, maxAmounts: MAX_AMOUNTS, rules: RULES,
       wallet: { address: this.payer?.escrowAddress ?? '', balance: bal, liabilities: this.liabilities(), feesBack: st.feesBack },
-      budget: totalCap, allocated, paid: rewards.filter((r) => r.status === 'paid' && r.pool !== 'beatnimo').reduce((s, r) => s + r.luna, 0),
+      budget: totalCap, allocated, paid: rewards.filter((r) => r.status === 'paid').reduce((s, r) => s + r.luna, 0),
       pools,
       pace: { today: st.dayReleased[campaignDay(now)] ?? 0, dailyCap: nimToLuna(RULES.dailyCapNim), recent: days, runwayDays: Number.isFinite(runway) ? Math.round(runway * 10) / 10 : null, daysLeft: Math.max(0, Math.ceil((this.window.end - now) / 864e5)) },
       counts: { queued: rewards.filter((r) => r.status === 'queued').length, sending: rewards.filter((r) => r.status === 'sending').length, review: rewards.filter((r) => r.status === 'review').length, paid: rewards.filter((r) => r.status === 'paid').length },

@@ -143,6 +143,7 @@ test('caps: a pool stops when empty, a player stops at 1,000 NIM, total can neve
   assert.equal(C().earnedBy(a), 1000 * L)
   assert.equal(C().award('friend', a, 20, 'f1', 'x'), null)
   // reserve moves never grow the budget
+  C().st.caps.reserve = 3_000 * L; C().st.caps.friend -= 3_000 * L
   const before = Object.values(C().st.caps).reduce((s, x) => s + x, 0)
   C().adminSet({ moveFromReserve: { pool: 'friend', nim: 1000 } })
   assert.equal(Object.values(C().st.caps).reduce((s, x) => s + x, 0), before)
@@ -285,7 +286,7 @@ test('admin: only the owner wallet, exact match, on every admin call', async () 
   assert.equal(C().st.paused, false)
   const v = (await call(ta, 'GET', '/admin/campaign')).j
   assert.equal(v.budget, 50_000 * L)
-  assert.equal(v.pools.length, 6)
+  assert.equal(v.pools.length, 7, 'Beat Nimo on Hard is a pool inside the 50,000')
   const s = (await call(ta, 'GET', '/admin/stats')).j
   assert.ok(s.users.total > 0)
   assert.ok(s.top.every((r: any) => /^NQ..…....$/.test(r.addr)), 'players are shortened addresses')

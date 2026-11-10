@@ -12,9 +12,11 @@ export const POOL_LABEL: Record<PoolId, string> = {
 }
 
 /** NIM per pool. They add up to the whole budget, so no rule can ever pay more than the budget in total. */
-export const POOL_CAPS_NIM: Record<PoolId, number> = { welcome: 5_000, friend: 20_000, invite: 5_000, leaderboard: 12_000, nimo: 5_000, reserve: 3_000, beatnimo: 5_000 }
-/** The Showdown budget. Beat Nimo on Hard is its own separate 5,000 NIM line on top. */
-export const BUDGET_NIM = POOL_IDS.filter((p) => p !== 'beatnimo').reduce((a, p) => a + POOL_CAPS_NIM[p], 0) // 50,000
+export const POOL_CAPS_NIM: Record<PoolId, number> = { welcome: 5_000, friend: 20_000, invite: 5_000, leaderboard: 12_000, nimo: 3_000, reserve: 0, beatnimo: 5_000 }
+/** The whole budget, 50,000 NIM. Beat Nimo on Hard's 5,000 came out of it: the full 3,000 reserve and 2,000 of Nimo Hard wins. */
+export const BUDGET_NIM = Object.values(POOL_CAPS_NIM).reduce((a, b) => a + b, 0) // 50,000
+/** What the Beat Nimo on Hard line took from the other pools, applied once to a database made before it existed. */
+export const BEAT_NIMO_FUNDING_NIM: Partial<Record<PoolId, number>> = { reserve: 3_000, nimo: 2_000 }
 
 /** Beat Nimo on Hard: the first verified Hard win against Nimo, in any server-verified game, pays 100 NIM once per
  *  wallet to the first 50 wallets. Paid in full straight to the wallet right away: no jar half, not held to the daily pace. */

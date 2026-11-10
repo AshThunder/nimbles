@@ -61,7 +61,7 @@ route('/admin', async (root) => {
   const beatNimoBox = (b: any) => `
       <div class="lab" style="margin:0">Beat Nimo on Hard<small>since ${when(b.start)}</small></div>
       <div class="kpis">
-        <div class="kpi ${b.left === 0 ? 'warn' : ''}"><span>Slots used</span><b>${b.used} / ${b.slots}</b><span>${b.left} left</span></div>
+        <div class="kpi ${b.left === 0 ? 'warn' : ''}"><span>Claimed</span><b>${b.used}/${b.slots}</b><span>${b.left ? nimS(b.committed) + ' NIM committed' : 'All ' + b.slots + ' rewards claimed'}</span></div>
         <div class="kpi"><span>Budget left</span><b>${nimS(b.remaining)}</b><span>of ${nimS(b.budget)} NIM · ${nimS(b.paid)} paid</span></div>
       </div>
       <div class="card" style="padding:8px">${b.winners.length ? `<table><tr><th>#</th><th>Player</th><th>Game</th><th class="n">NIM</th><th>Payout</th></tr>${b.winners.map((r: any) => `<tr><td>${r.n}</td><td><b>${esc(r.name)}</b><br><span class="mono sm2">${short(r.address)}</span><br><span class="sm2">${when(r.at)}</span></td><td>${esc(r.game)}</td><td class="n">${nimS(r.luna)}</td><td><span class="st ${r.status}">${r.status}</span>${r.wait ? `<br><span class="sm2">${esc(r.wait)}</span>` : ''}${r.error ? `<br><span class="sm2" style="color:var(--coral)">${esc(r.error)}</span>` : ''}${r.tx ? `<br><span class="mono sm2">${esc(short(r.tx))}</span>` : ''}${r.status === 'review' ? `<br><button class="chip" style="margin-top:4px" data-act="retry" data-id="${esc(r.id)}">Retry</button>` : ''}${r.status === 'queued' && r.wait ? `<br><button class="chip" style="margin-top:4px" data-act="cancel" data-id="${esc(r.id)}">Cancel</button>` : ''}</td></tr>`).join('')}</table>` : '<div class="hint" style="padding:8px">No winners yet</div>'}</div>`

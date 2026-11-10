@@ -95,7 +95,7 @@ export type Showdown = {
   jar: { luna: number; unlockAt: number; locked: boolean; early: { fee: number; pct: number; net: number } }
   beatNimo?: BeatNimo
 }
-export type BeatNimo = { name: string; start: number; slots: number; left: number; reward: number; paused: boolean; mine: { luna: number; status: 'paid' | 'pending'; tx?: string; match?: string; at: number } | null }
+export type BeatNimo = { name: string; start: number; slots: number; left: number; claimed: number; reward: number; paused: boolean; mine: { luna: number; status: 'paid' | 'pending'; tx?: string; match?: string; at: number } | null }
 export type ShowdownBoard = { week: number; weeks: number; start: number; endsAt: number; top: number; live: boolean; rows: SdRow[]; me: SdRow | null }
 export type SdRow = { rank: number; name: string; avatar: string; frame: string; wins: number; me: boolean }
 export type LobbyItem = { code: string; game: string; mode: string; stake: number; topic?: string; host: { name: string; avatar: string; frame: string }; players: number; size: number; waitingSec: number }
