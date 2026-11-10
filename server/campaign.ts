@@ -6,11 +6,16 @@ import { ApiError, type Engine } from './engine'
 import type { MatchRec, ProfileRec } from './store'
 import { earlyFee } from '../shared/rewards'
 import {
-  CAMPAIGN_NAME, DEFAULT_AMOUNTS, LEADERBOARD_TIERS_NIM, MAX_AMOUNTS, POOL_CAPS_NIM, POOL_IDS, POOL_LABEL, RULES,
-  campaignDay, campaignWindow, isLive, nimToLuna, rankBoard, runwayDays, splitReward, weekCount, weekIndex, weekRange,
+  BEAT_NIMO, CAMPAIGN_NAME, DEFAULT_AMOUNTS, LEADERBOARD_TIERS_NIM, MAX_AMOUNTS, POOL_CAPS_NIM, POOL_IDS, POOL_LABEL, RULES,
+  campaignDay, campaignWindow, isLive, nimToLuna, rankBoard, runwayDays, splitReward, walletKey, weekCount, weekIndex, weekRange,
   type Amounts, type PoolId, type Window,
 } from '../shared/campaign'
 import { LUNA } from '../shared/types'
+import { REPLAYS } from '../shared/replays'
+
+/** Games whose result the server works out itself: it runs them (trivia, Splat Royale), scores them (Word Rush) or
+ *  replays the move log from the match seed. Chess, pool, Sudoku and Last Bite against Nimo are scored on the device. */
+export const SERVER_SCORED = new Set<string>(['trivia', 'word', 'splat', 'solitaire', 'bubble', ...Object.keys(REPLAYS)])
 
 export type RewardStatus = 'queued' | 'sending' | 'paid' | 'review' | 'cancelled'
 export type RewardRec = {
@@ -31,6 +36,8 @@ export type RewardRec = {
   lastTryAt?: number
   error?: string
   paidAt?: number
+  match?: string // the match that earned it (Beat Nimo on Hard)
+  game?: string
 }
 export type PlayerStat = {
   done: number // finished matches during the campaign
@@ -54,6 +61,7 @@ export type CampaignState = {
   alerts: { at: number; pool: PoolId | 'wallet'; msg: string }[]
   alerted: Record<string, boolean>
   feesBack: number // early unlock fees from campaign jars, they stay in the campaign wallet
+  beatNimoStart?: number // stamped once, the first time a server with this campaign starts
 }
 
 const bad = (m: string, s = 400) => new ApiError(s, m)
@@ -63,12 +71,21 @@ export class Campaign {
   readonly name = CAMPAIGN_NAME
   readonly window: Window
   private running = false
+  private rerun = false
+  /** Beat Nimo on Hard counts wins from here on. BEAT_NIMO_START overrides; otherwise the first boot stamps it. */
+  readonly beatNimoStart: number
   private cachedBalance: { luna: number; at: number } | null = null
   constructor(private engine: Engine, public payer: Chain | null, env: Record<string, string | undefined> = process.env) {
     this.window = campaignWindow(env)
     if (env.CAMPAIGN_PAUSED === 'yes' || env.CAMPAIGN_PAUSED === 'true' || env.CAMPAIGN_PAUSED === '1') this.envPaused = true
     engine.onSettled = (m, forfeit) => this.onSettled(m, forfeit)
     // a payout that was mid-send when the server stopped may or may not have gone out. Never resend it blindly
+    const envStart = Date.parse(env.BEAT_NIMO_START ?? '')
+    if (Number.isFinite(envStart)) this.st.beatNimoStart = envStart
+    this.st.beatNimoStart ??= Date.now()
+    this.beatNimoStart = this.st.beatNimoStart
+    this.st.caps.beatnimo ??= nimToLuna(BEAT_NIMO.budgetNim)
+    engine.store.save()
     for (const r of Object.values(this.st.rewards)) if (r.status === 'sending') { r.status = 'review'; r.error = 'Server restarted during the send. Check the wallet history before retrying' }
   }
   envPaused = false
@@ -95,15 +112,16 @@ export class Campaign {
     return s
   }
   remaining(pool: PoolId) { return Math.max(0, this.st.caps[pool] - this.allocated(pool)) }
+  /** Showdown earnings toward the 1,000 NIM player cap. Beat Nimo on Hard is a separate campaign and does not count. */
   earnedBy(a: string) {
     let s = 0
-    for (const r of Object.values(this.st.rewards)) if (r.player === a && r.status !== 'cancelled') s += r.luna
+    for (const r of Object.values(this.st.rewards)) if (r.player === a && r.status !== 'cancelled' && r.pool !== 'beatnimo') s += r.luna
     return s
   }
 
   /** Records a reward once. Clamped to what the pool and the player's cap have left; nothing is recorded if either is empty. */
   award(pool: PoolId, player: string, nim: number, id: string, note: string, now = Date.now()): RewardRec | null {
-    if (pool === 'reserve') return null
+    if (pool === 'reserve' || pool === 'beatnimo') return null // beatnimo only through claimBeatNimo
     if (this.st.rewards[id]) return null
     if (!this.live(now) && pool !== 'leaderboard') return null
     const playerLeft = nimToLuna(RULES.playerCapNim) - this.earnedBy(player)
@@ -147,7 +165,53 @@ export class Campaign {
     return !!d && d.verified === true
   }
 
+  // ---------------- Beat Nimo on Hard ----------------
+  bnRewards() { return Object.values(this.st.rewards).filter((r) => r.pool === 'beatnimo' && r.status !== 'cancelled') }
+  bnLeft() { return Math.max(0, BEAT_NIMO.slots - this.bnRewards().length) }
+  bnOf(a: string) {
+    const k = walletKey(a)
+    return Object.values(this.st.rewards).find((r) => r.pool === 'beatnimo' && walletKey(r.player) === k) ?? null
+  }
+
+  /** Why a finished match does not qualify, or '' when it does. Same server-side verification as the Nimo on Hard step,
+   *  plus a server-measured minimum play time, and only matches that started after the campaign start. */
+  beatNimoCheck(m: MatchRec, forfeit: boolean, now = Date.now()): string {
+    if (m.opp !== 'pip' || m.pipLevel !== 'hard' || m.mode !== 'play') return 'not a Hard match against Nimo'
+    const humans = m.players.filter((p) => !p.isBot)
+    if (humans.length !== 1 || !m.players.some((p) => p.isBot)) return 'not a solo match against Nimo'
+    if (forfeit || m.status !== 'settled' || !m.settlement) return 'not finished'
+    const h = humans[0]
+    const a = h.player.address
+    if (m.settlement.winner !== a || m.settlement.draw) return 'not a win'
+    if (!SERVER_SCORED.has(m.game)) return 'this game is not scored by the server'
+    if (!h.result || h.result.score < 0 || !this.verifiedWin(m, h)) return 'result not verified by the server'
+    if (!m.startsAt || m.startsAt < this.beatNimoStart) return 'started before the campaign'
+    if (now - m.startsAt < BEAT_NIMO.minMatchMs) return 'finished too fast'
+    if (!this.db.profiles[a]) return 'not a registered player'
+    return ''
+  }
+
+  /** Allocates a slot. Synchronous from check to write (one Node thread, no await in between), so slots can never go
+   *  past 50, and the deterministic per-wallet id plus the wallet scan mean one reward per wallet, ever. */
+  claimBeatNimo(m: MatchRec, now = Date.now()): RewardRec | null {
+    const a = m.players.find((p) => !p.isBot)?.player.address
+    if (!a) return null
+    const id = `beatnimo:${walletKey(a)}`
+    if (this.st.rewards[id] || this.bnOf(a)) return null
+    if (this.bnLeft() <= 0) return null
+    const luna = nimToLuna(BEAT_NIMO.rewardNim)
+    if (this.remaining('beatnimo') < luna) return null
+    // no split here: the full reward goes straight to the wallet, nothing is locked
+    const r: RewardRec = { id, pool: 'beatnimo', player: a, luna, wallet: luna, jar: 0, note: BEAT_NIMO.name, at: now, status: 'queued', attempts: 0, match: m.id, game: m.game }
+    this.st.rewards[id] = r
+    this.engine.store.flush()
+    console.log(`[campaign] Beat Nimo on Hard slot ${BEAT_NIMO.slots - this.bnLeft()}/${BEAT_NIMO.slots} match ${m.id}`)
+    void this.tick().catch((e) => console.error('[campaign] tick', e)) // pay now, not on the next batch
+    return r
+  }
+
   onSettled(m: MatchRec, forfeit: boolean, now = Date.now()) {
+    if (m.settlement && !this.beatNimoCheck(m, forfeit, now)) this.claimBeatNimo(m, now)
     if (!this.live(now) || !m.settlement) return
     const humans = m.players.filter((p) => !p.isBot)
     const finished = humans.filter((p) => p.result && p.result.score >= 0)
@@ -267,8 +331,9 @@ export class Campaign {
 
   /** Releases queued rewards within the daily pace and the wallet's funds, then sends the wallet halves one at a time. */
   async tick(now = Date.now()) {
-    if (this.running) return
+    if (this.running) { this.rerun = true; return }
     this.running = true
+    this.rerun = false
     try {
       this.closeWeeks(now)
       if (this.paused) return
@@ -280,11 +345,11 @@ export class Campaign {
         if (this.paused) break
         if (!r.released) {
           if (!this.payer || bal === null) { r.wait = this.payer ? 'Could not read the campaign wallet' : 'Campaign wallet not set up'; continue }
-          if (r.pool !== 'leaderboard' && (this.st.dayReleased[today] ?? 0) + r.luna > nimToLuna(RULES.dailyCapNim)) { r.wait = 'Daily pace reached, pays tomorrow'; continue }
+          if (r.pool !== 'leaderboard' && r.pool !== 'beatnimo' && (this.st.dayReleased[today] ?? 0) + r.luna > nimToLuna(RULES.dailyCapNim)) { r.wait = 'Daily pace reached, pays tomorrow'; continue }
           const free = bal - this.liabilities().total - Number((this.payer as any).payFee ?? 0)
           if (free < r.luna) { r.wait = 'Waiting for campaign wallet funds'; this.fundsAlert(now); continue }
           r.released = today
-          if (r.pool !== 'leaderboard') this.st.dayReleased[today] = (this.st.dayReleased[today] ?? 0) + r.luna
+          if (r.pool !== 'leaderboard' && r.pool !== 'beatnimo') this.st.dayReleased[today] = (this.st.dayReleased[today] ?? 0) + r.luna
           const p = this.db.profiles[r.player]
           if (p && r.jar > 0 && !r.jarCredited) { this.creditJar(p, r.jar, now); r.jarCredited = true }
           delete r.wait
@@ -309,7 +374,10 @@ export class Campaign {
         this.engine.store.save()
       }
       this.engine.store.save()
-    } finally { this.running = false }
+    } finally {
+      this.running = false
+      if (this.rerun) { this.rerun = false; setTimeout(() => void this.tick().catch((e) => console.error('[campaign] tick', e)), 0) }
+    }
   }
 
   private fundsAlert(now: number) {
@@ -344,8 +412,16 @@ export class Campaign {
       capped: this.earnedBy(a) >= nimToLuna(RULES.playerCapNim),
       history: mine.sort((x, y) => y.at - x.at).slice(0, 20).map((r) => ({ note: r.note, luna: r.luna, wallet: r.wallet, jar: r.jar, status: r.status === 'paid' ? 'paid' : 'pending', at: r.at, tx: r.tx })),
       jar: this.jarOf(a, now),
+      beatNimo: this.beatNimoView(a),
       serverNow: now,
     }
+  }
+
+  /** The campaign card: public slot count, and this wallet's own reward once it has one. */
+  beatNimoView(a?: string) {
+    const r = a ? this.bnOf(a) : null
+    const mine = r && r.status !== 'cancelled' ? { luna: r.luna, status: r.status === 'paid' ? 'paid' : 'pending', tx: r.tx, match: r.match, at: r.at } : null
+    return { name: BEAT_NIMO.name, start: this.beatNimoStart, slots: BEAT_NIMO.slots, left: this.bnLeft(), reward: nimToLuna(BEAT_NIMO.rewardNim), paused: this.paused, mine }
   }
 
   /** Players this person invited, with their own progress toward the invite step. Names and match counts only. */
@@ -414,7 +490,7 @@ export class Campaign {
   // ---------------- admin ----------------
   async adminView(now = Date.now()) {
     const st = this.st
-    const pools = POOL_IDS.map((p) => ({ id: p, label: POOL_LABEL[p], cap: st.caps[p], allocated: p === 'reserve' ? 0 : this.allocated(p), remaining: p === 'reserve' ? st.caps[p] : this.remaining(p) }))
+    const pools = POOL_IDS.filter((p) => p !== 'beatnimo').map((p) => ({ id: p, label: POOL_LABEL[p], cap: st.caps[p], allocated: p === 'reserve' ? 0 : this.allocated(p), remaining: p === 'reserve' ? st.caps[p] : this.remaining(p) }))
     const nonLb = pools.filter((p) => p.id !== 'leaderboard' && p.id !== 'reserve').reduce((s, p) => s + p.remaining, 0)
     const days: number[] = []
     for (let i = 0; i < 3; i++) {
@@ -423,20 +499,33 @@ export class Campaign {
     }
     const rewards = Object.values(st.rewards).sort((a, b) => b.at - a.at)
     const bal = await this.walletBalance()
-    const totalCap = POOL_IDS.reduce((s, p) => s + st.caps[p], 0)
-    const allocated = POOL_IDS.reduce((s, p) => s + (p === 'reserve' ? 0 : this.allocated(p)), 0)
+    // the Showdown budget; Beat Nimo on Hard is its own line, shown on its own
+    const sdPools = POOL_IDS.filter((p) => p !== 'beatnimo')
+    const totalCap = sdPools.reduce((s, p) => s + st.caps[p], 0)
+    const allocated = sdPools.reduce((s, p) => s + (p === 'reserve' ? 0 : this.allocated(p)), 0)
     const runway = runwayDays(nonLb, days)
     return {
       name: CAMPAIGN_NAME, live: this.live(now), start: this.window.start, end: this.window.end,
       paused: this.paused, pausedBy: this.envPaused ? 'env' : st.paused ? 'admin' : '',
       amounts: st.amounts, maxAmounts: MAX_AMOUNTS, rules: RULES,
       wallet: { address: this.payer?.escrowAddress ?? '', balance: bal, liabilities: this.liabilities(), feesBack: st.feesBack },
-      budget: totalCap, allocated, paid: rewards.filter((r) => r.status === 'paid').reduce((s, r) => s + r.luna, 0),
+      budget: totalCap, allocated, paid: rewards.filter((r) => r.status === 'paid' && r.pool !== 'beatnimo').reduce((s, r) => s + r.luna, 0),
       pools,
       pace: { today: st.dayReleased[campaignDay(now)] ?? 0, dailyCap: nimToLuna(RULES.dailyCapNim), recent: days, runwayDays: Number.isFinite(runway) ? Math.round(runway * 10) / 10 : null, daysLeft: Math.max(0, Math.ceil((this.window.end - now) / 864e5)) },
       counts: { queued: rewards.filter((r) => r.status === 'queued').length, sending: rewards.filter((r) => r.status === 'sending').length, review: rewards.filter((r) => r.status === 'review').length, paid: rewards.filter((r) => r.status === 'paid').length },
       alerts: st.alerts.slice(0, 20),
       payouts: rewards.slice(0, 200),
+      beatNimo: (() => {
+        const list = Object.values(st.rewards).filter((r) => r.pool === 'beatnimo').sort((x, y) => x.at - y.at)
+        const live = list.filter((r) => r.status !== 'cancelled')
+        const budget = st.caps.beatnimo ?? 0
+        return {
+          start: this.beatNimoStart, slots: BEAT_NIMO.slots, used: live.length, left: this.bnLeft(), budget,
+          committed: live.reduce((s, r) => s + r.luna, 0), paid: live.filter((r) => r.status === 'paid').reduce((s, r) => s + r.luna, 0),
+          remaining: Math.max(0, budget - live.reduce((s, r) => s + r.luna, 0)),
+          winners: list.map((r, i) => ({ n: i + 1, id: r.id, address: r.player, name: this.db.profiles[r.player]?.name ?? 'Player', game: r.game ?? '', match: r.match ?? '', luna: r.luna, status: r.status, wait: r.wait, error: r.error, tx: r.tx, at: r.at, paidAt: r.paidAt })),
+        }
+      })(),
       board: (() => { const w = weekIndex(this.window, now); return w < 0 ? [] : this.board(w).slice(0, 20).map((r, i) => ({ rank: i + 1, ...r })) })(),
       serverNow: now,
     }
@@ -457,7 +546,7 @@ export class Campaign {
       // shifts budget between pools; the total never changes, so the budget can never grow
       const pool = b.moveFromReserve.pool as PoolId
       const nim = Number(b.moveFromReserve.nim)
-      if (!POOL_IDS.includes(pool) || pool === 'reserve') throw bad('Pick a pool')
+      if (!POOL_IDS.includes(pool) || pool === 'reserve' || pool === 'beatnimo') throw bad('Pick a pool')
       if (!(nim > 0)) throw bad('Enter an amount')
       const luna = nimToLuna(nim)
       if (luna > st.caps.reserve) throw bad('The reserve does not have that much')

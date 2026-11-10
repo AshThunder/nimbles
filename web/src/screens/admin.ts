@@ -36,6 +36,7 @@ route('/admin', async (root) => {
       <div class="row" style="gap:8px"><span class="chip" style="background:${c.live ? 'var(--green-tint)' : 'var(--raised)'}">${c.live ? 'Live' : 'Not live'}</span><span class="sm2">${when(c.start)} to ${when(c.end - 1)}</span></div>
       <div class="card row" style="gap:10px;${c.paused ? 'background:var(--coral-tint)' : ''}"><span style="flex:1;font-weight:800">${c.paused ? 'Payouts paused' : 'Payouts running'}${c.pausedBy === 'env' ? '<br><span class="sm2">Paused by CAMPAIGN_PAUSED on the server</span>' : ''}</span><button class="btn ${c.paused ? 'gold' : 'ghost'} sm" data-act="pause" ${busy || c.pausedBy === 'env' ? 'disabled' : ''}>${ic(c.paused ? 'play' : 'pause', 's16')}${c.paused ? 'Resume' : 'Pause'}</button></div>
       ${c.alerts.length ? `<div class="lob">${c.alerts.slice(0, 4).map((a: any) => `<div class="alert">${ic('triangle-alert', 's16')} ${esc(a.msg)} <span class="sm2">${when(a.at)}</span></div>`).join('')}</div>` : ''}
+      ${c.beatNimo ? beatNimoBox(c.beatNimo) : ''}
       <div class="kpis">
         <div class="kpi"><span>Allocated</span><b>${nimS(c.allocated)}</b><span>of ${nimS(c.budget)} NIM</span></div>
         <div class="kpi"><span>Paid out</span><b>${nimS(c.paid)}</b><span>${c.counts.paid} rewards</span></div>
@@ -46,7 +47,7 @@ route('/admin', async (root) => {
       </div>
       <div class="lab" style="margin:0">Pools</div>
       <div class="card">${c.pools.map((p: any) => `<div class="poolr"><div class="r"><b>${esc(p.label)}</b><span>${nimS(p.remaining)} / ${nimS(p.cap)} left</span></div><div class="bar2"><i class="${lowPool(p) ? 'lo' : ''}" style="width:${p.cap ? Math.round((p.remaining / p.cap) * 100) : 0}%"></i></div></div>`).join('')}
-        <form class="amt" id="mv" style="margin-top:10px"><select id="mvp" style="min-width:0;width:100%;height:40px;border-radius:10px;border:2px solid var(--ink);background:var(--card);font:inherit;font-weight:700;padding:0 8px">${c.pools.filter((p: any) => p.id !== 'reserve').map((p: any) => `<option value="${p.id}">Reserve to ${esc(p.label)}</option>`).join('')}</select><input id="mvn" inputmode="decimal" placeholder="NIM"></form>
+        <form class="amt" id="mv" style="margin-top:10px"><select id="mvp" style="min-width:0;width:100%;height:40px;border-radius:10px;border:2px solid var(--ink);background:var(--card);font:inherit;font-weight:700;padding:0 8px">${c.pools.filter((p: any) => p.id !== 'reserve' && p.id !== 'beatnimo').map((p: any) => `<option value="${p.id}">Reserve to ${esc(p.label)}</option>`).join('')}</select><input id="mvn" inputmode="decimal" placeholder="NIM"></form>
         <button class="btn ghost sm block" style="margin-top:8px" data-act="move" ${busy ? 'disabled' : ''}>Move from reserve</button></div>
       <div class="lab" style="margin:0">Reward amounts<small>NIM, live, no redeploy</small></div>
       <div class="card"><div class="tc">${(['welcome', 'friend', 'invite', 'nimo'] as const).map((k) => `<label class="amt"><span>${{ welcome: 'Welcome', friend: 'Friend duel (each player)', invite: 'Invite', nimo: 'Nimo Hard win' }[k]}<br><span class="sm2">max ${c.maxAmounts[k]}</span></span><input data-amt="${k}" inputmode="decimal" value="${c.amounts[k]}"></label>`).join('')}
@@ -57,6 +58,13 @@ route('/admin', async (root) => {
       <div class="pick">${['all', 'queued', 'sending', 'review', 'paid', 'cancelled'].map((f) => `<button class="pc ${filter === f ? 'on' : ''}" data-act="filter" data-f="${f}">${filter === f ? ic('check') : ''}${f[0].toUpperCase() + f.slice(1)}</button>`).join('')}</div>
       <div class="card" style="padding:8px">${rows.length ? `<table><tr><th>When</th><th>Player</th><th>Why</th><th class="n">NIM</th><th>State</th></tr>${rows.map((r: any) => `<tr><td>${when(r.at)}</td><td class="mono">${short(r.player)}</td><td>${esc(r.note)}${r.wait ? `<br><span class="sm2">${esc(r.wait)}</span>` : ''}${r.error ? `<br><span class="sm2" style="color:var(--coral)">${esc(r.error)}</span>` : ''}</td><td class="n">${nimS(r.luna)}</td><td><span class="st ${r.status}">${r.status}</span>${r.status === 'queued' && !r.released ? `<br><button class="chip" style="margin-top:4px" data-act="cancel" data-id="${esc(r.id)}">Cancel</button>` : ''}${r.status === 'review' ? `<br><button class="chip" style="margin-top:4px" data-act="retry" data-id="${esc(r.id)}">Retry</button>` : ''}</td></tr>`).join('')}</table>` : '<div class="hint" style="padding:8px">Nothing here yet</div>'}</div>`
   }
+  const beatNimoBox = (b: any) => `
+      <div class="lab" style="margin:0">Beat Nimo on Hard<small>since ${when(b.start)}</small></div>
+      <div class="kpis">
+        <div class="kpi ${b.left === 0 ? 'warn' : ''}"><span>Slots used</span><b>${b.used} / ${b.slots}</b><span>${b.left} left</span></div>
+        <div class="kpi"><span>Budget left</span><b>${nimS(b.remaining)}</b><span>of ${nimS(b.budget)} NIM · ${nimS(b.paid)} paid</span></div>
+      </div>
+      <div class="card" style="padding:8px">${b.winners.length ? `<table><tr><th>#</th><th>Player</th><th>Game</th><th class="n">NIM</th><th>Payout</th></tr>${b.winners.map((r: any) => `<tr><td>${r.n}</td><td><b>${esc(r.name)}</b><br><span class="mono sm2">${short(r.address)}</span><br><span class="sm2">${when(r.at)}</span></td><td>${esc(r.game)}</td><td class="n">${nimS(r.luna)}</td><td><span class="st ${r.status}">${r.status}</span>${r.wait ? `<br><span class="sm2">${esc(r.wait)}</span>` : ''}${r.error ? `<br><span class="sm2" style="color:var(--coral)">${esc(r.error)}</span>` : ''}${r.tx ? `<br><span class="mono sm2">${esc(short(r.tx))}</span>` : ''}${r.status === 'review' ? `<br><button class="chip" style="margin-top:4px" data-act="retry" data-id="${esc(r.id)}">Retry</button>` : ''}${r.status === 'queued' && r.wait ? `<br><button class="chip" style="margin-top:4px" data-act="cancel" data-id="${esc(r.id)}">Cancel</button>` : ''}</td></tr>`).join('')}</table>` : '<div class="hint" style="padding:8px">No winners yet</div>'}</div>`
   const statsTab = () => {
     if (!s) return `<div class="center">${pipImg('think')}</div>`
     const max = Math.max(1, ...s.dau.map((d: any) => d.n))

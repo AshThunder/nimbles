@@ -1,5 +1,5 @@
 // Friends, the Match me lobby and the Nimbles Showdown progress screen.
-import { api, type Friends, type LobbyItem, type Showdown } from '../api'
+import { api, type BeatNimo, type Friends, type LobbyItem, type Showdown } from '../api'
 import { actions, avatar, esc, glyph, GLYPH_BG, ic, keepScroll, lvBadge, pipImg, sfx, tap, toast, $ } from '../lib'
 import { S, go, route } from '../state'
 import { errBox, pipRow, tabs, topbar, refreshBalance } from '../ui'
@@ -54,6 +54,19 @@ export function showdownCard(sd: Showdown | null) {
   return `<button class="sdq" data-act="showdown" aria-label="${esc(sd.name)}, open progress"><img src="/badges/trophy-gold.svg" alt="" width="40" height="40"><span class="t"><b>${esc(sd.name)}</b><span class="s">${sd.live ? `Ends ${dateText(sd.end - 1)}` : 'Finished'} · ${next}</span><span class="sdl"><i style="width:${Math.round(pct)}%"></i></span></span><span class="e"><b>${fmtNim(sd.earned.total)}</b><small>NIM earned</small></span></button>`
 }
 
+// ---------------- Beat Nimo on Hard card (home and Showdown) ----------------
+/** Live slot counter, the Earns NIM tag, and the claimed state with the amount once this wallet has won it. */
+export function beatNimoCard(b: BeatNimo | null | undefined) {
+  if (!b) return ''
+  const amt = fmtNim(b.reward)
+  if (b.mine) {
+    const paid = b.mine.status === 'paid'
+    return `<div class="bnq got" role="status"><img src="/pip/pip-cheer.svg" alt="" width="40" height="40"><span class="t"><b>You beat Nimo on Hard</b><span class="s">${paid ? 'Paid to your wallet' : b.paused ? 'Payouts paused, yours is kept' : 'On its way to your wallet'}</span></span><span class="etag got">${ic('check', 's16')}+${fmtNim(b.mine.luna)} NIM</span></div>`
+  }
+  if (b.left <= 0) return `<div class="bnq out" role="status"><img src="/pip/pip-cool.svg" alt="" width="40" height="40"><span class="t"><b>Beat Nimo on Hard</b><span class="s">All ${b.slots} rewards claimed</span></span></div>`
+  return `<div class="bnq"><img src="/pip/pip-cool.svg" alt="" width="40" height="40"><span class="t"><b>Beat Nimo on Hard, win ${amt} NIM</b><span class="s"><b class="left">${b.left} of ${b.slots} left</b> · your first win counts</span></span><span class="etag">Earns NIM</span></div>`
+}
+
 route('/showdown', async (root) => {
   let sd: Showdown | null = null
   let err = ''
@@ -84,6 +97,7 @@ route('/showdown', async (root) => {
         <div class="kv"><span>Locked in your jar</span><b>${fmtNim(sd.earned.jar)} NIM</b></div>
         ${sd.earned.pending > 0 ? `<div class="kv"><span>On its way</span><b>${fmtNim(sd.earned.pending)} NIM</b></div>` : ''}
       </div></div>
+      ${beatNimoCard(sd.beatNimo)}
       <div class="lab" style="margin:0">How to earn<small>Ends ${dateText(sd.end - 1)}</small></div>
       <div class="lab" style="margin:0;font-size:15px;line-height:20px">Each step pays on its own, as soon as you complete it</div>
       <div class="chk">

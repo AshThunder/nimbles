@@ -1,5 +1,5 @@
 import { api, type Showdown } from '../api'
-import { showdownCard } from './social'
+import { beatNimoCard, showdownCard } from './social'
 import { actions, avatar, esc, glyph, ic, lvBadge, GLYPH_BG, sfx, tap, toast } from '../lib'
 import { BUILT } from '../games'
 import { S, go, route } from '../state'
@@ -49,6 +49,7 @@ route('/', async (root) => {
     ${preview ? `<div class="card flat row" style="gap:10px"><span style="flex:1;font-size:13px;line-height:18px;font-weight:600">You are in preview. Free play works here. To stake NIM, open Nimbles inside Nimiq Pay. ${netBadge()}</span><button class="btn gold sm" data-act="openpay">Open</button></div>` : ''}
     ${me.chests > 0 ? `<button class="card chr" data-act="chests" style="background:var(--gold-tint)"><img src="/badges/chest-closed.svg" alt="" width="56" height="56"><span class="nm"><b>${me.chests} chest${me.chests === 1 ? '' : 's'} ready</b><span>Hold to open. See what is inside first</span></span><span class="chip gold">Open</span></button>` : ''}
     ${showdownCard(sd)}
+    ${beatNimoCard(sd?.beatNimo)}
     <div class="quest"><img src="/badges/chest-open.svg" alt="" width="68" height="68"><div class="t"><span class="k">Daily quest</span><span class="n">Win 3 duels</span><div class="pbar"><i style="width:${(quest / 3) * 100}%"></i></div><span class="r">Opens a Hot hand chest</span></div><span class="cnt">${quest}/3</span></div>
     <div class="duo">
       <button class="jarc" data-act="jar" style="text-align:left"><div class="h">${JAR}<div><div class="k">Savings jar</div><div class="n">${fmtNim(me.jarLuna)}<small> / ${fmtNim(me.plan.goalLuna)}</small></div></div></div><div class="bar"><i style="width:${Math.min(100, (jar / goal) * 100)}%"></i></div><div class="m">${ic('lock', 's16')}<span>${lockText(me.jarLuna, me.jarUnlockAt)}</span></div></button>

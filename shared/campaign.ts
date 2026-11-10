@@ -5,15 +5,28 @@ import { LUNA } from './types'
 /** The campaign's name lives here and only here. */
 export const CAMPAIGN_NAME = 'Nimbles Showdown'
 
-export type PoolId = 'welcome' | 'friend' | 'invite' | 'leaderboard' | 'nimo' | 'reserve'
-export const POOL_IDS: PoolId[] = ['welcome', 'friend', 'invite', 'leaderboard', 'nimo', 'reserve']
+export type PoolId = 'welcome' | 'friend' | 'invite' | 'leaderboard' | 'nimo' | 'reserve' | 'beatnimo'
+export const POOL_IDS: PoolId[] = ['welcome', 'friend', 'invite', 'leaderboard', 'nimo', 'reserve', 'beatnimo']
 export const POOL_LABEL: Record<PoolId, string> = {
-  welcome: 'Welcome', friend: 'Friend duels', invite: 'Invites', leaderboard: 'Weekly leaderboard', nimo: 'Nimo Hard wins', reserve: 'Reserve',
+  welcome: 'Welcome', friend: 'Friend duels', invite: 'Invites', leaderboard: 'Weekly leaderboard', nimo: 'Nimo Hard wins', reserve: 'Reserve', beatnimo: 'Beat Nimo on Hard (100 NIM)',
 }
 
 /** NIM per pool. They add up to the whole budget, so no rule can ever pay more than the budget in total. */
-export const POOL_CAPS_NIM: Record<PoolId, number> = { welcome: 5_000, friend: 20_000, invite: 5_000, leaderboard: 12_000, nimo: 5_000, reserve: 3_000 }
-export const BUDGET_NIM = Object.values(POOL_CAPS_NIM).reduce((a, b) => a + b, 0) // 50,000
+export const POOL_CAPS_NIM: Record<PoolId, number> = { welcome: 5_000, friend: 20_000, invite: 5_000, leaderboard: 12_000, nimo: 5_000, reserve: 3_000, beatnimo: 5_000 }
+/** The Showdown budget. Beat Nimo on Hard is its own separate 5,000 NIM line on top. */
+export const BUDGET_NIM = POOL_IDS.filter((p) => p !== 'beatnimo').reduce((a, p) => a + POOL_CAPS_NIM[p], 0) // 50,000
+
+/** Beat Nimo on Hard: the first verified Hard win against Nimo, in any server-verified game, pays 100 NIM once per
+ *  wallet to the first 50 wallets. Paid in full straight to the wallet right away: no jar half, not held to the daily pace. */
+export const BEAT_NIMO = {
+  name: 'Beat Nimo on Hard',
+  slots: 50,
+  rewardNim: 100,
+  budgetNim: 5_000,
+  minMatchMs: 20_000, // server-measured play time from the start signal to the result
+} as const
+/** One key per wallet, whatever spacing or case the address arrives in. */
+export const walletKey = (a: string) => a.replace(/\s+/g, '').toUpperCase()
 
 /** Reward amounts in NIM. The admin can change these at runtime; the caps below cannot be raised past the budget. */
 export type Amounts = { welcome: number; friend: number; invite: number; nimo: number }

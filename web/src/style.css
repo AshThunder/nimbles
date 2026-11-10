@@ -899,3 +899,19 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .stkf.bad{border-color:var(--coral)}
 .stkh{font-size:13px;line-height:18px;color:var(--ink2);margin-top:6px;min-height:18px}
 .stkh.bad{color:var(--coral);font-weight:700}
+/* Beat Nimo on Hard card: flat fills only */
+.bnq{display:flex;gap:12px;align-items:center;background:var(--gold-tint);border:2px solid var(--ink);border-radius:16px;box-shadow:0 4px 0 var(--ink);padding:10px 12px;width:100%;text-align:left}
+.bnq>img{width:40px;height:40px;flex:none}
+.bnq .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.bnq .t>b{font-size:15px;line-height:20px;font-weight:800;letter-spacing:-.01em}
+.bnq .t .s{font-size:12px;line-height:16px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bnq .t .s .left{color:var(--ink);font-weight:800}
+.bnq.got{background:var(--green-tint)}
+.bnq.out{background:var(--raised)}
+.bnq .etag,.bnr .etag{display:inline-flex;align-items:center;gap:3px;height:22px;padding:0 8px;border-radius:11px;border:1.5px solid var(--ink);font-size:11px;font-weight:800;line-height:14px;color:var(--ink);background:var(--card);white-space:nowrap;flex:none}
+.bnq .etag.got,.bnr .etag.got{background:var(--green);border-color:var(--green);color:#fff}
+.bnq .etag .i,.bnr .etag .i{width:12px;height:12px;stroke-width:3}
+.bnr{display:flex;gap:10px;align-items:center;background:var(--green-tint);border:2px solid var(--ink);border-radius:14px;padding:8px 12px}
+.bnr .t{flex:1;min-width:0;display:flex;flex-direction:column}
+.bnr .t b{font-size:15px;line-height:20px;font-weight:800}
+.bnr .t span{font-size:12px;line-height:16px;color:var(--ink2)}

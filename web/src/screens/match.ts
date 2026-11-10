@@ -335,6 +335,7 @@ route('/m/:id', async (root, { id }) => {
   }
 
   // ---------------- result ----------------
+  let bnHtml = ''
   function result() {
     const st = m.settlement!
     const addr = S.wallet.address
@@ -374,6 +375,7 @@ route('/m/:id', async (root, { id }) => {
       <div class="res"><canvas class="cf" id="cf"></canvas>${pipImg(mood).replace('<img', '<img class="pipx"')}<div class="txt"><b>${headline}</b><div class="rw2"><span class="rwd">${ic('star', 's16')}+${xp} XP${st.xpBonus?.[addr] ? ` (+${st.xpBonus[addr]}%)` : ''}</span>${m.mode !== 'play' ? `<span class="rwd b">${m.mode === 'save' || m.mode === 'win' ? (st.draw ? 'Stake back' : prizeOf(addr) || jar ? 'Won ' + fmtNim(prizeOf(addr) || jar) : 'Lost ' + m.stake) : 'Bill ' + m.stake}</span>` : ''}</div></div></div>
       <div class="rank" style="gap:8px">${rows}</div>
       ${lines ? `<div class="sec"><div class="lab">Your NIM</div><div class="rank" style="gap:8px">${lines}</div></div>` : ''}
+      <div id="bnslot">${bnHtml}</div>
       <div class="note"><span class="paid">${ic('shield-check', 's16')}${esc(st.reason)}</span><span class="mono" style="font-size:12px;color:var(--muted)">Seed ${esc((m.seed ?? '').slice(0, 10))}…</span></div>
       <div id="chestslot">${win && S.me.chests > 0 ? chestCard : pipRow(mood, win ? '<b>Well played.</b> Want a rematch?' : st.draw ? '<b>So close.</b> Rematch settles it' : '<b>Good fight.</b> Rematch and take it back?')}</div></div>
     <div class="foot" style="gap:8px"><button class="btn gold block" data-act="again">${ic('rotate-ccw', 's20')}Play again</button><button class="btn ghost block" data-act="home">Home</button></div>`
@@ -389,6 +391,20 @@ route('/m/:id', async (root, { id }) => {
       if (win) buzz([60, 40, 60])
       if (xp) setTimeout(() => sfx('reward/xp', 0.4), 700)
       void refreshBalance()
+      // Beat Nimo on Hard: a qualifying win shows its reward here, and the slot updates once the payout is sent
+      if (win && m.opp === 'pip' && m.pipLevel === 'hard') {
+        const bn = async (left: number) => {
+          const b = (await api.showdown().catch(() => null))?.beatNimo
+          const slot = $('#bnslot', root)
+          if (!b || !slot) return
+          if (b.mine && b.mine.match === m.id) {
+            const paid = b.mine.status === 'paid'
+            slot.innerHTML = bnHtml = `<div class="bnr" role="status"><span class="t"><b>You beat Nimo on Hard</b><span>${paid ? 'Paid to your wallet' : b.paused ? 'Payouts are paused for a moment, yours is kept' : 'Sending to your wallet now'} · one of ${b.slots} rewards</span></span><span class="etag got">${ic('check', 's16')}+${fmtNim(b.mine.luna)} NIM</span></div>`
+            if (paid) { sfx('reward/coin'); void refreshBalance() } else if (left > 0) setTimeout(() => void bn(left - 1), 3000)
+          } else if (!b.mine && b.left <= 0) slot.innerHTML = bnHtml = `<div class="hint">All ${b.slots} Beat Nimo rewards claimed</div>`
+        }
+        void bn(6)
+      }
       api.me().then((p) => {
         S.me = p
         const slot = $('#chestslot', root)

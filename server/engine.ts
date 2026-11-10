@@ -631,7 +631,9 @@ export class Engine {
     }
     let finalScore = score
     let finalTime = time
-    let detail = b.detail
+    // 'verified' is only ever set by the server's own replay below. A client can never claim it
+    let detail = b.detail && typeof b.detail === 'object' && !Array.isArray(b.detail) ? { ...b.detail } : b.detail
+    if (detail && typeof detail === 'object' && 'verified' in detail) delete detail.verified
     // Solitaire and Bubble: the client sends its move log, the server replays it from the match seed and scores it itself.
     if (m.game === 'solitaire' || m.game === 'bubble') {
       const limitMs = GAME_DURATION_MS[m.game] + GRACE_MS
