@@ -1,7 +1,7 @@
 import { Sessions } from './auth'
 import { createHash, randomBytes } from 'node:crypto'
 import { Store, type MatchRec, type ProfileRec } from './store'
-import { isNimiqAddress, sameAddr, type Chain } from './chain'
+import { isNimiqAddress, sameAddr, type Chain, type DepositCheck, type IncomingTx } from './chain'
 
 const normAddr = (a: string) => a.replace(/\s+/g, ' ').trim().toUpperCase()
 import { generateTrivia } from './ai'
@@ -46,11 +46,19 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex')
 const rid = (n = 8) => randomBytes(n).toString('hex')
 
 export const TRIVIA_Q_MS = 15000
+const TRIVIA_NET_MS = 300
+// pause the app shows between questions (the fact or the right answer); TRIVIA_PAUSE_MS overrides it (tests use 0)
+const triviaPause = (fact: boolean) => (process.env.TRIVIA_PAUSE_MS ? Number(process.env.TRIVIA_PAUSE_MS) : fact ? 1800 : 1100) // allowance for the round trip when the server times an answer
 const GRACE_MS = 25000
 const LOBBY_TTL = 15 * 60_000
 const AUTO_SPLAT_WAIT = 45_000 // an auto-matched Splat Royale lobby starts after this with 2 or more players
 const TERMS_TTL = 10 * 60_000
-const FUND_TTL = 3 * 60_000
+// Long enough for the second player to open Nimiq Pay, let it reach the network and approve. A seat that has started
+// paying gets a little more (see paying()), and the escrow is scanned for deposits whose hash never reached us.
+const FUND_TTL = 5 * 60_000
+const PAYING_GRACE = 3 * 60_000
+const SCAN_EVERY = 10_000
+const ORPHAN_LOOKBACK = 2 * 3600_000
 const FORFEIT_AFTER = 45_000
 
 let DICT: Set<string> | undefined
@@ -199,8 +207,13 @@ export class Engine {
   // ---------------- matches ----------------
 
   private view(m: MatchRec, viewer?: string, seenShot?: number): PublicMatch & Record<string, unknown> {
-    const showSeed = m.status === 'playing' || m.status === 'settled'
+    // Trivia never needs the seed on the device, and against Nimo the seed would let a script predict the deal. It is shown
+    // once the match is settled, so anyone can still check it against the commitment.
+    const showSeed = m.game === 'trivia' ? m.status === 'settled' : m.status === 'playing' || m.status === 'settled'
     const out: any = { ...m }
+    delete out.pipSalt
+    delete out.paying
+    delete out.scannedAt
     delete out.size
     delete out.trivia
     delete out.fundBy
@@ -222,14 +235,20 @@ export class Engine {
     out.settlement = m.settlement
     if (m.trivia && (m.status === 'playing' || m.status === 'settled')) {
       const mine = viewer ? m.trivia.answers[viewer] ?? [] : []
+      const settled = m.status === 'settled'
+      // Questions are shown one at a time, and the server notes when each one was first shown to this player, so the
+      // answer time is measured here, not reported by the device.
+      const live = m.status === 'playing'
+      if (live && viewer) this.serve(m, viewer, mine.length)
       out.trivia = {
-        topic: m.trivia.topic, source: m.trivia.source, verified: m.trivia.verified, qMs: TRIVIA_Q_MS,
-        questions: m.trivia.questions.map((q, i) => ({
-          q: q.q, options: q.options, category: q.category,
-          ...(mine[i] || m.status === 'settled' ? { answer: q.answer, fact: q.fact } : {}),
-        })),
+        topic: m.trivia.topic, source: m.trivia.source, verified: m.trivia.verified, qMs: TRIVIA_Q_MS, count: m.trivia.questions.length,
+        questions: m.trivia.questions.map((q, i) => (settled || (live && i <= mine.length)
+          ? { q: q.q, options: q.options, category: q.category, ...(mine[i] || settled ? { answer: q.answer, fact: q.fact } : {}) }
+          : { q: '', options: [], category: '' })),
         mine,
-        pip: m.trivia.pip ? m.trivia.pip.slice(0, mine.length) : undefined,
+        // Nimo's answer to a question is shown only after this player has answered it. Its rolls use a server-only salt,
+        // so the public seed cannot predict them
+        pip: m.trivia.pip ? (settled ? m.trivia.pip : m.trivia.pip.slice(0, mine.length)) : undefined,
       }
     } else if (m.trivia) out.trivia = { topic: m.trivia.topic, count: m.trivia.questions.length, source: m.trivia.source, verified: m.trivia.verified }
     return out
@@ -396,11 +415,30 @@ export class Engine {
     if (opp === 'pip') {
       if (game === 'splat') this.fillBots(m)
       else m.players.push({ player: { address: PIP_ADDRESS, name: PIP_NAMES[pipLevel!], avatar: 'pip' }, funded: true, escrowed: 0, isBot: true })
+      m.pipSalt = rid(16)
       if (m.trivia) m.trivia.pip = this.rollPip(m, pipLevel!)
       this.readyUp(m)
     }
     this.store.save()
     return this.view(m, host) as any
+  }
+
+  /** Tournament round: a staked win match with both players already seated. Each locks the stake as usual. */
+  async createPaired(a: string, b: string, o: { game: GameId; stake: number }, tourney: NonNullable<MatchRec['tourney']>) {
+    this.must(a); this.must(b)
+    const v: any = await this.create(a, { game: o.game, mode: 'win', opp: 'invite', stake: o.stake, config: { count: 5 } })
+    const m = this.db.matches[v.id]
+    m.tourney = tourney
+    m.players.push({ player: this.playerOf(b), funded: false, escrowed: 0 })
+    this.readyUp(m)
+    this.store.save()
+    return m
+  }
+
+  /** Server-side cancel (tournament deadlines). Refunds whatever was locked. */
+  async cancelById(id: string, reason: string) {
+    const m = this.db.matches[id]
+    if (m && (m.status === 'lobby' || m.status === 'terms' || m.status === 'funding')) await this.cancelMatch(m, reason)
   }
 
   /** Nimo takes every empty seat. Play mode only, so no money is ever against a bot. */
@@ -504,9 +542,13 @@ export class Engine {
     if (!m) throw bad('Match not found', 404)
     const pl = m.players.find((p) => p.player.address === addr)
     if (!pl) throw bad('Not your match', 403)
-    if (m.status !== 'funding') throw bad(pl.funded ? 'Already locked in' : 'This match is not collecting deposits right now')
-    if (pl.funded) return this.view(m, addr)
     if (typeof txHash !== 'string' || txHash.length > 100) throw bad('Bad transaction hash')
+    if (m.status !== 'funding' || pl.funded) {
+      // a payment that arrives after the seat is locked, or after the match ended, is kept for a refund, never lost
+      if (txHash && !this.db.usedTx[txHash]) await this.noteOrphan(m, txHash, pl.funded ? 'A second payment for a seat that was already locked' : 'Paid after the match stopped collecting deposits')
+      if (pl.funded) return this.view(m, addr)
+      throw bad('This match is not collecting deposits any more. If NIM left your wallet, it is refunded to you')
+    }
     if (this.db.usedTx[txHash]) throw bad('That transaction was already used')
     const need = pl.escrowed
     const check = await this.chain.verifyDeposit(txHash, { luna: need, memo: m.escrow.memo })
@@ -514,6 +556,12 @@ export class Engine {
       if (check.pending) return { ...this.view(m, addr), pending: true, pendingReason: check.reason }
       throw bad(check.reason)
     }
+    return this.credit(m, pl, txHash, check)
+  }
+
+  /** Locks a seat with a verified deposit. Shared by the device's own report and the escrow scan. */
+  private credit(m: MatchRec, pl: MatchRec['players'][number], txHash: string, check: Extract<DepositCheck, { ok: true }>) {
+    const addr = pl.player.address
     // Whoever really paid is who gets paid back. Nimiq Pay may pay from another account of the same person (or from a
     // contract account its wallet funded), so the payer is accepted and the seat's payouts follow it.
     const owner = check.owner ?? (check.related.some((a) => sameAddr(a, addr)) ? addr : null)
@@ -537,6 +585,117 @@ export class Engine {
     return p.payTo ? { to: p.payTo, for: p.player.address } : { to: p.player.address }
   }
 
+  /** The device says its wallet is sending this seat's deposit right now. The funding window then waits at least
+   *  PAYING_GRACE from this moment, so a slow wallet (or one that has to reach the network first) is not cut off. */
+  paying(addr: string, id: string) {
+    const m = this.db.matches[id]
+    if (!m) throw bad('Match not found', 404)
+    const pl = m.players.find((p) => p.player.address === addr)
+    if (!pl) throw bad('Not your match', 403)
+    if (m.status === 'funding' && !pl.funded) {
+      const now = Date.now()
+      const first = !(m.paying ??= {})[addr]
+      m.paying[addr] = now
+      // extend once per seat, never past one extra grace window
+      if (first && m.fundBy && m.fundBy < now + PAYING_GRACE) m.fundBy = now + PAYING_GRACE
+      this.store.save()
+    }
+    return this.view(m, addr)
+  }
+
+  /** The device lost track of its payment (the wallet timed out, the app was closed). Look for it on chain now. */
+  async findDeposit(addr: string, id: string) {
+    const m = this.db.matches[id]
+    if (!m) throw bad('Match not found', 404)
+    if (!m.players.some((p) => p.player.address === addr)) throw bad('Not your match', 403)
+    await this.scanDeposits([m], true)
+    return this.view(m, addr)
+  }
+
+  private scanning = false
+  private lastScan = 0
+  /** Every few seconds: deposits for matches still collecting, and late ones for matches that just ended. */
+  async scanAll(now = Date.now()) {
+    if (this.scanning || now - this.lastScan < SCAN_EVERY) return
+    const list = Object.values(this.db.matches).filter((m) => m.stake > 0 && (m.status === 'funding' ||
+      ((m.status === 'cancelled' || m.status === 'settled') && now - (m.endsAt ?? m.fundBy ?? m.createdAt) < ORPHAN_LOOKBACK && m.players.some((p) => !p.isBot && p.escrowed > 0 && !p.funded))))
+    if (!list.length) return
+    this.lastScan = now
+    await this.scanDeposits(list, false).catch((e) => console.warn('[escrow] deposit scan failed:', e?.message))
+  }
+
+  private scanBusy = false
+  /** Matches escrow deposits by memo to seats. A deposit from a seat's own wallet (or the contract its wallet funded)
+   *  locks that seat. Anything that cannot be counted is kept as an orphan for a refund. */
+  async scanDeposits(list: MatchRec[], force: boolean) {
+    if (this.scanBusy && !force) return
+    this.scanBusy = true
+    try {
+      const byMemo = new Map(list.map((m) => [m.escrow.memo, m]))
+      let txs: IncomingTx[] = []
+      try { txs = await this.chain.escrowDeposits(200) } catch (e: any) { if (force) throw bad('Could not reach the network to look for your payment. Try again in a moment', 502); return }
+      for (const t of txs.reverse()) {
+        const m = byMemo.get(t.memo)
+        if (!m || this.db.usedTx[t.hash] || this.db.orphans?.[t.hash]) continue
+        m.scannedAt = Date.now()
+        const check = await this.chain.verifyDeposit(t.hash, { luna: 1, memo: m.escrow.memo })
+        if (!check.ok) continue // pending: the next scan picks it up
+        const seat = m.players.find((p) => !p.isBot && [p.player.address, p.payTo, p.paidFrom, this.db.profiles[p.player.address]?.payAddr]
+          .some((a) => a && (sameAddr(a, check.from) || (check.owner && sameAddr(a, check.owner)))))
+        if (m.status === 'funding' && seat && !seat.funded && t.luna >= seat.escrowed) {
+          try { this.credit(m, seat, t.hash, check); console.log(`[escrow] deposit found on chain for match ${m.id}`) } catch (e: any) { await this.noteOrphan(m, t.hash, e?.message ?? 'Could not be counted', check, t.luna) }
+        } else {
+          const why = !seat ? 'From a wallet that is not a player in this match' : seat.funded ? 'A second payment for a seat that was already locked'
+            : m.status !== 'funding' ? 'Paid after the match stopped collecting deposits' : 'Less than the stake'
+          await this.noteOrphan(m, t.hash, why, check, t.luna)
+        }
+      }
+    } finally { this.scanBusy = false }
+  }
+
+  /** Remembers a deposit that cannot be counted, so the owner can refund it from the admin page. Never pays by itself. */
+  private async noteOrphan(m: MatchRec, hash: string, why: string, check?: DepositCheck, luna?: number) {
+    if (this.db.usedTx[hash] || this.db.orphans?.[hash]) return
+    let c = check
+    if (!c) c = await this.chain.verifyDeposit(hash, { luna: 1, memo: m.escrow.memo }).catch(() => undefined)
+    if (!c || !c.ok) return
+    let value = luna
+    if (value === undefined) value = (await this.chain.escrowDeposits(200).catch(() => [] as IncomingTx[])).find((t) => t.hash === hash)?.luna
+    if (!value) return
+    this.db.usedTx[hash] = 'orphan:' + m.id
+    ;(this.db.orphans ??= {})[hash] = { hash, match: m.id, from: normAddr(c.from), owner: c.owner ? normAddr(c.owner) : null, luna: value, at: Date.now(), why, status: 'open' }
+    console.warn(`[escrow] orphan deposit ${hash.slice(0, 10)}… for match ${m.id}: ${why}`)
+    this.store.save()
+  }
+
+  /** Owner action: send an orphan deposit back to whoever paid it (the wallet behind a contract when known). */
+  async refundOrphan(hash: string) {
+    const o = this.db.orphans?.[hash]
+    if (!o || o.status !== 'open') throw bad('Nothing to refund for that payment')
+    const to = o.owner ?? o.from
+    if (!(await this.chain.isWallet(to))) throw bad('That payer is a contract account. Refund it by hand')
+    o.status = 'refunded'
+    this.store.flush()
+    try {
+      o.refundTx = await this.chain.pay(to, o.luna, `nb:${o.match}:return`.slice(0, 64))
+      delete o.error
+    } catch (e: any) {
+      o.status = 'open'
+      o.error = String(e?.message ?? e).slice(0, 120)
+    }
+    this.store.save()
+    return o
+  }
+
+  /** Owner action: an orphan that was handled outside the app (or a test payment). */
+  dismissOrphan(hash: string) {
+    const o = this.db.orphans?.[hash]
+    if (!o || o.status !== 'open') throw bad('Nothing to dismiss')
+    o.status = 'dismissed'
+    this.store.save()
+    return o
+  }
+
   async cancel(addr: string, id: string) {
     const m = this.db.matches[id]
     if (!m) throw bad('Match not found', 404)
@@ -547,6 +706,20 @@ export class Engine {
     return this.view(m, addr)
   }
 
+  private expiring = new Set<string>()
+  /** Before giving up on a match that is still collecting, look on chain once more for deposits the devices never reported. */
+  private async expireFunding(m: MatchRec) {
+    if (this.expiring.has(m.id)) return
+    this.expiring.add(m.id)
+    try {
+      await this.scanDeposits([m], true).catch(() => {})
+      if (m.status === 'funding' && m.fundBy && Date.now() > m.fundBy) await this.cancelMatch(m, 'Deposits were not all in on time, funds refunded')
+    } finally { this.expiring.delete(m.id) }
+  }
+
+  /** Called after a match is cancelled (tournaments listen here). */
+  onCancelled?: (m: MatchRec) => void
+
   private async cancelMatch(m: MatchRec, reason: string) {
     m.status = 'cancelled'
     const payouts: Payout[] = m.players
@@ -555,12 +728,22 @@ export class Engine {
     m.settlement = { ranks: [], payouts, xp: {}, jarCredit: {}, reason }
     this.store.save()
     this.runPayouts(m)
+    try { this.onCancelled?.(m) } catch (e) { console.error('[campaign] cancel hook failed', e) }
   }
 
   // ----- trivia (server-authoritative) -----
 
+  /** When question `i` was first shown to `addr` (stamped now, or at `at`, the first time it is asked). */
+  private serve(m: MatchRec, addr: string, i: number, at = Date.now()) {
+    const t = m.trivia!
+    if (i >= t.questions.length) return at
+    const list = ((t.served ??= {})[addr] ??= [])
+    if (!list[i]) { list[i] = at; this.store.save() }
+    return list[i]
+  }
+
   private rollPip(m: MatchRec, level: PipLevel) {
-    const r = rng(`pip-trivia:${m.seed}:${level}`)
+    const r = rng(`pip-trivia:${m.seed}:${m.pipSalt ?? ''}:${level}`)
     const cfg = PIP_TRIVIA[level]
     return m.trivia!.questions.map((q) => {
       const correct = r.next() < cfg.p
@@ -583,10 +766,15 @@ export class Engine {
     const q = m.trivia.questions[qi]
     if (!q) throw bad('No such question')
     const choice = Number.isInteger(b.choice) ? Number(b.choice) : -1 // -1 = timed out
-    let ms = Math.max(0, Math.min(TRIVIA_Q_MS, Math.round(Number(b.ms) || TRIVIA_Q_MS)))
-    const elapsed = Date.now() - (m.startsAt ?? Date.now())
-    const spentBefore = answers.reduce((s, a) => s + a.ms, 0)
-    if (spentBefore + ms > elapsed + 1500) ms = Math.max(0, Math.min(ms, Math.round(elapsed - spentBefore + 1500))) // can't answer faster than the clock allows
+    // Server-timed: from when this question was first shown to this player to now, less a small allowance for the
+    // network. The device's own figure is only used when it is slower (never faster) than the server's.
+    const now = Date.now()
+    const shownAt = this.serve(m, addr, qi)
+    if (now < shownAt - 250) throw bad('Wait for the question')
+    const serverMs = Math.max(0, now - shownAt - TRIVIA_NET_MS)
+    const clientMs = Number(b.ms)
+    let ms = Math.max(serverMs, Number.isFinite(clientMs) ? Math.min(clientMs, now - shownAt) : 0)
+    ms = Math.max(0, Math.min(TRIVIA_Q_MS, Math.round(ms)))
     const correct = choice === q.answer
     const a = { choice, ms, correct, points: correct ? triviaPoints(ms) : 0 }
     answers.push(a)
@@ -596,7 +784,12 @@ export class Engine {
     }
     this.maybeSettle(m)
     this.store.save()
-    return { ...a, answer: q.answer, fact: q.fact, pip: m.trivia.pip?.[qi], done: answers.length >= m.trivia.questions.length, match: this.view(m, addr) }
+    const done = answers.length >= m.trivia.questions.length
+    // the app shows the fact (or the right answer) for a moment before the next question; the clock starts after that
+    if (!done) this.serve(m, addr, answers.length, now + triviaPause(!!q.fact))
+    const view = this.view(m, addr)
+    const nq = !done ? m.trivia.questions[answers.length] : undefined
+    return { ...a, answer: q.answer, fact: q.fact, pip: m.trivia.pip?.[qi], done, next: nq ? { q: nq.q, options: nq.options, category: nq.category } : undefined, match: view }
   }
 
   // ----- generic score games -----
@@ -747,7 +940,12 @@ export class Engine {
       this.store.save()
     } else if (m.status === 'lobby' && now - m.createdAt > LOBBY_TTL) void this.cancelMatch(m, 'Nobody joined in time')
     else if (m.status === 'terms' && m.fundBy && now > m.fundBy) void this.cancelMatch(m, 'The terms were not agreed in time. Nothing was locked')
-    else if (m.status === 'funding' && m.fundBy && now > m.fundBy) void this.cancelMatch(m, 'Deposits were not all in on time, funds refunded')
+    else if (m.status === 'funding' && m.fundBy && now > m.fundBy) {
+      // a seat that said it was paying gets one last look on chain first; otherwise cancel now
+      const waiting = m.players.some((p) => !p.funded && !p.isBot && m.paying?.[p.player.address])
+      if (waiting) void this.expireFunding(m)
+      else void this.cancelMatch(m, 'Deposits were not all in on time, funds refunded')
+    }
     else if (m.status === 'ready' && m.startsAt && now >= m.startsAt) {
       m.status = 'playing'
       m.endsAt = m.startsAt + GAME_DURATION_MS[m.game] + GRACE_MS
@@ -789,6 +987,7 @@ export class Engine {
 
   tickAll() {
     this.payPool()
+    void this.scanAll()
     for (const m of Object.values(this.db.matches)) {
       if (m.status !== 'settled' && m.status !== 'cancelled') this.tick(m)
       else if (m.settlement?.payouts.some((p) => this.dueForPayout(p))) this.runPayouts(m)
@@ -981,7 +1180,10 @@ export class Engine {
       }
     }
     const pool = this.pool.luna
-    return { jars, pool, live, unpaid, total: jars + pool + live + unpaid }
+    // deposits that could not be counted are owed back to whoever paid them
+    let orphans = 0
+    for (const o of Object.values(this.db.orphans ?? {})) if (o.status === 'open') orphans += o.luna
+    return { jars, pool, live, unpaid, orphans, total: jars + pool + live + unpaid + orphans }
   }
 
   private runPayouts(m: MatchRec) {

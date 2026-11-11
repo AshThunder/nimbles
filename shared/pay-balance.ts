@@ -94,3 +94,46 @@ export function isProviderAuthorizedAddress(accounts: unknown, address: string):
   if (htlc && normAddr(htlc) === n) return true
   return false
 }
+
+/**
+ * What the header shows after one balance read.
+ *
+ * When NIM arrives, Nimiq Pay moves the spendable funds into a new HTLC. For a few seconds (sometimes until the payout
+ * confirms) listAccounts() can come back without an HTLC, or the old HTLC reads 0, while the money is all still there.
+ * A read that fails (null) never replaces what is shown, and a sudden 0 is only believed once it has held for
+ * `zeroHoldMs`, read again a few times. A payout we know is on its way is shown as "incoming" until a read includes it.
+ */
+export type ShownBalance = {
+  shown: number | null | undefined // luna; undefined = never read, null = never read successfully
+  zeroSince?: number
+  incoming?: { luna: number; base: number; until: number }
+}
+export const BALANCE_ZERO_HOLD_MS = 20_000
+export const BALANCE_RETRY_MS = 5_000
+export const INCOMING_MAX_MS = 5 * 60_000
+
+export function nextShownBalance(s: ShownBalance, read: number | null, now = Date.now(), zeroHoldMs = BALANCE_ZERO_HOLD_MS): { state: ShownBalance; retryMs?: number } {
+  const st: ShownBalance = { ...s }
+  if (st.incoming && now > st.incoming.until) delete st.incoming
+  if (read === null || !Number.isFinite(read) || read < 0) {
+    // keep the last good number; the first read ever failing shows "unavailable"
+    if (st.shown === undefined) st.shown = null
+    return { state: st, retryMs: BALANCE_RETRY_MS * 2 }
+  }
+  if (read === 0 && typeof st.shown === 'number' && st.shown > 0) {
+    st.zeroSince ??= now
+    if (now - st.zeroSince < zeroHoldMs) return { state: st, retryMs: BALANCE_RETRY_MS }
+  }
+  delete st.zeroSince
+  st.shown = read
+  if (st.incoming && read >= st.incoming.base + st.incoming.luna * 0.99) delete st.incoming
+  return { state: st, retryMs: st.incoming ? BALANCE_RETRY_MS * 2 : undefined }
+}
+
+/** A payout is on its way to this wallet: show it as incoming on top of the balance it lands on. */
+export function expectIncoming(s: ShownBalance, luna: number, now = Date.now()): ShownBalance {
+  if (!(luna > 0)) return s
+  const base = typeof s.shown === 'number' ? s.shown : 0
+  const prev = s.incoming && now <= s.incoming.until ? s.incoming : null
+  return { ...s, incoming: { luna: (prev?.luna ?? 0) + luna, base: prev?.base ?? base, until: now + INCOMING_MAX_MS } }
+}

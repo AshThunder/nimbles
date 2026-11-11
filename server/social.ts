@@ -1,3 +1,4 @@
+import { sameAddr } from './chain'
 // Friends: add by code or link, or ask a recent opponent. A friend is accepted on both sides.
 // A brand new player who adds a code before their first finished match counts as invited by its owner.
 import { randomBytes } from 'node:crypto'
@@ -111,9 +112,15 @@ export class Social {
     const recent = [...me.friends].reverse().filter((x) => !accepted.has(x) && !inc.has(x) && this.db.profiles[x]).slice(0, 10)
       .map((x) => ({ ...this.card(x, now), asked: (me.friendOut ?? []).includes(x) }))
     const incoming = (me.friendIn ?? []).filter((x) => this.db.profiles[x]).map((x) => this.card(x, now))
-    const challenges = Object.values(this.db.matches)
-      .filter((m) => m.challengeTo === a && m.status === 'lobby' && now - m.createdAt < 15 * 60_000)
-      .map((m) => ({ code: m.code, game: m.game, mode: m.mode, stake: m.stake, from: this.card(m.host, now) }))
-    return { code: this.codeOf(me), friends, recent, incoming, challenges, serverNow: now }
+    return { code: this.codeOf(me), friends, recent, incoming, challenges: this.challenges(a, now), serverNow: now }
+  }
+
+  /** Friend challenges waiting for this player. Polled from every screen, so a challenge is seen within seconds
+   *  wherever the player is, not only on the Friends tab. */
+  challenges(a: string, now = Date.now()) {
+    return Object.values(this.db.matches)
+      .filter((m) => m.challengeTo && sameAddr(m.challengeTo, a) && m.status === 'lobby' && m.players.length < m.size && now - m.createdAt < 15 * 60_000)
+      .sort((x, y) => y.createdAt - x.createdAt)
+      .map((m) => ({ id: m.id, code: m.code, game: m.game, mode: m.mode, stake: m.stake, from: this.card(m.host, now), expiresAt: m.createdAt + 15 * 60_000 }))
   }
 }

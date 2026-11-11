@@ -103,5 +103,5 @@ test('liabilities add up jars, pool, live stakes and unsent payouts', () => {
   store.db.pool = { luna: 50 }
   store.db.matches.m1 = { status: 'funding', players: [{ funded: true, escrowed: 1000 }, { funded: false, escrowed: 1000 }, { funded: true, isBot: true, escrowed: 0 }] } as any
   store.db.matches.m2 = { status: 'settled', players: [], settlement: { payouts: [{ luna: 70 }, { luna: 30, tx: 'x' }] } } as any
-  assert.deepEqual(e.liabilities(), { jars: 500, pool: 50, live: 1000, unpaid: 70, total: 1620 })
+  assert.deepEqual(e.liabilities(), { jars: 500, pool: 50, live: 1000, unpaid: 70, orphans: 0, total: 1620 })
 })

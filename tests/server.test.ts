@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+process.env.TRIVIA_PAUSE_MS = '0' // answer the next trivia question at once
 import type { AddressInfo } from 'node:net'
 import { createApp } from '../server/index'
 
@@ -69,9 +70,10 @@ test('save duel: both lock stake, server-scored trivia, winner banks pot in jar'
   m.startsAt = Date.now() - 10
   const live = (await call(ta, 'GET', `/matches/${created.id}`)).j
   assert.equal(live.status, 'playing')
-  assert.ok(live.seed)
-  assert.equal(live.seedCommit, (await import('node:crypto')).createHash('sha256').update(live.seed).digest('hex'))
+  assert.equal(live.seed, undefined, 'a trivia seed stays hidden until the match is settled')
   assert.equal(live.trivia.questions[0].answer, undefined, 'answers stay secret until answered')
+  assert.ok(live.trivia.questions[0].q, 'the first question is shown')
+  assert.equal(live.trivia.questions[1].q, '', 'later questions are not sent ahead of time')
   // Ada arrives with a 3-day streak, so her XP grows by 10%
   app.engine.db.profiles[A].activeDays = [1, 2, 3].map((n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10))
   // Ada answers all right, Bisi all wrong
@@ -84,6 +86,7 @@ test('save duel: both lock stake, server-scored trivia, winner banks pot in jar'
   }
   const end = (await call(ta, 'GET', `/matches/${created.id}`)).j
   assert.equal(end.status, 'settled')
+  assert.equal(end.seedCommit, (await import('node:crypto')).createHash('sha256').update(end.seed).digest('hex'), 'the seed is shown once settled, and matches the commitment')
   assert.equal(end.settlement.winner, A)
   assert.equal(end.settlement.jarCredit[A], 392000, "pot minus the 2% saver fee")
   assert.equal(end.settlement.fee, 8000)

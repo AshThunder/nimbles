@@ -1,6 +1,7 @@
 import { esc, glyph, GLYPH_BG, ic, avatar, lvBadge, pipImg } from './lib'
 import { S } from './state'
 import { fmtNim, fmtNimCompact } from '../../shared/types'
+import { expectIncoming, nextShownBalance, type ShownBalance } from '../../shared/pay-balance'
 
 export const HEX = '<svg class="hex" viewBox="0 0 24 24"><path d="M12 1.8l8.8 5.1v10.2L12 22.2l-8.8-5.1V6.9z" fill="#F4B323" stroke="#1F2348" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 6l4.7 2.7v5.4L12 16.8l-4.7-2.7V8.7z" fill="none" stroke="#C98E0A" stroke-width="1.6" stroke-linejoin="round"/></svg>'
 export const FLAME = '<svg viewBox="0 0 48 56"><path d="M24 3c1.6 11 17 15 17 31a17 17 0 0 1-34 0c0-9 6.5-12.5 9-20 3 3.6 3.8 5.4 6.2 5.4C23 19 20 12 24 3z" fill="#F4B323" stroke="#1F2348" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 30c1.3 6 8 8 8 14a8 8 0 0 1-16 0c0-4.5 3.5-6 5-10 1.2 1.8 1.6 2.6 3 2.6z" fill="#FFFCF5"/></svg>'
@@ -22,13 +23,20 @@ export const coin = () => {
   const b = S.balance
   const txt = coinLabel(b)
   const exact = b == null || b === undefined ? 'Wallet balance' : `${fmtNim(b)} NIM confirmed`
-  return `<button type="button" class="coin nb" data-act="balance" data-bal aria-haspopup="dialog" aria-label="${esc(exact)}. Tap for exact amount">${HEX}<span data-bal-txt>${txt}</span><small>NIM</small></button>`
+  return `<button type="button" class="coin nb" data-act="balance" data-bal aria-haspopup="dialog" aria-label="${esc(exact)}. Tap for exact amount">${HEX}<span data-bal-txt>${txt}</span><small>NIM</small><small class="inc" data-bal-inc>${incomingLabel()}</small></button>`
+}
+
+const incomingLabel = () => {
+  const i = bal.incoming
+  return i && Date.now() <= i.until ? `+${fmtNim(i.luna)} incoming` : ''
 }
 
 /** Paint every header chip currently on screen after a balance refresh. */
 export const paintBalance = () => {
   const txt = coinLabel()
   document.querySelectorAll<HTMLElement>('[data-bal-txt]').forEach((el) => { el.textContent = txt })
+  const inc = incomingLabel()
+  document.querySelectorAll<HTMLElement>('[data-bal-inc]').forEach((el) => { el.textContent = inc })
   document.querySelectorAll<HTMLElement>('[data-bal]').forEach((el) => {
     const b = S.balance
     el.setAttribute('aria-label', (b == null || b === undefined ? 'Wallet balance' : `${fmtNim(b)} NIM confirmed`) + '. Tap for exact amount')
@@ -38,19 +46,39 @@ export const paintBalance = () => {
 /** Monotonic request id so a slow stale balance() cannot overwrite a newer result. */
 let balGen = 0
 
+/** What the header shows, and why (see nextShownBalance): the last good number survives failed reads and the brief 0
+ *  Nimiq Pay reports while it moves funds into a new HTLC after a payout arrives. */
+let bal: ShownBalance = { shown: undefined }
+let retryTimer: ReturnType<typeof setTimeout> | undefined
+
+/** A payout to this wallet was just sent: show "+x incoming" until the balance includes it. */
+export function noteIncoming(luna: number) {
+  bal = expectIncoming({ ...bal, shown: S.balance }, luna)
+  paintBalance()
+  scheduleBalance(4000)
+}
+
+function scheduleBalance(ms: number) {
+  if (retryTimer) clearTimeout(retryTimer)
+  retryTimer = setTimeout(() => { retryTimer = undefined; void refreshBalance() }, ms)
+}
+
 export async function refreshBalance() {
-  if (!S.wallet) { S.balance = null; paintBalance(); return null }
+  if (!S.wallet) { S.balance = null; bal = { shown: null }; paintBalance(); return null }
   const gen = ++balGen
-  // Keep showing the previous value (or … on first load) while a fetch is in flight — never flash a fake 0.
+  // Keep showing the previous value (or … on first load) while a fetch is in flight, never a fake 0.
   if (S.balance === undefined) paintBalance()
+  let read: number | null = null
   try {
-    const next = await S.wallet.balance()
-    if (gen !== balGen) return S.balance ?? null
-    S.balance = next
+    read = await S.wallet.balance()
   } catch {
-    if (gen !== balGen) return S.balance ?? null
-    S.balance = null
+    read = null
   }
+  if (gen !== balGen) return S.balance ?? null
+  const r = nextShownBalance({ ...bal, shown: S.balance }, read)
+  bal = r.state
+  S.balance = r.state.shown
+  if (r.retryMs) scheduleBalance(r.retryMs)
   paintBalance()
   return S.balance
 }
@@ -61,7 +89,8 @@ function balanceDialogBody(b: number | null | undefined) {
   // Keep copy short for players; HTLC/basic mechanics stay in code, not the dialog.
   if (b === undefined) return { exact: 'Loading…', note: 'Checking Nimiq Pay…' }
   if (b === null) return { exact: 'Unavailable', note: 'Could not read balance. Try again.' }
-  return { exact: `${fmtNim(b)} NIM`, note: 'Available to spend in Nimiq Pay' }
+  const i = bal.incoming && Date.now() <= bal.incoming.until ? bal.incoming : null
+  return { exact: `${fmtNim(b)} NIM`, note: i ? `Plus ${fmtNim(i.luna)} NIM on its way to your wallet` : 'Available to spend in Nimiq Pay' }
 }
 
 export function openBalanceDialog() {
@@ -107,7 +136,11 @@ export const TABS = [
   ['message-circle', 'Nimo', '/pip'],
 ] as const
 export const tabs = (on: string) =>
-  `<nav class="tabs">${TABS.map(([i, n, href]) => `<a class="tab ${n === on ? 'on' : ''}" href="#${href}" data-act="tab"><span class="p">${ic(i)}</span>${n}</a>`).join('')}</nav>`
+  `<nav class="tabs">${TABS.map(([i, n, href]) => `<a class="tab ${n === on ? 'on' : ''}" href="#${href}" data-act="tab"><span class="p">${ic(i)}${href === '/friends' ? `<i class="tbadge" data-badge="friends">${challengeCount || ''}</i>` : ''}</span>${n}</a>`).join('')}</nav>`
+
+/** Waiting friend challenges, kept by the global poll (notify.ts) so a freshly drawn tab bar shows the badge at once */
+let challengeCount = 0
+export const setChallengeCount = (n: number) => { challengeCount = n }
 
 export const gameCard = (id: string, g: { name: string; blurb: string; tag?: string; level: number }, soon = false) => {
   if (soon) return `<button class="gc soon" data-id="${id}" disabled aria-disabled="true"><div class="art" style="background:${GLYPH_BG[id]}">${glyph(id)}<span class="tg" style="background:#6B6F8C">Soon</span></div><div class="f"><span class="n">${esc(g.name)}</span><span class="m">Coming soon</span></div></button>`

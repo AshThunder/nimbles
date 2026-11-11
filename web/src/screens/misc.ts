@@ -14,10 +14,12 @@ const AVATARS = ['ada', 'bisi', 'dee', 'ife', 'ivy', 'jay', 'kai', 'kemi', 'leo'
 
 // ---------------- leaderboard ----------------
 route('/rank', async (root) => {
-  let scope: 'global' | 'friends' | 'savers' | 'showdown' = 'global'
+  let scope: 'global' | 'friends' | 'savers' | 'showdown' = sessionStorage.getItem('nb:rank') === 'showdown' && S.cfg.showdown ? 'showdown' : 'global'
+  sessionStorage.removeItem('nb:rank')
   let shown = PAGE
   const TABS = [['global', 'Players'], ['friends', 'Friends'], ['savers', 'Savers'], ...(S.cfg.showdown ? [['showdown', 'Showdown'] as const] : [])] as const
   const day = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  const pts = (n: number) => (Math.round(n * 10) / 10).toString()
   const medal = (r: number) => (r === 1 ? 'g' : r === 2 ? 's' : r === 3 ? 'b' : 'c')
   const load = async () => {
     const keep = root.querySelector('.scroll')?.scrollTop ?? 0
@@ -27,12 +29,12 @@ route('/rank', async (root) => {
     try {
       if (scope === 'showdown') {
         const [sd, b] = await Promise.all([api.showdown(), api.showdownBoard()])
-        const rows = b.rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${medal(r.rank)}">${r.rank}</span><span class="avs">${avatar(r.avatar, 'av', r.frame)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>${r.me ? 'Your place' : 'This week'}</span></span><span class="am"><b>${r.wins}</b><span>win${r.wins === 1 ? '' : 's'}</span></span></div>`)
-        const mine = b.me ? `<div class="rw me"><span class="med c">${b.me.rank}</span><span class="avs">${avatar(b.me.avatar, 'av', b.me.frame)}</span><span class="nm"><b>You</b><span>Climb into the top ${b.top}</span></span><span class="am"><b>${b.me.wins}</b><span>win${b.me.wins === 1 ? '' : 's'}</span></span></div>` : ''
+        const rows = b.rows.map((r) => `<div class="rw ${r.me ? 'me' : ''}"><span class="med ${medal(r.rank)}">${r.rank}</span><span class="avs">${avatar(r.avatar, 'av', r.frame)}</span><span class="nm"><b>${r.me ? 'You' : esc(r.name)}</b><span>${r.me ? 'Your place' : 'This week'}</span></span><span class="am"><b>${pts(r.points)}</b><span>points</span></span></div>`)
+        const mine = b.me ? `<div class="rw me"><span class="med c">${b.me.ranked ? b.me.rank : '-'}</span><span class="avs">${avatar(b.me.avatar, 'av', b.me.frame)}</span><span class="nm"><b>You</b><span>${b.me.ranked ? `Climb into the top ${b.top}` : 'Not ranked yet. See the Showdown for what is left'}</span></span><span class="am"><b>${pts(b.me.points)}</b><span>points</span></span></div>` : ''
         const head = b.week >= 0 ? `Week ${b.week + 1} of ${b.weeks}<small>Ends ${day(b.endsAt - 1)}</small>` : `Weekly board<small>Starts ${day(b.start)}</small>`
         list = `${showdownCard(sd)}<div class="lab" style="margin:0">${head}</div>
-          ${rows.length ? `<div class="rank" style="gap:8px">${pageRows(rows, shown, 'rmore')}${mine}</div>` : pipRow('sleepy', '<b>No wins yet this week.</b> Win a staked duel against a real player to get on the board')}
-          <p class="sm2">Top ${b.top} by wins in staked duels against real players. Skill only.</p>`
+          ${rows.length ? `<div class="rank" style="gap:8px">${pageRows(rows, shown, 'rmore')}${mine}</div>` : pipRow('sleepy', '<b>Nobody is ranked yet this week.</b> Win staked games against different real players to get on the ladder')}
+          <p class="sm2">Points from staked games against real players, weighted by who you beat. Ranked players need 5 different rivals and 3 active days. Skill only.</p>`
         sub = ''
       } else if (scope === 'savers') {
         const d = await api.savers()

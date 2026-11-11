@@ -5,8 +5,8 @@ import { SEAT_COL } from '../games/splat'
 import { meOf, others, type GameInst } from '../games/common'
 import { actions, avatar, confetti, esc, fmtTime, glyph, GLYPH_BG, ic, pipImg, shortAddr, sfx, buzz, toast, tap, $ } from '../lib'
 import { S, go, route } from '../state'
-import { errBox, pipRow, topbar, refreshBalance } from '../ui'
-import { friendlyWalletError } from '../wallet'
+import { errBox, pipRow, topbar, refreshBalance, noteIncoming } from '../ui'
+import { friendlyWalletError, isSendDenied, isSendTimeout } from '../wallet'
 import { GAMES, fmtNim } from '../../../shared/types'
 import { settleShares } from '../../../shared/economy'
 import { draftBody, draftOk, newDraft, payeeLabel, placeRows, termsActions, termsForm, termsInput, type TermsDraft } from './terms'
@@ -105,7 +105,7 @@ route('/m/:id', async (root, { id }) => {
     switch (m.status) {
       case 'lobby': return lobby()
       case 'terms': return terms()
-      case 'funding': return funding()
+      case 'funding': return (maybeResume(), funding())
       case 'ready': return ready()
       case 'playing': return mine?.result ? waiting() : play()
       case 'settled': return result()
@@ -244,6 +244,24 @@ route('/m/:id', async (root, { id }) => {
     }, 500)
   }
 
+  // A payment attempt is remembered per match on this device, so if Nimiq Pay times out, or the screen is rebuilt, the
+  // app looks on chain for the deposit before it ever offers to pay again (never a blind second payment).
+  const attemptKey = 'nb:pay:' + id
+  const attempt = () => { try { return JSON.parse(localStorage.getItem(attemptKey) ?? 'null') as { at: number; hash?: string } | null } catch { return null } }
+  const setAttempt = (v: { at: number; hash?: string } | null) => { try { v ? localStorage.setItem(attemptKey, JSON.stringify(v)) : localStorage.removeItem(attemptKey) } catch { /* private mode */ } }
+  const locked = () => !!me()?.funded
+
+  /** Looks on chain (through the server) for this seat's deposit for up to `ms`. True once the seat is locked. */
+  async function findOnChain(ms: number) {
+    const end = Date.now() + ms
+    while (alive && Date.now() < end) {
+      try { m = await api.findDeposit(id) } catch { /* network blip, try again */ }
+      if (locked() || m.status !== 'funding') return locked()
+      await new Promise((r) => setTimeout(r, 5000))
+    }
+    return locked()
+  }
+
   async function fund() {
     const mine = me()
     err = ''
@@ -251,28 +269,75 @@ route('/m/:id', async (root, { id }) => {
       err = `Nimiq Pay is on ${S.wallet.network}, this match runs on ${m.escrow.network}. Switch networks and try again`
       return void ((sig = ''), onMatch())
     }
+    const show = (msg: string) => { busy = msg; sig = ''; onMatch() }
+    let sent = false
     try {
-      busy = 'Approve the payment in Nimiq Pay…'
-      sig = ''
-      onMatch()
-      const hash = await S.wallet.send(m.escrow.address, mine.escrowed ?? 0, m.escrow.memo)
-      busy = 'Confirming on the network…'
-      sig = ''
-      onMatch()
+      // an earlier attempt from this device: check the chain first
+      const prev = attempt()
+      if (prev && Date.now() - prev.at < 30 * 60_000) {
+        show('Checking the network for your earlier payment…')
+        if (prev.hash) { try { const v = await api.fund(id, prev.hash); m = v } catch { /* not counted, look by memo */ } }
+        if (locked() || (await findOnChain(15_000))) { setAttempt(null); return done(true) }
+      }
+      show('Getting ready…')
+      // refresh the session now, so a sign-in prompt can never land in the middle of the payment
+      await api.me().catch(() => {})
+      // tell the server a payment is starting, so the lock window waits for a slow wallet
+      try { m = await api.paying(id) } catch { /* the window is long anyway */ }
+      setAttempt({ at: Date.now() })
+      const hash = await S.wallet.send(m.escrow.address, mine.escrowed ?? 0, m.escrow.memo, show)
+      sent = true
+      setAttempt({ at: Date.now(), hash })
+      show('Confirming on the network…')
       for (let i = 0; i < 60 && alive; i++) {
         const v = await api.fund(id, hash)
-        if (!v.pending) {
-          m = v
-          break
-        }
+        m = v
+        if (!v.pending) break
         await new Promise((r) => setTimeout(r, 2500))
       }
-      sfx('reward/coin')
-      void refreshBalance()
+      if (!locked() && alive) await findOnChain(30_000)
+      return done(locked())
     } catch (e: any) {
-      err = friendlyWalletError(e)
+      if (isSendDenied(e) && !sent) {
+        setAttempt(null)
+        err = friendlyWalletError(e)
+        sfx('ui/error')
+        return done(false)
+      }
+      // a timeout or a network error: the payment may have gone out anyway. Look for it before saying anything
+      if (isSendTimeout(e) || sent) {
+        show('Checking the network for your payment…')
+        if (await findOnChain(90_000)) return done(true)
+        err = sent
+          ? 'Your payment was sent but is not confirmed yet. It is counted as soon as the network confirms it, or refunded if the match ends first'
+          : 'Nimiq Pay could not reach the network in time and no payment has arrived. Check your connection, then tap Lock to try again. If NIM did leave your wallet, it is counted or refunded'
+      } else err = friendlyWalletError(e)
       sfx('ui/error')
+      return done(false)
     }
+  }
+
+  // this screen was rebuilt (app reopened, came back from Nimiq Pay) while a payment from this device was in flight:
+  // look for it on chain once, instead of asking for a second payment
+  let resumed = false
+  function maybeResume() {
+    if (resumed || busy || locked() || !attempt()) return
+    resumed = true
+    setTimeout(async () => {
+      if (!alive || busy || locked()) return
+      busy = 'Checking the network for your payment…'
+      sig = ''
+      onMatch()
+      const prev = attempt()
+      if (prev?.hash) { try { m = await api.fund(id, prev.hash) } catch { /* look by memo */ } }
+      const ok = locked() || (await findOnChain(30_000))
+      if (!ok) err = 'No payment from this device has arrived yet. Tap Lock to pay, or wait a moment if you just approved it in Nimiq Pay'
+      await done(ok)
+    }, 0)
+  }
+
+  async function done(ok: boolean) {
+    if (ok) { setAttempt(null); sfx('reward/coin'); void refreshBalance() }
     busy = ''
     sig = ''
     await refresh()
@@ -335,7 +400,6 @@ route('/m/:id', async (root, { id }) => {
   }
 
   // ---------------- result ----------------
-  let bnHtml = ''
   function result() {
     const st = m.settlement!
     const addr = S.wallet.address
@@ -375,7 +439,6 @@ route('/m/:id', async (root, { id }) => {
       <div class="res"><canvas class="cf" id="cf"></canvas>${pipImg(mood).replace('<img', '<img class="pipx"')}<div class="txt"><b>${headline}</b><div class="rw2"><span class="rwd">${ic('star', 's16')}+${xp} XP${st.xpBonus?.[addr] ? ` (+${st.xpBonus[addr]}%)` : ''}</span>${m.mode !== 'play' ? `<span class="rwd b">${m.mode === 'save' || m.mode === 'win' ? (st.draw ? 'Stake back' : prizeOf(addr) || jar ? 'Won ' + fmtNim(prizeOf(addr) || jar) : 'Lost ' + m.stake) : 'Bill ' + m.stake}</span>` : ''}</div></div></div>
       <div class="rank" style="gap:8px">${rows}</div>
       ${lines ? `<div class="sec"><div class="lab">Your NIM</div><div class="rank" style="gap:8px">${lines}</div></div>` : ''}
-      <div id="bnslot">${bnHtml}</div>
       <div class="note"><span class="paid">${ic('shield-check', 's16')}${esc(st.reason)}</span><span class="mono" style="font-size:12px;color:var(--muted)">Seed ${esc((m.seed ?? '').slice(0, 10))}…</span></div>
       <div id="chestslot">${win && S.me.chests > 0 ? chestCard : pipRow(mood, win ? '<b>Well played.</b> Want a rematch?' : st.draw ? '<b>So close.</b> Rematch settles it' : '<b>Good fight.</b> Rematch and take it back?')}</div></div>
     <div class="foot" style="gap:8px"><button class="btn gold block" data-act="again">${ic('rotate-ccw', 's20')}Play again</button><button class="btn ghost block" data-act="home">Home</button></div>`
@@ -390,21 +453,10 @@ route('/m/:id', async (root, { id }) => {
       else sfx('reward/lose')
       if (win) buzz([60, 40, 60])
       if (xp) setTimeout(() => sfx('reward/xp', 0.4), 700)
-      void refreshBalance()
-      // First Win Bonus: a win against Nimo shows its reward here, and updates once the payout is sent
-      if (win && m.opp === 'pip') {
-        const bn = async (left: number) => {
-          const b = (await api.showdown().catch(() => null))?.beatNimo
-          const slot = $('#bnslot', root)
-          if (!b || !slot) return
-          if (b.mine && b.mine.match === m.id) {
-            const paid = b.mine.status === 'paid'
-            slot.innerHTML = bnHtml = `<div class="bnr" role="status"><span class="t"><b>First Win Bonus</b><span>${paid ? 'Beat Nimo, paid to your wallet' : b.paused ? 'Payouts are paused for a moment, yours is kept' : 'Sending to your wallet now'} · ${b.claimed}/${b.slots} claimed</span></span><span class="etag got">${ic('check', 's16')}+${fmtNim(b.mine.luna)} NIM</span></div>`
-            if (paid) { sfx('reward/coin'); void refreshBalance() } else if (left > 0) setTimeout(() => void bn(left - 1), 3000)
-          } else if (!b.mine && b.left <= 0) slot.innerHTML = bnHtml = `<div class="hint">All ${b.slots} First Win Bonus rewards claimed</div>`
-        }
-        void bn(6)
-      }
+      // a payout to this wallet: show it as incoming (Nimiq Pay may read 0 for a moment while it moves funds into a new HTLC)
+      const owed = myPay.reduce((x, p) => x + p.luna, 0)
+      if (owed > 0 && Date.now() - (m.endsAt ?? Date.now()) < 10 * 60_000) noteIncoming(owed)
+      else void refreshBalance()
       api.me().then((p) => {
         S.me = p
         const slot = $('#chestslot', root)

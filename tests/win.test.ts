@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+process.env.TRIVIA_PAUSE_MS = '0' // answer the next trivia question at once
 import type { AddressInfo } from 'node:net'
 import { createApp } from '../server/index'
 

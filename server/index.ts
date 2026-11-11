@@ -5,8 +5,11 @@ import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Engine, ApiError } from './engine'
 import { Store } from './store'
-import { MockChain, makeChain, makeCampaignChain, resolveChainConfig, stateDir, isNimiqAddress } from './chain'
+import { MockChain, makeChain, makeCampaignChain, resolveChainConfig, stateDir, isNimiqAddress, sameAddr } from './chain'
+import { randomBytes } from 'node:crypto'
 import { Campaign, isAdmin } from './campaign'
+import { Signals, clientDevice, clientIp } from './signals'
+import { campaignDay } from '../shared/campaign'
 import { Social } from './social'
 import { appStats } from './stats'
 import { aiStatus, nimoChat, parseReceipt } from './ai'
@@ -62,6 +65,9 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
   const campaign = new Campaign(engine, await makeCampaignChain(dataDir, chain))
   const social = new Social(engine)
   const challenges = new Challenges(chain.network)
+  const signals = new Signals(store.db, () => process.env.SESSION_SECRET || (store.db.authSecret ??= randomBytes(32).toString('hex')), () => store.save())
+  // new profiles per real client IP per day. Only behind Fly's proxy (the header is how we know the real IP)
+  const maxNewPerIp = Number(process.env.MAX_NEW_PROFILES_PER_IP ?? 15)
   const distDir = join(ROOT, 'dist')
 
   const send = (res: ServerResponse, status: number, body: unknown) => {
@@ -72,7 +78,9 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
 
   async function api(req: IncomingMessage, res: ServerResponse, path: string) {
     const method = req.method ?? 'GET'
-    const ip = req.socket.remoteAddress ?? '?'
+    // rate limits key on the real client IP (Fly's proxy header), not the proxy's socket address
+    const ip = clientIp(req)
+    const dev = clientDevice(req)
     const tok = (req.headers.authorization ?? '').replace(/^Bearer /, '')
     const q = new URL(req.url ?? '/', 'http://x').searchParams
     let m: RegExpMatchArray | null
@@ -84,7 +92,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       })
     }
     if (method === 'POST' && path === '/session') {
-      limit('sess:' + ip, 60, 60_000)
+      limit('sess:' + ip, 120, 60_000)
       const b = await readBody(req, 4096)
       // Sign-in is proven by a signed one-time challenge: the server nonce is single use and expires in two minutes, the
       // signature is verified, and the address comes from the public key, never from the request. The token that comes
@@ -99,7 +107,13 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       } else if (engine.requireSigned) {
         throw new ApiError(401, 'Sign in with your wallet. Open Nimbles inside Nimiq Pay')
       }
+      const who = String(proven ?? b.address ?? '').trim()
+      const isNew = !!who && !Object.keys(store.db.profiles).some((a) => sameAddr(a, who))
+      if (isNew && req.headers['fly-client-ip'] && !signals.allowNewProfile(ip, maxNewPerIp, campaignDay())) {
+        throw new ApiError(429, 'Too many new players from this network today. Try again tomorrow')
+      }
       const s = engine.session(proven ?? b.address, b.name, b.avatar, !!proven)
+      signals.note(s.profile.address, ip, dev)
       return send(res, 200, { ...s, verified: !!proven })
     }
     if (method === 'GET' && path === '/auth/challenge') {
@@ -120,6 +134,8 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
 
     const me = engine.auth(tok)
     limit('u:' + me, 600, 60_000)
+    limit('ip:' + ip, 1500, 60_000)
+    signals.note(me, ip, dev)
     if (method === 'GET' && path === '/address-balance') {
       // Confirmed on-chain balance for a Nimiq address (basic or contract). Pending funds are never included.
       // Defaults to the signed-in wallet. Public chain data, behind a session + rate limit.
@@ -137,6 +153,13 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
     // ----- Nimbles Showdown: the player's own progress and locked rewards -----
     if (method === 'GET' && path === '/showdown') return send(res, 200, campaign.me(me))
     if (method === 'GET' && path === '/showdown/board') return send(res, 200, campaign.weekBoard(me))
+    if ((m = path.match(/^\/showdown\/tourney\/([\w-]+)\/(register|leave)$/)) && method === 'POST') {
+      limit('tr:' + me, 20, 60_000)
+      if (m[2] === 'leave') return send(res, 200, campaign.unregisterTourney(me, m[1]))
+      return send(res, 200, campaign.registerTourney(me, m[1], { dev: dev ? signals.hash('dev', dev) : undefined, ip: ip !== '?' ? signals.hash('ip', ip) : undefined }))
+    }
+    // a light poll every screen runs: friend challenges waiting for me, and my current tournament match
+    if (method === 'GET' && path === '/challenges') return send(res, 200, { challenges: social.challenges(me), tourney: campaign.myTourneyMatch(me), serverNow: Date.now() })
     if (method === 'POST' && path === '/showdown/jar/withdraw') {
       limit('sdwd:' + me, 5, 60_000)
       const b = await readBody(req, 1024)
@@ -165,7 +188,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       if (method === 'GET' && path === '/admin/campaign') return send(res, 200, await campaign.adminView())
       if (method === 'POST' && path === '/admin/campaign') {
         limit('adm:' + me, 60, 60_000)
-        campaign.adminSet(await readBody(req, 4096))
+        await campaign.adminSet(await readBody(req, 4096))
         return send(res, 200, await campaign.adminView())
       }
       if (method === 'GET' && path === '/admin/stats') return send(res, 200, appStats(store.db))
@@ -197,6 +220,8 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
       if (method === 'POST') {
         const b = await readBody(req, 65536)
         if (action === 'fund') return send(res, 200, await engine.fund(me, id, b.txHash))
+        if (action === 'paying') return send(res, 200, engine.paying(me, id))
+        if (action === 'find') { limit('find:' + me, 30, 60_000); return send(res, 200, await engine.findDeposit(me, id)) }
         if (action === 'terms') return send(res, 200, await engine.terms(me, id, b))
         if (action === 'cancel') return send(res, 200, await engine.cancel(me, id))
         if (action === 'start') return send(res, 200, await engine.startNow(me, id))
@@ -290,7 +315,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         const bal = await app.chain.balance()
         const l = app.engine.liabilities()
         const nim = (n: number) => (n / 1e5).toFixed(2)
-        console.log(`[escrow] ${app.chain.network} balance ${nim(bal)} NIM, owed ${nim(l.total)} (jars ${nim(l.jars)}, pool ${nim(l.pool)}, live stakes ${nim(l.live)}, unsent ${nim(l.unpaid)}), float ${nim(bal - l.total)}`)
+        console.log(`[escrow] ${app.chain.network} balance ${nim(bal)} NIM, owed ${nim(l.total)} (jars ${nim(l.jars)}, pool ${nim(l.pool)}, live stakes ${nim(l.live)}, unsent ${nim(l.unpaid)}, orphan deposits ${nim(l.orphans)}), float ${nim(bal - l.total)}`)
         if (bal < l.total) console.error(`[escrow] SHORTFALL of ${nim(l.total - bal)} NIM: the escrow holds less than it owes. Top it up.`)
       } catch (e: any) { console.error('[escrow] balance check failed:', e?.message) }
     }

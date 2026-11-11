@@ -8,7 +8,9 @@ const QMS = 15000
 export const trivia: GameMod = (ctx) => {
   let m = ctx.m
   const root = ctx.root
-  const qs = m.trivia?.questions ?? []
+  // the server reveals one question at a time: later ones arrive with each answer (r.next)
+  const qs = [...(m.trivia?.questions ?? [])]
+  const total = (m.trivia as any)?.count ?? qs.length
   let idx = m.trivia?.mine?.length ?? 0
   let t0 = Date.now()
   let timer: ReturnType<typeof setInterval> | undefined
@@ -24,8 +26,8 @@ export const trivia: GameMod = (ctx) => {
     const me = meOf(m, ctx.me)
     const o = opp()
     return `<div class="arena"><div class="l"></div><div class="r"></div>
-      <div class="pl a">${avatar(me.player.avatar)}<span class="nm">You</span><span class="sc" id="s-me">${myScore}</span></div>
-      <div class="pl b">${o?.isBot ? pipImg('cool') : avatar(o?.player.avatar ?? 'ada')}<span class="nm">${esc((o?.player.name ?? 'Opponent').split(' ')[0])}</span><span class="sc" id="s-opp">${oppScore()}</span></div>
+      <div class="pl a">${avatar(me.player.avatar)}<span class="nm">You</span><span class="ascore" id="s-me">${myScore}</span></div>
+      <div class="pl b">${o?.isBot ? pipImg('cool') : avatar(o?.player.avatar ?? 'ada')}<span class="nm">${esc((o?.player.name ?? 'Opponent').split(' ')[0])}</span><span class="ascore" id="s-opp">${oppScore()}</span></div>
       <div class="vs">VS</div></div>`
   }
   const shell = () => {
@@ -48,10 +50,14 @@ export const trivia: GameMod = (ctx) => {
   const showQ = () => {
     if (dead) return
     const q = qs[idx]
-    if (!q) return
+    if (!q || !q.q) {
+      // not revealed yet (the screen was rebuilt mid-game): fetch it, the server stamps the time it was shown
+      void api.match(m.id).then((v) => { m = v; const nq = v.trivia?.questions?.[idx]; if (nq?.q) { qs[idx] = nq; showQ() } }).catch(() => {})
+      return
+    }
     locked = false
     t0 = Date.now()
-    $('#qn', root)!.textContent = `Question ${idx + 1} of ${qs.length}`
+    $('#qn', root)!.textContent = `Question ${idx + 1} of ${total}`
     $('#qa', root)!.innerHTML = `<div class="q"><div class="t">${esc(q.q)}</div><div class="src">${ic('shield-check', 's16')}${m.trivia?.verified ? 'Nimo fact-checked this' : esc(m.trivia?.source === 'bank' ? 'From the Nimo question bank' : 'Written by Nimo')}${q.category ? ' · ' + esc(q.category) : ''}</div></div>
       <div style="display:flex;flex-direction:column;gap:10px">${q.options.map((o, i) => `<button class="ans" data-i="${i}"><span class="kc">${L[i]}</span><span>${esc(o)}</span></button>`).join('')}</div>`
     pipSay('think', idx === 0 ? '<b>Same questions, same clock.</b> Faster correct answers score more' : 'Next one. Stay sharp')
@@ -108,7 +114,8 @@ export const trivia: GameMod = (ctx) => {
     await sleep(r.fact ? 1800 : 1100)
     if (dead) return
     idx++
-    if (r.done || idx >= qs.length) {
+    if (r.next) qs[idx] = r.next
+    if (r.done || idx >= total) {
       pipSay('happy', 'All answered. Waiting for the final score…')
       await ctx.finish({ score: myScore, time: 0 })
       return
@@ -121,7 +128,7 @@ export const trivia: GameMod = (ctx) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('.ans')
     if (b && !locked) void answer(Number(b.dataset.i))
   })
-  if (idx >= qs.length) void ctx.finish({ score: myScore, time: 0 })
+  if (idx >= total) void ctx.finish({ score: myScore, time: 0 })
   else showQ()
 
   return {

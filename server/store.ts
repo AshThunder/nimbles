@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { ChestRec } from '../shared/rewards'
 import type { Payout, PublicMatch, Result, Settlement } from '../shared/types'
 import type { Question } from './bank'
+import type { SignalDB } from './signals'
 
 export type ProfileRec = {
   address: string
@@ -71,13 +72,20 @@ export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
     verified: boolean
     topic: string
     answers: Record<string, { choice: number; ms: number; correct: boolean; points: number }[]>
+    served?: Record<string, number[]> // when the server first showed each question to each player (server-timed answers)
     pip?: { choice: number; ms: number; correct: boolean; points: number }[]
   }
   settlement?: Settlement
   settled?: boolean
   live?: ChessLive | PoolLive
   challengeTo?: string // a direct challenge to one friend
+  pipSalt?: string // server-only salt for Nimo's trivia answers, so the public seed cannot predict them
+  tourney?: { id: string; round: number; slot: number } // a knockout tournament round
+  paying?: Record<string, number> // when each seat said its wallet was sending (the funding window waits a little for it)
+  scannedAt?: number // last time the escrow was scanned for this match's deposits
 }
+
+export type OrphanDeposit = { hash: string; match: string; from: string; owner: string | null; luna: number; at: number; why: string; status: 'open' | 'refunded' | 'dismissed'; refundTx?: string; error?: string }
 
 export type DB = {
   profiles: Record<string, ProfileRec>
@@ -86,6 +94,10 @@ export type DB = {
   matches: Record<string, MatchRec>
   usedTx: Record<string, string>
   campaign?: unknown // Nimbles Showdown state, owned by server/campaign.ts
+  signals?: SignalDB // hashed IPs and device fingerprints per address, server-side only (server/signals.ts)
+  /** Deposits that reached the escrow but could not be counted for a seat: a second payment for the same seat, a payment
+   *  after the match was cancelled, or a memo for no open match. They wait for the owner to refund them from the admin page. */
+  orphans?: Record<string, OrphanDeposit>
   pool?: { luna: number; lastPayDay?: string; paidTotal?: number; feesTotal?: number } // the saver interest pool, held in the escrow wallet like jar balances
   version: 1
   /** Which network this database belongs to. A mainnet server refuses a database that is not stamped mainnet. */

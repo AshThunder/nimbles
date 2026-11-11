@@ -1,5 +1,5 @@
 // Friends, the Match me lobby and the Nimbles Showdown progress screen.
-import { api, type BeatNimo, type Friends, type LobbyItem, type Showdown } from '../api'
+import { api, type Friends, type LobbyItem, type Showdown, type TourneyView } from '../api'
 import { actions, avatar, esc, glyph, GLYPH_BG, ic, keepScroll, lvBadge, pipImg, sfx, tap, toast, $ } from '../lib'
 import { S, go, route } from '../state'
 import { errBox, pipRow, tabs, topbar, refreshBalance } from '../ui'
@@ -39,33 +39,18 @@ const dateText = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: '
 const MODE_NAME: Record<string, string> = { play: 'Play', win: 'Win', save: 'Save', settle: 'Settle' }
 
 // ---------------- Nimbles Showdown card (home) ----------------
-/** Only the player's own progress and own earned amounts. No budget, no reward prices. */
+/** Only the player's own ladder progress. No budget, no prize amounts. */
 export function showdownCard(sd: Showdown | null) {
-  if (!sd || (!sd.live && sd.earned.total <= 0)) return ''
-  const st = sd.steps
-  const w = Math.min(st.welcome.done, st.welcome.need)
-  const o = Math.min(st.friends.opponents, st.friends.need)
-  // progress toward the two unlocks (welcome, then friend duels); after that the weekly board takes over
-  let next = ''
-  let pct = 100
-  if (!st.welcome.got) { next = `${w} of ${st.welcome.need} matches`; pct = (w / st.welcome.need) * 50 }
-  else if (!st.friends.unlocked) { next = `${o} of ${st.friends.need} rivals`; pct = 50 + (o / st.friends.need) * 50 }
-  else next = st.week.rank > 0 ? `#${st.week.rank} this week` : `${st.week.wins} win${st.week.wins === 1 ? '' : 's'} this week`
-  return `<button class="sdq" data-act="showdown" aria-label="${esc(sd.name)}, open progress"><img src="/badges/trophy-gold.svg" alt="" width="40" height="40"><span class="t"><b>${esc(sd.name)}</b><span class="s">${sd.live ? `Ends ${dateText(sd.end - 1)}` : 'Finished'} · ${next}</span><span class="sdl"><i style="width:${Math.round(pct)}%"></i></span></span><span class="e"><b>${fmtNim(sd.earned.total)}</b><small>NIM earned</small></span></button>`
+  if (!sd || !sd.live) return ''
+  const w = sd.week
+  const o = Math.min(w.opponents, w.need.opponents)
+  const d = Math.min(w.activeDays, w.need.days)
+  const pct = w.ranked ? 100 : ((o / w.need.opponents) * 0.6 + (d / w.need.days) * 0.4) * 100
+  const next = w.ranked ? `#${w.rank} this week · ${fmtPts(w.points)} pts` : `${o}/${w.need.opponents} rivals · ${d}/${w.need.days} days`
+  return `<button class="sdq" data-act="showdown" aria-label="${esc(sd.name)}, open the ladder"><img src="/badges/trophy-gold.svg" alt="" width="40" height="40"><span class="t"><b>${esc(sd.name)}</b><span class="s">Weekly ladder · ${next}</span><span class="sdl"><i style="width:${Math.round(pct)}%"></i></span></span><span class="e"><b>${w.index >= 0 ? `Week ${w.index + 1}` : ''}</b><small>Ends ${dateText(w.endsAt - 1)}</small></span></button>`
 }
-
-// ---------------- First Win Bonus card (home and Showdown) ----------------
-/** Live slot counter, the Earns NIM tag, and the claimed state with the amount once this wallet has won it. */
-export function beatNimoCard(b: BeatNimo | null | undefined) {
-  if (!b) return ''
-  const amt = fmtNim(b.reward)
-  if (b.mine) {
-    const paid = b.mine.status === 'paid'
-    return `<div class="bnq got" role="status"><img src="/pip/pip-cheer.svg" alt="" width="40" height="40"><span class="t"><b>First Win Bonus</b><span class="s">${paid ? 'Paid to your wallet' : b.paused ? 'Payouts paused, yours is kept' : 'On its way to your wallet'}</span></span><span class="etag got">${ic('check', 's16')}+${fmtNim(b.mine.luna)} NIM</span></div>`
-  }
-  if (b.left <= 0) return `<div class="bnq out" role="status"><img src="/pip/pip-cool.svg" alt="" width="40" height="40"><span class="t"><b>First Win Bonus</b><span class="s">All ${b.slots} rewards claimed</span></span></div>`
-  return `<div class="bnq"><img src="/pip/pip-cool.svg" alt="" width="40" height="40"><span class="t"><b>First Win Bonus</b><span class="s2">Beat Nimo in any game, any level, get ${amt} NIM</span><span class="s"><b class="left">${b.claimed}/${b.slots} claimed</b> · Free to play, no stake</span></span><span class="etag">Earns NIM</span></div>`
-}
+const fmtPts = (n: number) => (Math.round(n * 10) / 10).toString()
+const timeText = (t: number) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 route('/showdown', async (root) => {
   let sd: Showdown | null = null
@@ -75,46 +60,55 @@ route('/showdown', async (root) => {
   const load = async () => {
     try { sd = await api.showdown() } catch (e: any) { err = e.message }
   }
-  // Every step pays on its own. Before anything is earned the tag only says "Earns NIM"; after, it shows what that step really earned.
-  const item = (ok: boolean, title: string, sub: string, n: string, earned: number, more = '') => `<div class="it ${ok ? 'ok' : ''}"><span class="bx">${ok ? ic('check') : ''}</span><span class="tx"><span class="th"><b>${title}</b>${earned > 0 ? `<span class="etag got">${ic('check', 's16')}+${fmtNim(earned)} NIM</span>` : '<span class="etag">Earns NIM</span>'}</span><span>${sub}</span>${more}</span>${n ? `<span class="n">${n}</span>` : ''}</div>`
+  const item = (ok: boolean, title: string, sub: string, n: string, more = '') => `<div class="it ${ok ? 'ok' : ''}"><span class="bx">${ok ? ic('check') : ''}</span><span class="tx"><span class="th"><b>${title}</b></span><span>${sub}</span>${more}</span>${n ? `<span class="n">${n}</span>` : ''}</div>`
+  const tourney = (t: TourneyView) => {
+    const open = t.status === 'open'
+    const mine = t.rounds.flatMap((r) => r.matches).filter((x) => x.mine && x.match && x.winner === undefined)
+    const status = open ? `Starts ${timeText(t.startsAt)} · ${t.count}/${t.maxPlayers} registered` : t.status === 'running' ? `Round ${t.rounds.length} is on` : t.status === 'done' ? (t.place ? `Finished, you placed ${t.place}` : 'Finished') : t.note ?? 'Cancelled'
+    return `<div class="card"><div class="tc">
+      <div class="kv"><span><b>${esc(t.name)}</b></span><b>${esc(GAMES[t.game as GameId]?.name ?? t.game)}</b></div>
+      <div class="kv"><span>${status}</span><b>${t.stake} NIM a match</b></div>
+      <div class="kv"><span>Prizes</span><b>${fmtNim(t.prizes.reduce((x, y) => x + y, 0))} NIM, places 1 to ${t.prizes.length}</b></div>
+      ${mine.map((x) => `<button class="btn gold block" style="margin-top:10px" data-act="openm" data-id="${esc(x.match!)}">Open your match: ${esc(x.a)} v ${esc(x.b)}</button>`).join('')}
+      ${open ? `<button class="btn ${t.registered ? 'ghost' : 'gold'} block" style="margin-top:10px" data-act="treg" data-id="${esc(t.id)}" data-leave="${t.registered ? '1' : ''}" ${busy ? 'disabled' : ''}>${t.registered ? 'Registered. Leave' : 'Register, free'}</button>` : ''}
+    </div></div>`
+  }
   const draw = () => {
     if (!sd) {
       root.innerHTML = `${topbar(CAMPAIGN_NAME)}<div class="scroll">${err ? errBox(err) : `<div class="center">${pipImg('think')}</div>`}</div>`
       return
     }
-    const s = sd.steps
+    const w = sd.week
     const jar = sd.jar
-    const by = sd.byStep ?? {}
-    const inv = s.invites.list.length
-      ? `<span class="invl">${s.invites.list.map((x) => `<span class="ivr ${x.earned > 0 ? 'ok' : ''}"><b>${esc(x.name)}</b><span>${x.earned > 0 ? `${ic('check', 's16')}+${fmtNim(x.earned)} NIM` : `${x.done}/${x.need} matches${x.done >= x.need && !x.real ? ' · needs a real-player match' : ''}`}</span></span>`).join('')}</span>`
+    const inv = sd.invites.list.length
+      ? `<span class="invl">${sd.invites.list.map((x) => `<span class="ivr ${x.ok ? 'ok' : ''}"><b>${esc(x.name)}</b><span>${x.ok ? `${ic('check', 's16')}Counts` : `${x.done}/${x.need} rivals`}</span></span>`).join('')}</span>`
       : '<span class="invl"><span class="ivr"><span class="em">Nobody yet. Share your invite code from the Friends tab</span></span></span>'
     root.innerHTML = `${topbar(sd.name)}<div class="scroll" style="gap:14px">
-      ${pipRow('cheer', sd.live ? `<b>Play friends, beat rivals, earn NIM.</b> Skill only, no luck. Half of what you earn is paid now, half is locked in your jar.` : '<b>The Showdown has ended.</b> Thanks for playing. Your locked rewards follow your jar rules.')}
-      ${sd.paused ? '<div class="tip">Payouts are paused for a moment. Everything you earn is kept and paid later.</div>' : ''}
+      ${pipRow('cheer', sd.live ? '<b>Win staked games against real players to climb the weekly ladder.</b> Skill only. Prizes are checked, then paid after each week.' : '<b>The Showdown has ended.</b> Thanks for playing.')}
+      ${sd.tourneyMatch ? `<div class="tip"><b>${esc(sd.tourneyMatch.tourney)}:</b> your match is ready. <button class="btn gold" style="margin-left:8px" data-act="openm" data-id="${esc(sd.tourneyMatch.id)}">Open</button></div>` : ''}
       <div class="card"><div class="tc">
-        <div class="kv"><span>You earned</span><b>${fmtNim(sd.earned.total)} NIM</b></div>
-        <div class="kv"><span>Paid to your wallet</span><b>${fmtNim(sd.earned.wallet)} NIM</b></div>
-        <div class="kv"><span>Locked in your jar</span><b>${fmtNim(sd.earned.jar)} NIM</b></div>
-        ${sd.earned.pending > 0 ? `<div class="kv"><span>On its way</span><b>${fmtNim(sd.earned.pending)} NIM</b></div>` : ''}
+        <div class="kv"><span>${w.index >= 0 ? `Week ${w.index + 1} ladder` : 'Ladder'}</span><b>${w.ranked ? `#${w.rank}` : 'Not ranked yet'}</b></div>
+        <div class="kv"><span>Points this week</span><b>${fmtPts(w.points)}</b></div>
+        <div class="kv"><span>Counted games this week</span><b>${w.games}</b></div>
+        <div class="kv"><span>Week ends</span><b>${dateText(w.endsAt - 1)}</b></div>
       </div></div>
-      ${beatNimoCard(sd.beatNimo)}
-      <div class="lab" style="margin:0">How to earn<small>Ends ${dateText(sd.end - 1)}</small></div>
-      <div class="lab" style="margin:0;font-size:15px;line-height:20px">Each step pays on its own, as soon as you complete it</div>
+      <div class="lab" style="margin:0">To be ranked<small>Top ${w.paidPlaces || 25} win NIM</small></div>
       <div class="chk">
-        ${item(s.welcome.got, 'Welcome', s.welcome.got ? 'Done. Earned for finishing your first matches' : `Earn NIM once you finish ${s.welcome.need} matches, at least ${s.welcome.needReal} against a real player`, s.welcome.got ? '' : `${s.welcome.done}/${s.welcome.need}`, by.welcome ?? 0)}
-        ${item(s.friends.unlocked, 'Friend duels', s.friends.unlocked ? 'Earn NIM for each staked duel you finish with a friend, up to 3 a day per friend' : `Earn NIM for each staked duel with a friend. Face ${s.friends.need} different players to unlock`, s.friends.unlocked ? `${s.friends.friends} friend${s.friends.friends === 1 ? '' : 's'}` : `${s.friends.opponents}/${s.friends.need}`, by.friend ?? 0)}
-        ${item(s.invites.rewarded >= s.invites.max, 'Invite friends', `Earn NIM for each friend who joins with your invite code and finishes ${s.invites.need} matches, up to ${s.invites.max} friends`, `${s.invites.rewarded}/${s.invites.max}`, by.invite ?? 0, inv)}
-        ${item(s.nimo.capped || s.nimo.today >= s.nimo.perDay, 'Beat Nimo on Hard', s.nimo.capped ? 'You earned all you can here. Try your friends' : `Earn NIM for each win against Nimo on Hard, up to ${s.nimo.perDay} wins a day`, `${s.nimo.today}/${s.nimo.perDay}`, by.nimo ?? 0)}
-        ${item(s.week.rank > 0 && s.week.rank <= s.week.top, 'Weekly skill board', s.week.index >= 0 ? `Earn NIM each week you finish in the top ${s.week.top} by wins in staked duels against real players. This week ends ${dateText(s.week.endsAt - 1)}` : 'Opens with the next week', s.week.rank > 0 ? '#' + s.week.rank : `${s.week.wins} wins`, by.leaderboard ?? 0)}
+        ${item(w.opponents >= w.need.opponents, 'Different rivals', `Play staked games against ${w.need.opponents} different players who play others too`, `${Math.min(w.opponents, w.need.opponents)}/${w.need.opponents}`)}
+        ${item(w.activeDays >= w.need.days, 'Active days', `Play counted games on ${w.need.days} different days this week`, `${Math.min(w.activeDays, w.need.days)}/${w.need.days}`)}
       </div>
-      <div class="qrow"><button class="btn gold" data-act="friends">${ic('users', 's20')}Friends</button><button class="btn ghost" data-act="lobby">${ic('swords', 's20')}Match me</button></div>
+      <p class="sm2">A game counts when both players lock at least ${w.need.stake} NIM, Match me or a friend. Beating stronger and more active players earns more. The same pair counts ${w.need.pairPerDay} times a day and ${w.need.pairPerSeason} times in the season. Playing Nimo is free practice and pays no NIM.</p>
+      <div class="qrow"><button class="btn gold" data-act="lobby">${ic('swords', 's20')}Match me</button><button class="btn ghost" data-act="board">${ic('trophy', 's20')}Ladder</button></div>
+      ${sd.tourneys.length ? `<div class="lab" style="margin:0">Weekend knockouts</div>${sd.tourneys.map(tourney).join('')}` : ''}
+      <div class="lab" style="margin:0">Invites<small>Paid at season end</small></div>
+      <div class="chk">${item(sd.invites.list.some((x) => x.ok), 'Invite friends', `A friend you invite counts once they have played staked games against ${sd.invites.list[0]?.need ?? 5} different rivals. Up to ${sd.invites.max} friends`, '', inv)}</div>
+      ${sd.prizes.length ? `<div class="lab" style="margin:0">Your prizes</div><div class="lob">${sd.prizes.map((h) => `<div class="rw"><span class="avs" style="display:grid;place-items:center;background:var(--gold-tint);border-radius:10px">${ic(h.status === 'paid' ? 'check' : 'clock', 's20')}</span><span class="nm"><b>${esc(h.note)}</b><span>${h.status === 'paid' ? 'Paid to your wallet' : 'Being checked, then paid'}</span></span><span class="am"><b>+${fmtNim(h.luna)}</b><span>NIM</span></span></div>`).join('')}</div>` : ''}
       ${jar.luna > 0 ? `<div class="lab" style="margin:0">Locked rewards<small>${jar.locked ? 'Until ' + dateText(jar.unlockAt) : 'Unlocked'}</small></div>
       <div class="card"><div class="tc"><div class="kv"><span>In your jar</span><b>${fmtNim(jar.luna)} NIM</b></div>${jar.locked ? `<div class="kv"><span>Early unlock fee now</span><b>${fmtNim(jar.early.fee)} NIM</b></div>` : ''}</div>
       ${confirm ? `<div class="tip" style="margin-top:10px">Unlock early and get ${fmtNim(jar.early.net)} NIM now?</div><div class="qrow" style="margin-top:10px"><button class="btn ghost" data-act="nconfirm">Keep it locked</button><button class="btn gold" data-act="wd" data-early="1" ${busy ? 'disabled' : ''}>Unlock</button></div>`
         : `<button class="btn ${jar.locked ? 'ghost' : 'gold'} block" style="margin-top:10px" data-act="${jar.locked ? 'confirm' : 'wd'}" ${busy ? 'disabled' : ''}>${jar.locked ? 'Unlock early' : 'Withdraw to wallet'}</button>`}</div>` : ''}
-      ${sd.history.length ? `<div class="lab" style="margin:0">Your rewards</div><div class="lob">${sd.history.map((h) => `<div class="rw"><span class="avs" style="display:grid;place-items:center;background:var(--gold-tint);border-radius:10px">${ic(h.status === 'paid' ? 'check' : 'clock', 's20')}</span><span class="nm"><b>${esc(h.note)}</b><span>${h.status === 'paid' ? 'Paid' : 'On its way'} · ${fmtNim(h.wallet)} now, ${fmtNim(h.jar)} locked</span></span><span class="am"><b>+${fmtNim(h.luna)}</b><span>NIM</span></span></div>`).join('')}</div>` : ''}
       ${err ? errBox(err) : ''}
-      <p class="sm2">Fixed rewards for finished matches, no chance involved. Each player can earn up to a set limit. Matches against your own accounts or repeated farming are not rewarded.</p>
+      <p class="sm2">Every prize is reviewed before it is paid. Several wallets run by one person share one prize, and scripted play is not paid.</p>
     </div>`
   }
   await load()
@@ -123,6 +117,19 @@ route('/showdown', async (root) => {
     back: () => (sfx('ui/back'), history.length > 1 ? history.back() : go('/')),
     friends: () => (tap(), go('/friends')),
     lobby: () => (tap(), go('/lobby')),
+    board: () => (tap(), sessionStorage.setItem('nb:rank', 'showdown'), go('/rank')),
+    openm: (el) => (tap(), go('/m/' + el.dataset.id)),
+    treg: async (el) => {
+      busy = true; err = ''; draw()
+      try {
+        await api.tourneyJoin(el.dataset.id!, el.dataset.leave === '1')
+        toast(el.dataset.leave === '1' ? 'You left the tournament' : 'You are in. Come back when it starts')
+        sfx('ui/select')
+      } catch (e: any) { err = e.message; sfx('ui/error') }
+      busy = false
+      await load()
+      draw()
+    },
     confirm: () => ((confirm = true), sfx('ui/select'), draw()),
     nconfirm: () => ((confirm = false), sfx('ui/back'), draw()),
     wd: async (el) => {

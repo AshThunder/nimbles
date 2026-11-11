@@ -24,7 +24,13 @@ export interface Chain {
    * A missing account is a real zero.
    */
   accountBalance(address: string): Promise<number | null>
+  /** Recent incoming transactions to the escrow, newest first (hash, sender, value, memo). Used to find deposits whose
+   *  hash never reached the server (a wallet that timed out after broadcasting, an app closed mid-payment). */
+  escrowDeposits(max?: number): Promise<IncomingTx[]>
+  /** Addresses that sent to or received from `address` (recent history). null when the lookup fails. */
+  counterparties(address: string): Promise<{ from: string[]; to: string[] } | null>
 }
+export type IncomingTx = { hash: string; from: string; luna: number; memo: string; at: number }
 
 const norm = (a: string) => a.replace(/\s+/g, '').toUpperCase()
 export const sameAddr = (a: string, b: string) => norm(a) === norm(b)
@@ -33,7 +39,7 @@ export const isNimiqAddress = (a: string) => /^NQ\d{2}( ?[0-9A-HJ-NP-Z]{4}){8}$/
 // ---------------- mock chain (tests, offline dev) ----------------
 
 /** `contract` + `owner` mimic Nimiq Pay paying out of an HTLC that a wallet account funded */
-type MockTx = { from: string; to: string; luna: number; memo: string; contract?: boolean; owner?: string }
+type MockTx = { from: string; to: string; luna: number; memo: string; contract?: boolean; owner?: string; at?: number }
 
 export class MockChain implements Chain {
   readonly kind = 'mock' as const
@@ -52,7 +58,7 @@ export class MockChain implements Chain {
   /** Dev-only: the mocked Nimiq Pay provider registers the tx it "sent". */
   register(tx: MockTx): string {
     const hash = 'mock:' + randomBytes(16).toString('hex')
-    this.txs.set(hash, tx)
+    this.txs.set(hash, { ...tx, at: tx.at ?? Date.now() })
     return hash
   }
 
@@ -81,6 +87,22 @@ export class MockChain implements Chain {
   ownBalance = 1e12
   async balance() {
     return this.ownBalance
+  }
+
+  /** Incoming escrow txs, newest first, like the RPC */
+  async escrowDeposits(max = 200): Promise<IncomingTx[]> {
+    const out: IncomingTx[] = []
+    for (const [hash, t] of this.txs) if (sameAddr(t.to, this.escrowAddress)) out.push({ hash, from: t.from, luna: t.luna, memo: t.memo, at: t.at ?? 0 })
+    return out.reverse().slice(0, max)
+  }
+  async counterparties(address: string) {
+    const from = new Set<string>(), to = new Set<string>()
+    for (const t of this.txs.values()) {
+      if (sameAddr(t.to, address)) from.add(t.from)
+      if (sameAddr(t.from, address)) to.add(t.to)
+    }
+    for (const p of this.paid) if (sameAddr(p.to, address)) from.add(this.escrowAddress)
+    return { from: [...from], to: [...to] }
   }
 
   /** Mock: known addresses can be seeded via `balances`; unknown addresses are 0 confirmed. */
@@ -250,6 +272,25 @@ export class NimiqChain implements Chain {
   async balance() {
     const a = await this.rpc('getAccountByAddress', [this.escrowAddress])
     return Number(a?.balance ?? 0)
+  }
+
+  async escrowDeposits(max = 200): Promise<IncomingTx[]> {
+    const list: any[] = (await this.rpc('getTransactionsByAddress', [this.escrowAddress, Math.min(500, max), null])) ?? []
+    return list
+      .filter((t) => sameAddr(String(t.to), this.escrowAddress) && t.executionResult !== false && t.networkId === NETWORK_ID[this.network])
+      .map((t) => ({ hash: String(t.hash), from: String(t.from), luna: Number(t.value), memo: Buffer.from(String(t.recipientData || ''), 'hex').toString('utf8'), at: Number(t.timestamp) || 0 }))
+  }
+
+  async counterparties(address: string) {
+    try {
+      const list: any[] = (await this.rpc('getTransactionsByAddress', [address, 100, null])) ?? []
+      const from = new Set<string>(), to = new Set<string>()
+      for (const t of list) {
+        if (sameAddr(String(t.to), address)) from.add(String(t.from))
+        if (sameAddr(String(t.from), address)) to.add(String(t.to))
+      }
+      return { from: [...from], to: [...to] }
+    } catch { return null }
   }
 
   async accountBalance(address: string) {

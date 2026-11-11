@@ -23,7 +23,7 @@ export type Wallet = {
   signIn?(onStatus?: (m: string) => void): Promise<NonNullable<Wallet['proof']> | undefined>
   network: Net | 'unknown'
   /** Sends `luna` to `to` with a public memo (max 64 bytes) and returns the tx hash. */
-  send(to: string, luna: number, memo: string): Promise<string>
+  send(to: string, luna: number, memo: string, status?: (msg: string) => void): Promise<string>
   /**
    * Confirmed spendable NIM in luna for this Pay wallet.
    * Official path: getBalance(active HTLC) from listAccounts; 0 when no HTLC.
@@ -50,9 +50,16 @@ export function friendlyWalletError(e: unknown): string {
   const m = String((e as any)?.message ?? e ?? '')
   if (/reject|denied|cancel|declin/i.test(m)) return 'You cancelled the payment in Nimiq Pay'
   if (/insufficient|balance|funds/i.test(m)) return 'Not enough NIM in your wallet for that stake plus the network fee'
-  if (/timeout/i.test(m)) return 'Nimiq Pay did not answer in time. Try again'
+  if (isSendTimeout(e)) return 'Nimiq Pay could not reach the network in time. If NIM left your wallet it is found and counted, or refunded. Try again'
   return m || 'Nimiq Pay could not send that payment'
 }
+
+/** Nimiq Pay's own 30 s limit ("Operation timed out after 30000 milliseconds"), our wrapper, or a network drop. The
+ *  transaction may still have gone out, so the caller checks the chain before offering to pay again. */
+export function isSendTimeout(e: unknown) {
+  return /time(d)?\s*out|timeout|network|consensus|offline|connect/i.test(String((e as any)?.message ?? e ?? ''))
+}
+export const isSendDenied = (e: unknown) => /reject|denied|cancel|declin/i.test(String((e as any)?.message ?? e ?? ''))
 
 /** Lower-case-insensitive, spacing-insensitive address compare */
 export const sameAddress = (a: string, b: string) => a.replace(/\s+/g, '').toUpperCase() === b.replace(/\s+/g, '').toUpperCase()
@@ -152,6 +159,23 @@ export async function connect(
   const inside = await waitForHost(wantPreview ? 0 : 1500)
   if (inside) return connectNimiqPay(onStatus, !!opts.userTap)
   return previewWallet(cfg)
+}
+
+let sending = false
+
+/** Waits (up to ~45 s) until Nimiq Pay says it is in consensus. A host without the call is assumed ready. */
+async function waitConsensus(nq: any, status: (m: string) => void) {
+  if (typeof nq?.isConsensusEstablished !== 'function') return
+  const end = Date.now() + 45_000
+  let said = false
+  for (;;) {
+    let ok: boolean | null = null
+    try { ok = await withTimeout(nq.isConsensusEstablished() as Promise<boolean>, 5000, 'Consensus') } catch { ok = null }
+    if (ok === true || ok === null && !said) return // an error here means the host does not support it; do not block
+    if (!said) { status('Nimiq Pay is connecting to the network…'); said = true }
+    if (Date.now() > end) throw new Error('Nimiq Pay could not reach the network (consensus timed out)')
+    await sleep(1500)
+  }
 }
 
 async function connectNimiqPay(onStatus: (msg: string) => void, userTap: boolean): Promise<Wallet> {
@@ -283,11 +307,25 @@ async function connectNimiqPay(onStatus: (msg: string) => void, userTap: boolean
     proof,
     signIn,
     network: getHostNetwork() ?? 'unknown',
-    async send(to, luna, memo) {
-      const tx = { recipient: to, value: luna }
-      return memo ? nq.sendBasicTransactionWithData({ ...tx, data: memo }) : nq.sendBasicTransaction(tx)
+    async send(to, luna, memo, status = () => {}) {
+      // The accepting player often reaches Lock in seconds after opening (or switching back to) Nimiq Pay, before its
+      // light client has caught up with the network. A send then sits until Pay's 30 s limit and fails, sometimes after
+      // it was broadcast. So: wait for consensus first, and keep other provider calls (balance, accounts) quiet while
+      // the payment is in flight. No fee or validity height is passed: Pay picks both from its own synced chain.
+      sending = true
+      try {
+        await waitConsensus(nq, status)
+        status('Approve the payment in Nimiq Pay…')
+        const tx = { recipient: to, value: luna }
+        const p = memo ? nq.sendBasicTransactionWithData({ ...tx, data: memo }) : nq.sendBasicTransaction(tx)
+        return await withTimeout(p as Promise<string>, 120_000, 'Payment')
+      } finally {
+        sending = false
+      }
     },
     async balance() {
+      // never call the provider while a payment is waiting for approval; the header keeps its last number
+      if (sending) return null
       // Re-bind accounts when possible so a silent HTLC replacement is picked up even before the event.
       try {
         if (typeof (nq as any).listAccounts === 'function') {

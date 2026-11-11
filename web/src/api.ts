@@ -20,6 +20,18 @@ export class ApiErr extends Error {
   }
 }
 
+/** A random id this device keeps, sent with each request. The server only stores a keyed hash of it, to see when several
+ *  wallets play from one device. Never shown to anyone. */
+let devId = ''
+function deviceId() {
+  if (devId) return devId
+  try {
+    devId = localStorage.getItem('nb:dev') ?? ''
+    if (!devId) { devId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem('nb:dev', devId) }
+  } catch { devId = devId || 'nostore' }
+  return devId
+}
+
 let serverSkew = 0
 export const serverNow = () => Date.now() + serverSkew
 
@@ -28,7 +40,7 @@ async function call<T = any>(method: string, path: string, body?: unknown, retri
   try {
     res = await fetch('/api' + path, {
       method,
-      headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) },
+      headers: { 'content-type': 'application/json', 'x-nb-device': deviceId(), ...(token ? { authorization: 'Bearer ' + token } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
@@ -79,32 +91,37 @@ export type ChestView = {
 }
 export type ChestList = { chests: ChestView[]; boost: { levelPct: number; chestPct: number; until: number; totalPct: number }; badges: string[]; cosmetics: string[] }
 
+export type TourneyView = {
+  id: string; name: string; game: string; stake: number; startsAt: number; maxPlayers: number; status: 'open' | 'running' | 'done' | 'cancelled'; note?: string
+  count: number; registered: boolean; prizes: number[]; place?: number
+  rounds: { deadline: number; matches: { a: string; b: string; winner?: string; note?: string; mine: boolean; match?: string }[] }[]
+}
 export type Showdown = {
   name: string; live: boolean; start: number; end: number; paused: boolean
-  earned: { total: number; wallet: number; jar: number; pending: number }
-  steps: {
-    welcome: { done: number; need: number; real: number; needReal: number; got: boolean }
-    friends: { opponents: number; need: number; unlocked: boolean; friends: number }
-    invites: { rewarded: number; max: number; need: number; list: { name: string; done: number; need: number; real: boolean; earned: number }[] }
-    nimo: { today: number; perDay: number; capped: boolean }
-    week: { index: number; wins: number; rank: number; top: number; endsAt: number }
+  week: {
+    index: number; weeks: number; endsAt: number; paidPlaces: number
+    points: number; games: number; activeDays: number; opponents: number; ranked: boolean; rank: number
+    need: { opponents: number; days: number; stake: number; pairPerDay: number; pairPerSeason: number }
   }
-  byStep: Partial<Record<'welcome' | 'friend' | 'invite' | 'nimo' | 'leaderboard', number>>
-  capped: boolean
-  history: { note: string; luna: number; wallet: number; jar: number; status: 'paid' | 'pending'; at: number; tx?: string }[]
+  invites: { per: number; max: number; list: { name: string; done: number; need: number; ok: boolean }[] }
+  tourneys: TourneyView[]
+  tourneyMatch: { id: string; tourney: string; status: string; deadline: number } | null
+  prizes: { note: string; luna: number; status: 'paid' | 'in review'; at: number }[]
+  season1: { total: number; paid: number }
   jar: { luna: number; unlockAt: number; locked: boolean; early: { fee: number; pct: number; net: number } }
-  beatNimo?: BeatNimo
 }
-export type BeatNimo = { name: string; start: number; slots: number; left: number; claimed: number; reward: number; paused: boolean; mine: { luna: number; status: 'paid' | 'pending'; tx?: string; match?: string; at: number } | null }
 export type ShowdownBoard = { week: number; weeks: number; start: number; endsAt: number; top: number; live: boolean; rows: SdRow[]; me: SdRow | null }
-export type SdRow = { rank: number; name: string; avatar: string; frame: string; wins: number; me: boolean }
+export type SdRow = { rank: number; name: string; avatar: string; frame: string; points: number; ranked: boolean; me: boolean }
+export type Challenge = { id: string; code: string; game: string; mode: string; stake: number; from: FriendCard; expiresAt: number }
 export type LobbyItem = { code: string; game: string; mode: string; stake: number; topic?: string; host: { name: string; avatar: string; frame: string }; players: number; size: number; waitingSec: number }
 export type FriendCard = { address: string; name: string; avatar: string; frame: string; level: number; online: boolean; asked?: boolean }
-export type Friends = { code: string; friends: FriendCard[]; recent: FriendCard[]; incoming: FriendCard[]; challenges: { code: string; game: string; mode: string; stake: number; from: FriendCard }[] }
+export type Friends = { code: string; friends: FriendCard[]; recent: FriendCard[]; incoming: FriendCard[]; challenges: Challenge[] }
 
 export const api = {
   showdown: () => call<Showdown>('GET', '/showdown'),
   showdownBoard: () => call<ShowdownBoard>('GET', '/showdown/board'),
+  tourneyJoin: (id: string, leave = false) => call<TourneyView>('POST', `/showdown/tourney/${id}/${leave ? 'leave' : 'register'}`, {}),
+  challenges: () => call<{ challenges: Challenge[]; tourney: Showdown['tourneyMatch'] }>('GET', '/challenges'),
   showdownWithdraw: (early = false) => call<{ tx: string; luna: number; fee: number }>('POST', '/showdown/jar/withdraw', { early }),
   lobby: (game?: string, mode?: string) => call<{ open: LobbyItem[] }>('GET', `/lobby?game=${game ?? ''}&mode=${mode ?? ''}`),
   friends: () => call<Friends>('GET', '/friends'),
@@ -128,6 +145,8 @@ export const api = {
   match: (id: string) => call<MatchView>('GET', `/matches/${id}?shot=${liveSeen[id] ?? 0}`),
   move: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/move`, b),
   fund: (id: string, txHash: string) => call<MatchView>('POST', `/matches/${id}/fund`, { txHash }),
+  paying: (id: string) => call<MatchView>('POST', `/matches/${id}/paying`, {}),
+  findDeposit: (id: string) => call<MatchView>('POST', `/matches/${id}/find`, {}),
   start: (id: string) => call<MatchView>('POST', `/matches/${id}/start`, {}),
   cancel: (id: string) => call<MatchView>('POST', `/matches/${id}/cancel`, {}),
   terms: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/terms`, b),

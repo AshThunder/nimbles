@@ -12,6 +12,7 @@ import './screens/chests'
 import './screens/social'
 import './screens/admin'
 import { netBadge, refreshBalance, openBalanceDialog } from './ui'
+import { startChallengePoll } from './notify'
 
 const app = document.getElementById('app')!
 
@@ -94,6 +95,7 @@ async function boot(opts: { userTap?: boolean } = {}) {
   }
   if (booted) return void render()
   booted = true
+  startChallengePoll()
   window.addEventListener('hashchange', () => void render())
   document.addEventListener('pointerdown', () => void 0, { once: true })
   await render()

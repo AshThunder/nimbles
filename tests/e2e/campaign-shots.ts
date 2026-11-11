@@ -67,26 +67,13 @@ try {
   await api(kemi, 'POST', '/matches', { game: 'darts', mode: 'win', stake: 2, opp: 'auto' })
   // a direct challenge from Ada to Chris
   await api(ada, 'POST', '/matches', { game: 'carrom', mode: 'win', stake: 1, opp: 'invite', challenge: A.chris })
-  // campaign progress for Chris
+  // season 2 ladder progress for Chris: counted staked games against several rivals over a few days
   const c = app.campaign
-  const s = (c as any).stat(A.chris)
-  s.done = 7; s.human = 4; s.opps = [A.ada, A.tobi, A.kemi]; s.nimoDay = (await import('../../shared/campaign')).campaignDay(); s.nimoToday = 4; s.nimoLuna = 8e5
-  s.weeks['0'] = { wins: 6, reachedAt: Date.now() - 1000 }
-  ;(c as any).stat(A.ada).weeks['0'] = { wins: 9, reachedAt: Date.now() - 5000 }
-  c.award('welcome', A.chris, 50, 'welcome:' + A.chris, 'Welcome reward')
-  c.award('friend', A.chris, 20, 'friend:x1:' + A.chris, 'Friend duel')
-  c.award('friend', A.chris, 20, 'friend:x2:' + A.chris, 'Friend duel')
-  for (let i = 0; i < 4; i++) c.award('nimo', A.chris, 2, 'nimo:n' + i, 'Beat Nimo on Hard')
-  c.award('friend', A.ada, 20, 'friend:x1:' + A.ada, 'Friend duel')
-  c.award('welcome', A.ada, 50, 'welcome:' + A.ada, 'Welcome reward')
-  c.award('invite', A.ada, 100, 'invite:' + A.kemi, 'Invite: Kemi joined and played')
-  await c.tick()
-  c.award('friend', A.chris, 20, 'friend:x3:' + A.chris, 'Friend duel')
-  c.award('welcome', A.tobi, 50, 'welcome:' + A.tobi, 'Welcome reward')
-  ;(c as any).payer.ownBalance = 0
-  await c.tick()
-  ;(c as any).payer.ownBalance = 49_700 * 1e5
-  ;(c as any).cachedBalance = null
+  const L2 = c.st.ladder
+  const day = (n: number) => new Date(Date.now() - n * 864e5 + 36e5).toISOString().slice(0, 10)
+  const g = (id: string, w: string, l: string, n: number) => L2.games.push({ id, at: Date.now() - n * 864e5, day: day(n), week: 0, winner: w, loser: l, base: 10, game: 'darts', stake: 10 })
+  g('l1', A.chris, A.ada, 0); g('l2', A.chris, A.tobi, 1); g('l3', A.ada, A.chris, 1); g('l4', A.chris, A.kemi, 2); g('l5', A.ada, A.tobi, 0); g('l6', A.tobi, A.kemi, 1); g('l7', A.kemi, A.ada, 2)
+  c.st.holds['lad:demo:' + A.chris] = { id: 'lad:demo:' + A.chris, pool: 'ladder1', player: A.chris, luna: 960e5, note: 'Ladder week 1, place 1', place: 1, points: 42, at: Date.now(), status: 'held', flags: ['Same IP with Ada'] }
   // a few settled matches for the stats tab
   for (const [g, mode] of [['darts', 'win'], ['trivia', 'play'], ['speedmath', 'save'], ['darts', 'play'], ['carrom', 'win']] as const) {
     const id = 'seed' + g + mode
@@ -97,11 +84,7 @@ try {
 
   // v3: invite code card that fits, per-step earnings, invited friends with their own progress
   db.profiles[A.kemi].invitedBy = A.chris
-  ;(c as any).stat(A.kemi).done = 3
   db.profiles[A.tobi].invitedBy = A.chris
-  ;(c as any).stat(A.tobi).done = 5; (c as any).stat(A.tobi).human = 2
-  c.award('invite', A.chris, 100, 'invite:' + A.tobi, 'Invite: Tobi joined and played')
-  ;(c as any).stat(A.chris).invites = 1
   const V3 = join(OUT, 'v3')
   mkdirSync(V3, { recursive: true })
   for (const [w, h, sfx] of [[390, 844, ''], [360, 780, '-360']] as const) {
@@ -123,11 +106,11 @@ try {
     await chris.evaluate(() => document.querySelector('.chk')?.scrollIntoView({ block: 'start' }))
     await chris.waitForTimeout(300)
     await chris.screenshot({ path: join(V3, `showdown-steps${sfx}.png`) }); console.log('  saved v3/showdown-steps' + sfx)
-    await chris.evaluate(() => document.querySelectorAll('.chk .it')[3]?.scrollIntoView({ block: 'start' }))
+    await chris.evaluate(() => document.querySelectorAll('.chk .it')[2]?.scrollIntoView({ block: 'start' }))
     await chris.waitForTimeout(300)
     await chris.screenshot({ path: join(V3, `showdown-steps${sfx}-2.png`) })
-    const tags = await chris.locator('.chk .etag').count()
-    if (tags !== 5) throw new Error('expected an earnings tag on all 5 steps, got ' + tags)
+    const steps = await chris.locator('.chk .it').count()
+    if (steps !== 3) throw new Error('expected 3 ladder and invite steps, got ' + steps)
   }
   // open stakes: presets 10/50/100/500 plus Custom, checked against the balance (this stub wallet has a Pay HTLC holding 5000 NIM)
   const payer = await open(browser, 'chris', true)

@@ -116,7 +116,7 @@ route('/g/:id', (root, p) => {
   const oppBlock = () => {
     const hint = st.opp === 'join'
       ? `<div class="field">${ic('scan-line')}<input id="code" class="field" placeholder="Enter code, like NMB-XXXX" value="${esc(st.code)}" maxlength="9" autocapitalize="characters" autocomplete="off" style="border:0;box-shadow:none;height:48px;padding:0"></div>`
-      : st.opp === 'pip' && st.mode === 'play' ? '' : `<div class="hint">${st.opp === 'invite' && st.challenge ? `Only ${esc(st.challenge.name)} gets this challenge` : st.opp === 'auto' && royale ? 'Matched with others, starts with 2 or more' : HINT[st.opp]}</div>`
+      : st.opp === 'pip' && st.mode === 'play' ? '<div class="hint">Free practice against Nimo. Earns XP and badges, never NIM. Showdown prizes come from staked games against real players</div>' : `<div class="hint">${st.opp === 'invite' && st.challenge ? `Only ${esc(st.challenge.name)} gets this challenge` : st.opp === 'auto' && royale ? 'Matched with others, starts with 2 or more' : HINT[st.opp]}</div>`
     return `<div class="sec"><div class="lab">Opponent</div>${chips()}${hint}</div>${st.opp === 'auto' && !royale ? openBlock() : ''}${
       st.opp === 'pip' && st.mode === 'play'
         ? `<div class="sec"><div class="lab">Nimo level<small>Easy to hard</small></div><div class="lvl">${pipImg('think')}<div class="pick" role="radiogroup" aria-label="Nimo level">${(['easy', 'med', 'hard'] as PipLevel[]).map((l) => `<button class="pc ${st.pip === l ? 'on' : ''}" data-act="pip" data-l="${l}" role="radio" aria-checked="${st.pip === l}">${st.pip === l ? ic('check') : ''}${LEVELS[l]}</button>`).join('')}</div></div></div>`
