@@ -664,6 +664,7 @@ export class Campaign {
         this.engine.store.flush()
         try {
           r.tx = await this.payer!.pay(r.player, r.wallet, `nb:sd:${r.id}`.slice(0, 64))
+          this.engine.notePaid(r.player)
           r.status = 'paid'
           r.paidAt = Date.now()
           delete r.error
@@ -774,6 +775,7 @@ export class Campaign {
     this.engine.store.flush()
     try {
       const tx = await this.payer.pay(a, luna, fee ? 'nb:sd:jar:early' : 'nb:sd:jar')
+      this.engine.notePaid(a)
       return { tx, luna, fee }
     } catch {
       p.cjar = held

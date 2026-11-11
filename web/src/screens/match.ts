@@ -6,7 +6,7 @@ import { meOf, others, type GameInst } from '../games/common'
 import { actions, avatar, confetti, esc, fmtTime, glyph, GLYPH_BG, ic, pipImg, shortAddr, sfx, buzz, toast, tap, $ } from '../lib'
 import { S, go, route } from '../state'
 import { errBox, pipRow, topbar, refreshBalance, noteIncoming } from '../ui'
-import { friendlyWalletError, isSendDenied, isSendTimeout } from '../wallet'
+import { friendlyWalletError, isSendDenied, isSendNotSent, isSendTimeout } from '../wallet'
 import { GAMES, fmtNim } from '../../../shared/types'
 import { settleShares } from '../../../shared/economy'
 import { draftBody, draftOk, newDraft, payeeLabel, placeRows, termsActions, termsForm, termsInput, type TermsDraft } from './terms'
@@ -247,8 +247,9 @@ route('/m/:id', async (root, { id }) => {
   // A payment attempt is remembered per match on this device, so if Nimiq Pay times out, or the screen is rebuilt, the
   // app looks on chain for the deposit before it ever offers to pay again (never a blind second payment).
   const attemptKey = 'nb:pay:' + id
-  const attempt = () => { try { return JSON.parse(localStorage.getItem(attemptKey) ?? 'null') as { at: number; hash?: string } | null } catch { return null } }
-  const setAttempt = (v: { at: number; hash?: string } | null) => { try { v ? localStorage.setItem(attemptKey, JSON.stringify(v)) : localStorage.removeItem(attemptKey) } catch { /* private mode */ } }
+  type Attempt = { at: number; hash?: string; failed?: boolean }
+  const attempt = () => { try { return JSON.parse(localStorage.getItem(attemptKey) ?? 'null') as Attempt | null } catch { return null } }
+  const setAttempt = (v: Attempt | null) => { try { v ? localStorage.setItem(attemptKey, JSON.stringify(v)) : localStorage.removeItem(attemptKey) } catch { /* private mode */ } }
   const locked = () => !!me()?.funded
 
   /** Looks on chain (through the server) for this seat's deposit for up to `ms`. True once the seat is locked. */
@@ -257,6 +258,7 @@ route('/m/:id', async (root, { id }) => {
     while (alive && Date.now() < end) {
       try { m = await api.findDeposit(id) } catch { /* network blip, try again */ }
       if (locked() || m.status !== 'funding') return locked()
+      if (Date.now() + 5000 > end) break
       await new Promise((r) => setTimeout(r, 5000))
     }
     return locked()
@@ -271,21 +273,24 @@ route('/m/:id', async (root, { id }) => {
     }
     const show = (msg: string) => { busy = msg; sig = ''; onMatch() }
     let sent = false
+    resumed = true // this screen is handling the payment now; a rebuild must not start a second search
     try {
-      // an earlier attempt from this device: check the chain first
+      // an earlier attempt from this device: check the chain first (once, quickly, when Pay said it sent nothing)
       const prev = attempt()
       if (prev && Date.now() - prev.at < 30 * 60_000) {
         show('Checking the network for your earlier payment…')
         if (prev.hash) { try { const v = await api.fund(id, prev.hash); m = v } catch { /* not counted, look by memo */ } }
-        if (locked() || (await findOnChain(15_000))) { setAttempt(null); return done(true) }
+        if (locked() || (await findOnChain(prev.failed ? 1 : 15_000))) { setAttempt(null); return done(true) }
+        if (m.status !== 'funding') return done(false)
       }
       show('Getting ready…')
       // refresh the session now, so a sign-in prompt can never land in the middle of the payment
       await api.me().catch(() => {})
       // tell the server a payment is starting, so the lock window waits for a slow wallet
-      try { m = await api.paying(id) } catch { /* the window is long anyway */ }
+      let waitMs = 0
+      try { const v = await api.paying(id); waitMs = v.waitMs ?? 0; m = v } catch { /* the window is long anyway */ }
       setAttempt({ at: Date.now() })
-      const hash = await S.wallet.send(m.escrow.address, mine.escrowed ?? 0, m.escrow.memo, show)
+      const hash = await S.wallet.send(m.escrow.address, mine.escrowed ?? 0, m.escrow.memo, show, { waitMs })
       sent = true
       setAttempt({ at: Date.now(), hash })
       show('Confirming on the network…')
@@ -298,6 +303,16 @@ route('/m/:id', async (root, { id }) => {
       if (!locked() && alive) await findOnChain(30_000)
       return done(locked())
     } catch (e: any) {
+      // Pay failed after approval but before broadcasting (its wallet sync broke). One quick look on chain, then let the
+      // player tap Lock again. The server keeps scanning, so a payment that did go out is still counted or refunded
+      if (isSendNotSent(e) && !sent) {
+        show('Checking the network for your payment…')
+        if (await findOnChain(10_000)) return done(true)
+        setAttempt({ at: Date.now(), failed: true })
+        err = friendlyWalletError(e)
+        sfx('ui/error')
+        return done(false)
+      }
       if (isSendDenied(e) && !sent) {
         setAttempt(null)
         err = friendlyWalletError(e)
@@ -321,11 +336,13 @@ route('/m/:id', async (root, { id }) => {
   // look for it on chain once, instead of asking for a second payment
   let resumed = false
   function maybeResume() {
-    if (resumed || busy || locked() || !attempt()) return
+    const a = attempt()
+    if (resumed || busy || locked() || !a || a.failed) return
     resumed = true
     setTimeout(async () => {
       if (!alive || busy || locked()) return
       busy = 'Checking the network for your payment…'
+      err = ''
       sig = ''
       onMatch()
       const prev = attempt()
@@ -340,7 +357,7 @@ route('/m/:id', async (root, { id }) => {
     if (ok) { setAttempt(null); sfx('reward/coin'); void refreshBalance() }
     busy = ''
     sig = ''
-    await refresh()
+    try { await refresh() } catch { /* the screen still shows Lock, so the player can try again */ }
     sig = ''
     onMatch()
   }

@@ -59,6 +59,8 @@ const FUND_TTL = 5 * 60_000
 const PAYING_GRACE = 3 * 60_000
 const SCAN_EVERY = 10_000
 const ORPHAN_LOOKBACK = 2 * 3600_000
+/** How long after a payout to a player Nimiq Pay may still be moving that wallet into a new HTLC (seen: ~40 s) */
+export const PAY_SETTLE_MS = Number(process.env.PAY_SETTLE_MS ?? 50_000)
 const FORFEIT_AFTER = 45_000
 
 let DICT: Set<string> | undefined
@@ -600,7 +602,11 @@ export class Engine {
       if (first && m.fundBy && m.fundBy < now + PAYING_GRACE) m.fundBy = now + PAYING_GRACE
       this.store.save()
     }
-    return this.view(m, addr)
+    // NIM this server just sent to the player makes Nimiq Pay move the wallet into a fresh HTLC. A payment asked for
+    // while that is running fails in Pay ("Something went wrong syncing your account"). Tell the client how long to wait.
+    const last = Math.max(this.lastPaidTo(addr), pl.payTo ? this.lastPaidTo(pl.payTo) : 0, this.db.profiles[addr]?.payAddr ? this.lastPaidTo(this.db.profiles[addr].payAddr!) : 0)
+    const waitMs = Math.max(0, Math.min(PAY_SETTLE_MS, last + PAY_SETTLE_MS - Date.now()))
+    return { ...this.view(m, addr), waitMs }
   }
 
   /** The device lost track of its payment (the wallet timed out, the app was closed). Look for it on chain now. */
@@ -672,12 +678,16 @@ export class Engine {
   async refundOrphan(hash: string) {
     const o = this.db.orphans?.[hash]
     if (!o || o.status !== 'open') throw bad('Nothing to refund for that payment')
-    const to = o.owner ?? o.from
+    // Nimiq Pay pays from a short-lived HTLC that it closes and replaces within hours. A closed HTLC looks like an empty
+    // basic account, but nobody holds a key for it: NIM sent there is lost. So resolve the wallet that funded it, now.
+    const to = await this.chain.payerWallet(o.from).catch(() => null)
+    if (!to) throw bad('Could not work out which wallet paid this. Refund it by hand')
     if (!(await this.chain.isWallet(to))) throw bad('That payer is a contract account. Refund it by hand')
+    if (!o.owner || !sameAddr(o.owner, to)) o.owner = normAddr(to)
     o.status = 'refunded'
     this.store.flush()
     try {
-      o.refundTx = await this.chain.pay(to, o.luna, `nb:${o.match}:return`.slice(0, 64))
+      o.refundTx = await this.payOut(to, o.luna, `nb:${o.match}:return`.slice(0, 64))
       delete o.error
     } catch (e: any) {
       o.status = 'open'
@@ -685,6 +695,16 @@ export class Engine {
     }
     this.store.save()
     return o
+  }
+
+  /** Every payout from the escrow goes through here, so the time NIM last went to each wallet is known. */
+  private paidAt = new Map<string, number>()
+  notePaid(to: string, at = Date.now()) { this.paidAt.set(normAddr(to).replace(/ /g, ''), at) }
+  lastPaidTo(to: string) { return this.paidAt.get(normAddr(to).replace(/ /g, '')) ?? 0 }
+  async payOut(to: string, luna: number, memo: string) {
+    const tx = await this.chain.pay(to, luna, memo)
+    this.notePaid(to)
+    return tx
   }
 
   /** Owner action: an orphan that was handled outside the app (or a test payment). */
@@ -1195,7 +1215,7 @@ export class Engine {
       p.attempts = (p.attempts ?? 0) + 1
       p.lastTryAt = Date.now()
       try {
-        p.tx = await this.chain.pay(p.to, p.luna, `nb:${m.id}:${p.kind}${i}`)
+        p.tx = await this.payOut(p.to, p.luna, `nb:${m.id}:${p.kind}${i}`)
         delete p.error
       } catch (e: any) {
         p.error = String(e?.message ?? e).slice(0, 120)
@@ -1416,7 +1436,7 @@ export class Engine {
     this.pool.luna += fee // the fee stays in escrow and goes to the savers who stay
     this.store.save()
     try {
-      const tx = await this.chain.pay(p.payAddr ?? addr, luna, fee ? 'nb:jar:early' : 'nb:jar:withdraw')
+      const tx = await this.payOut(p.payAddr ?? addr, luna, fee ? 'nb:jar:early' : 'nb:jar:withdraw')
       return { tx, luna, fee, profile: this.profile(addr) }
     } catch (e) {
       p.jarLuna += held

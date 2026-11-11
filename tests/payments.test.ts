@@ -165,3 +165,64 @@ test('header balance: a failed read or the brief 0 while Nimiq Pay moves funds n
   r = nextShownBalance(r.state, 0, t + 5000 + BALANCE_ZERO_HOLD_MS + 1)
   assert.equal(r.state.shown, 0)
 })
+
+test('right after the escrow paid a player, /paying tells their device to wait for Nimiq Pay to settle the wallet', async () => {
+  const { a, b, ta, tb, m } = await challenge(71)
+  await call(tb, 'POST', '/matches/join', { code: m.code })
+  const fresh = (await call(tb, 'POST', `/matches/${m.id}/paying`)).j
+  assert.equal(fresh.waitMs, 0, 'nothing was paid to this wallet lately')
+  // the challenger locked, then cancelled: the refund lands in the wallet, and Pay starts moving it into a new HTLC
+  await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: chain().register({ from: a, to: chain().escrowAddress, luna: 10 * L, memo: m.escrow.memo }) })
+  await call(ta, 'POST', `/matches/${m.id}/cancel`)
+  await new Promise((r) => setTimeout(r, 50))
+  assert.ok(chain().paid.some((p) => p.to === a && /refund/.test(p.memo)), 'refunded')
+  // a new challenge straight away: the refunded player is told to wait, the other one is not
+  const tb2 = tb, tc = ta
+  const m2 = (await call(tb2, 'POST', '/matches', { game: 'darts', mode: 'win', stake: 10, opp: 'invite', challenge: a })).j
+  await call(tc, 'POST', '/matches/join', { code: m2.code })
+  const w = (await call(tc, 'POST', `/matches/${m2.id}/paying`)).j.waitMs
+  assert.ok(w > 30_000 && w <= 50_000, `refunded wallet waits (${w} ms)`)
+  assert.equal((await call(tb2, 'POST', `/matches/${m2.id}/paying`)).j.waitMs, 0)
+  void b
+})
+
+test('an orphan paid from a Nimiq Pay HTLC that has since closed is refunded to the wallet that funded it', async () => {
+  const { a, b, ta, tb, m } = await challenge(81)
+  await call(tb, 'POST', '/matches/join', { code: m.code })
+  const htlc = addr(85), htlc2 = addr(86)
+  await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: chain().register({ from: a, to: chain().escrowAddress, luna: 10 * L, memo: m.escrow.memo }) })
+  await call(tb, 'POST', `/matches/${m.id}/fund`, { txHash: chain().register({ from: b, to: chain().escrowAddress, luna: 10 * L, memo: m.escrow.memo }) })
+  // a duplicate from an HTLC. Pay has closed it since, so it no longer looks like a contract (the old bug: owner = htlc)
+  const dup = chain().register({ from: htlc, to: chain().escrowAddress, luna: 10 * L, memo: m.escrow.memo })
+  await call(tb, 'POST', `/matches/${m.id}/fund`, { txHash: dup })
+  const o = app.engine.db.orphans![dup]
+  assert.ok(o)
+  o.owner = htlc
+  chain().funders.set(htlc, b)
+  const r = await app.engine.refundOrphan(dup)
+  assert.equal(r.status, 'refunded')
+  assert.equal(chain().paid.at(-1)!.to, b, 'paid to the funding wallet, never the closed HTLC')
+  assert.equal(r.owner, b)
+  // a contract whose funder cannot be found is refused, nothing is sent
+  const dup2 = chain().register({ from: htlc2, to: chain().escrowAddress, luna: 10 * L, memo: m.escrow.memo })
+  await call(tb, 'POST', `/matches/${m.id}/fund`, { txHash: dup2 })
+  assert.ok(app.engine.db.orphans![dup2])
+  chain().contracts.add(htlc2)
+  const n = chain().paid.length
+  await assert.rejects(app.engine.refundOrphan(dup2), /by hand/)
+  assert.equal(chain().paid.length, n)
+  assert.equal(app.engine.db.orphans![dup2].status, 'open')
+})
+
+test('Nimiq Pay errors: a sync failure is "not sent, try again", a timeout may have gone out, a cancel is a cancel', async () => {
+  const { isSendNotSent, isSendTimeout, isSendDenied } = await import('../shared/pay-errors')
+  const sync = new Error('Something went wrong syncing your account')
+  assert.equal(isSendNotSent(sync), true)
+  assert.equal(isSendTimeout(sync), false)
+  assert.equal(isSendDenied(sync), false)
+  assert.equal(isSendNotSent({ type: 'INVALID_TRANSACTION', message: 'x' }), true)
+  const to = new Error('Failed to send payment transaction: Operation timed out after 30000 milliseconds')
+  assert.equal(isSendTimeout(to), true)
+  assert.equal(isSendNotSent(to), false)
+  assert.equal(isSendDenied(new Error('User rejected the request')), true)
+})

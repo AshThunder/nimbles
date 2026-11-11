@@ -35,22 +35,26 @@ function deviceId() {
 let serverSkew = 0
 export const serverNow = () => Date.now() + serverSkew
 
-async function call<T = any>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
+/** No request may hang a screen: a server or network that does not answer becomes an error after this long */
+const CALL_TIMEOUT_MS = 60_000
+async function call<T = any>(method: string, path: string, body?: unknown, retried = false, ms = CALL_TIMEOUT_MS): Promise<T> {
   let res: Response
   try {
     res = await fetch('/api' + path, {
       method,
+      signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ms) : undefined,
       headers: { 'content-type': 'application/json', 'x-nb-device': deviceId(), ...(token ? { authorization: 'Bearer ' + token } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
-  } catch {
+  } catch (e: any) {
+    if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw new ApiErr(0, 'The Nimbles server took too long to answer. Try again')
     throw new ApiErr(0, 'Cannot reach the Nimbles server. Check your connection')
   }
   const j: any = await res.json().catch(() => ({}))
   if (res.status === 401 && !retried && reauth && path !== '/session') {
     reauthing ??= reauth().finally(() => { reauthing = null })
     await reauthing
-    return call<T>(method, path, body, true)
+    return call<T>(method, path, body, true, ms)
   }
   if (!res.ok) throw new ApiErr(res.status, j?.error || j?.message || `Request failed (${res.status})`)
   if (typeof j?.serverNow === 'number') serverSkew = j.serverNow - Date.now()
@@ -145,8 +149,8 @@ export const api = {
   match: (id: string) => call<MatchView>('GET', `/matches/${id}?shot=${liveSeen[id] ?? 0}`),
   move: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/move`, b),
   fund: (id: string, txHash: string) => call<MatchView>('POST', `/matches/${id}/fund`, { txHash }),
-  paying: (id: string) => call<MatchView>('POST', `/matches/${id}/paying`, {}),
-  findDeposit: (id: string) => call<MatchView>('POST', `/matches/${id}/find`, {}),
+  paying: (id: string) => call<MatchView & { waitMs?: number }>('POST', `/matches/${id}/paying`, {}, false, 15_000),
+  findDeposit: (id: string) => call<MatchView>('POST', `/matches/${id}/find`, {}, false, 25_000),
   start: (id: string) => call<MatchView>('POST', `/matches/${id}/start`, {}),
   cancel: (id: string) => call<MatchView>('POST', `/matches/${id}/cancel`, {}),
   terms: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/terms`, b),

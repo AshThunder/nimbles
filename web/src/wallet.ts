@@ -4,6 +4,7 @@ import { init, getHostNetwork, NimiqProviderError } from '@nimiq/mini-app-sdk'
 import { api, type Config } from './api'
 import { randomHex } from './lib'
 import { retry } from '../../shared/retry'
+import { isSendDenied, isSendNotSent, isSendTimeout } from '../../shared/pay-errors'
 import {
   parsePayAccounts,
   resolveSpendableLuna,
@@ -11,6 +12,8 @@ import {
 } from '../../shared/pay-balance'
 
 export type Net = 'mainnet' | 'testnet'
+/** waitMs: the server just paid this wallet, so Nimiq Pay is probably still moving it into a new HTLC. Wait first. */
+export type SendOpts = { waitMs?: number }
 export type Wallet = {
   kind: 'nimiq-pay' | 'preview'
   /** the address that will really pay, once the server has verified the wallet's signature */
@@ -23,7 +26,7 @@ export type Wallet = {
   signIn?(onStatus?: (m: string) => void): Promise<NonNullable<Wallet['proof']> | undefined>
   network: Net | 'unknown'
   /** Sends `luna` to `to` with a public memo (max 64 bytes) and returns the tx hash. */
-  send(to: string, luna: number, memo: string, status?: (msg: string) => void): Promise<string>
+  send(to: string, luna: number, memo: string, status?: (msg: string) => void, opts?: SendOpts): Promise<string>
   /**
    * Confirmed spendable NIM in luna for this Pay wallet.
    * Official path: getBalance(active HTLC) from listAccounts; 0 when no HTLC.
@@ -50,16 +53,12 @@ export function friendlyWalletError(e: unknown): string {
   const m = String((e as any)?.message ?? e ?? '')
   if (/reject|denied|cancel|declin/i.test(m)) return 'You cancelled the payment in Nimiq Pay'
   if (/insufficient|balance|funds/i.test(m)) return 'Not enough NIM in your wallet for that stake plus the network fee'
+  if (isSendNotSent(e)) return 'Nimiq Pay could not finish the payment because it was still updating your wallet. That happens right after NIM arrives. Nothing was sent. Wait a few seconds, then try again'
   if (isSendTimeout(e)) return 'Nimiq Pay could not reach the network in time. If NIM left your wallet it is found and counted, or refunded. Try again'
   return m || 'Nimiq Pay could not send that payment'
 }
 
-/** Nimiq Pay's own 30 s limit ("Operation timed out after 30000 milliseconds"), our wrapper, or a network drop. The
- *  transaction may still have gone out, so the caller checks the chain before offering to pay again. */
-export function isSendTimeout(e: unknown) {
-  return /time(d)?\s*out|timeout|network|consensus|offline|connect/i.test(String((e as any)?.message ?? e ?? ''))
-}
-export const isSendDenied = (e: unknown) => /reject|denied|cancel|declin/i.test(String((e as any)?.message ?? e ?? ''))
+export { isSendTimeout, isSendNotSent, isSendDenied }
 
 /** Lower-case-insensitive, spacing-insensitive address compare */
 export const sameAddress = (a: string, b: string) => a.replace(/\s+/g, '').toUpperCase() === b.replace(/\s+/g, '').toUpperCase()
@@ -162,6 +161,18 @@ export async function connect(
 }
 
 let sending = false
+/** When Nimiq Pay last told us it replaced the wallet's HTLC (accountsChanged). A payment right after can hit its sync */
+let accountsChangedAt = 0
+const ACCOUNTS_QUIET_MS = 15_000
+
+/** Waits out a wallet update in Nimiq Pay, with a countdown, so the payment is asked for once Pay has settled. */
+async function settle(waitMs: number, status: (m: string) => void) {
+  const until = Math.max(Date.now() + Math.max(0, Math.min(waitMs, 60_000)), accountsChangedAt ? accountsChangedAt + ACCOUNTS_QUIET_MS : 0)
+  while (Date.now() < until) {
+    status(`Nimiq Pay is still receiving your last payment. Paying in ${Math.ceil((until - Date.now()) / 1000)} s…`)
+    await sleep(Math.min(1000, until - Date.now()))
+  }
+}
 
 /** Waits (up to ~45 s) until Nimiq Pay says it is in consensus. A host without the call is assumed ready. */
 async function waitConsensus(nq: any, status: (m: string) => void) {
@@ -257,6 +268,7 @@ async function connectNimiqPay(onStatus: (msg: string) => void, userTap: boolean
     const changed = !accountsEqual(w.accounts, sliced)
     if (!changed) return false
     w.accounts = sliced
+    accountsChangedAt = Date.now()
     // Keep signed identity on the basic wallet slot; do not swap address to the HTLC.
     const parsed = parsePayAccounts(sliced)
     if (parsed.wallet && !sameAddress(parsed.wallet, w.address) && !w.verified) {
@@ -307,13 +319,14 @@ async function connectNimiqPay(onStatus: (msg: string) => void, userTap: boolean
     proof,
     signIn,
     network: getHostNetwork() ?? 'unknown',
-    async send(to, luna, memo, status = () => {}) {
+    async send(to, luna, memo, status = () => {}, opts = {}) {
       // The accepting player often reaches Lock in seconds after opening (or switching back to) Nimiq Pay, before its
       // light client has caught up with the network. A send then sits until Pay's 30 s limit and fails, sometimes after
       // it was broadcast. So: wait for consensus first, and keep other provider calls (balance, accounts) quiet while
       // the payment is in flight. No fee or validity height is passed: Pay picks both from its own synced chain.
       sending = true
       try {
+        await settle(opts.waitMs ?? 0, status)
         await waitConsensus(nq, status)
         status('Approve the payment in Nimiq Pay…')
         const tx = { recipient: to, value: luna }

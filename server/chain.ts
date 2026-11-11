@@ -27,6 +27,9 @@ export interface Chain {
   /** Recent incoming transactions to the escrow, newest first (hash, sender, value, memo). Used to find deposits whose
    *  hash never reached the server (a wallet that timed out after broadcasting, an app closed mid-payment). */
   escrowDeposits(max?: number): Promise<IncomingTx[]>
+  /** The ordinary wallet behind a payer address: itself for a wallet, the funder for an HTLC (also one Nimiq Pay has
+   *  already closed, which then looks like an empty wallet), the owner for a vesting contract. null when unknown. */
+  payerWallet(address: string): Promise<string | null>
   /** Addresses that sent to or received from `address` (recent history). null when the lookup fails. */
   counterparties(address: string): Promise<{ from: string[]; to: string[] } | null>
 }
@@ -53,6 +56,13 @@ export class MockChain implements Chain {
 
   async isWallet(address: string) {
     return ![...this.contracts].some((c) => sameAddr(c, address))
+  }
+  /** Test hook: contract address -> the wallet that funded it */
+  funders = new Map<string, string>()
+  async payerWallet(address: string) {
+    for (const [c, w] of this.funders) if (sameAddr(c, address)) return w
+    for (const t of this.txs.values()) if (t.contract && t.owner && sameAddr(t.from, address)) return t.owner
+    return [...this.contracts].some((c) => sameAddr(c, address)) ? null : address
   }
 
   /** Dev-only: the mocked Nimiq Pay provider registers the tx it "sent". */
@@ -224,15 +234,31 @@ export class NimiqChain implements Chain {
   /** The ordinary wallet address behind a payer. A basic account is its own owner. For an HTLC it is the account that
    *  funded it, for a vesting contract the owner. Anything else is unknown (null). */
   private async ownerOf(from: string, fromType: unknown): Promise<string | null> {
-    if (fromType === 0 || fromType === undefined) return from
-    try {
-      const a = await this.rpc('getAccountByAddress', [from])
-      if (a?.type === 'basic') return from
-      if (a?.type === 'htlc' && isNimiqAddress(String(a.sender))) return String(a.sender)
-      if (a?.type === 'vesting' && isNimiqAddress(String(a.owner))) return String(a.owner)
-    } catch { /* unknown */ }
-    return null
+    if (fromType === 0) return from
+    return this.payerWallet(from)
   }
+
+  async payerWallet(address: string): Promise<string | null> {
+    if (!isNimiqAddress(address)) return null
+    let a: any
+    try { a = await this.rpc('getAccountByAddress', [address]) } catch { return null }
+    if (a?.type === 'htlc') return isNimiqAddress(String(a.sender)) ? String(a.sender) : null
+    if (a?.type === 'vesting') return isNimiqAddress(String(a.owner)) ? String(a.owner) : null
+    if (a?.type && a.type !== 'basic') return null
+    // A basic (or empty) account may be a contract that was already closed: then its history starts with the
+    // transaction that created it (recipient type 1 vesting / 2 HTLC). Its sender is the wallet that funded it.
+    let list: any[]
+    try { list = (await this.rpc('getTransactionsByAddress', [address, 100, null])) ?? [] } catch { return null }
+    const made = list.filter((t) => sameAddr(String(t.to), address) && (t.toType === 1 || t.toType === 2) && t.executionResult !== false)
+    if (made.length) {
+      const funders = new Set(made.map((t) => norm(String(t.from))))
+      if (funders.size !== 1) return null
+      const f = String(made[0].from)
+      return made[0].fromType === 0 || made[0].fromType === undefined ? f : null
+    }
+    return address
+  }
+
 
   async isWallet(address: string): Promise<boolean> {
     const a = await this.rpc('getAccountByAddress', [address]).catch(() => null)
