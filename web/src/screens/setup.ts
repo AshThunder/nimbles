@@ -179,7 +179,7 @@ route('/g/:id', (root, p) => {
       ${st.err ? errBox(st.err) : ''}
     </div>${st.suggest ? suggestSheet(st.suggest) : ''}
     <div class="foot" style="gap:8px;border-top:2px solid var(--ink);background:var(--bg);padding-top:12px"><div class="sumr"><span id="sum1">${c1}</span><span class="mono" id="sum2">${c2}</span></div>
-      <button class="btn gold block" data-act="go" id="go" ${valid() && !st.busy ? '' : 'disabled'}>${st.busy ? ic('refresh-cw', 's20 spin') + 'Working…' : ic(ctaIcon, 's20') + ctaTxt}</button></div>${st.sheet && st.mode === 'settle' ? sheet() : ''}`
+      <button class="btn gold block${st.busy && id === 'trivia' && st.opp !== 'join' ? ' genr' : ''}" data-act="go" id="go" ${valid() && !st.busy ? '' : 'disabled'}>${st.busy ? (id === 'trivia' && st.opp !== 'join' ? `<span class="gen" aria-live="polite">${ic('sparkles', 's20')}Nimo AI is generating questions<i class="dots"><b>.</b><b>.</b><b>.</b></i></span>` : ic('refresh-cw', 's20 spin') + 'Working…') : ic(ctaIcon, 's20') + ctaTxt}</button></div>${st.sheet && st.mode === 'settle' ? sheet() : ''}`
   }
   const suggestSheet = (x: LobbyItem) => `<div class="scrim" data-act="sgx"></div><div class="sheet mk" role="dialog" aria-label="Nearest stake"><div class="grab"></div>
     <div class="sh-h" style="align-items:center"><div><div class="sh-t">Play at ${x.stake} NIM?</div><div class="sub">Nobody is waiting at ${st.stake} NIM. ${esc(x.host.name)} is waiting at ${x.stake} NIM</div></div><button class="sh-x" data-act="sgx" aria-label="Close">${ic('x', 's20')}</button></div>

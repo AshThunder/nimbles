@@ -221,6 +221,7 @@ export async function createApp(opts: { dataDir?: string; persist?: boolean } = 
         const b = await readBody(req, 65536)
         if (action === 'fund') return send(res, 200, await engine.fund(me, id, b.txHash))
         if (action === 'paying') return send(res, 200, engine.paying(me, id))
+        if (action === 'payfail') { limit('payfail:' + me, 30, 60_000); return send(res, 200, engine.payFailed(me, id, b)) }
         if (action === 'find') { limit('find:' + me, 30, 60_000); return send(res, 200, await engine.findDeposit(me, id)) }
         if (action === 'terms') return send(res, 200, await engine.terms(me, id, b))
         if (action === 'cancel') return send(res, 200, await engine.cancel(me, id))

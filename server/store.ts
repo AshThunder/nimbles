@@ -82,6 +82,7 @@ export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
   pipSalt?: string // server-only salt for Nimo's trivia answers, so the public seed cannot predict them
   tourney?: { id: string; round: number; slot: number } // a knockout tournament round
   paying?: Record<string, number> // when each seat said its wallet was sending (the funding window waits a little for it)
+  payFails?: Record<string, number> // how many times each seat's wallet failed before sending (Nimiq Pay busy); each gives the seat a little more time, up to a cap
   scannedAt?: number // last time the escrow was scanned for this match's deposits
 }
 

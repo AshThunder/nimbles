@@ -944,3 +944,37 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .tab .p{position:relative}
 .tbadge{position:absolute;top:-4px;right:-8px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--coral);color:#fff;font-style:normal;font-size:11px;font-weight:800;line-height:18px;text-align:center}
 .tbadge:empty{display:none}
+/* Quick match: open games count inside the button, same navy outline */
+.qmn{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;margin-left:2px;margin-right:-4px;border-radius:10px;border:2px solid var(--ink);background:var(--bg);color:var(--ink);font-size:11px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.qmn[hidden]{display:none}
+/* Lock in: Nimiq Pay is syncing, calm and flat, retries on its own */
+.syncb{display:flex;align-items:center;gap:10px;min-height:56px;padding:6px 8px 6px 14px;border-radius:16px;background:var(--card);border:2px solid var(--ink);color:var(--ink)}
+.syncb .dot{width:10px;height:10px;border-radius:5px;background:var(--blue);flex:none;animation:nbpulse 1.6s ease-in-out infinite}
+.syncb .t{flex:1;min-width:0;display:flex;flex-direction:column}
+.syncb .t b{font-size:16px;line-height:20px;font-weight:800}
+.syncb .t span{font-size:13px;line-height:16px;color:var(--ink2);font-family:var(--mono)}
+.syncb .btn.sm{height:36px;box-shadow:0 3px 0 var(--ink)}
+@keyframes nbpulse{0%,100%{opacity:1}50%{opacity:.3}}
+/* Lock in: Nimiq Pay failed before sending, one friendly card */
+.paycard{background:var(--blue-tint);border:2px solid var(--ink);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.paycard .h{display:flex;align-items:center;gap:8px}
+.paycard .h b{font-size:16px;line-height:20px;font-weight:800}
+.paycard p{font-size:14px;line-height:20px;color:var(--ink2);font-weight:600}
+.paycard .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.paycard .two .btn{height:44px;font-size:15px}
+/* after a payout: Nimiq Pay may refuse payments for a while */
+.pbn{display:flex;align-items:flex-start;gap:8px;padding:10px 8px 10px 12px;border-radius:14px;background:var(--gold-tint);border:2px solid var(--ink);font-size:13px;line-height:18px;font-weight:600;color:var(--ink)}
+.pbn>.i{flex:none;margin-top:1px}
+.pbn>span{flex:1;min-width:0}
+.pbx{flex:none;width:28px;height:28px;margin:-4px 0;border-radius:8px;display:grid;place-items:center;background:transparent;border:0;color:var(--ink);cursor:pointer}
+/* AI Trivia: questions being generated */
+.gen{display:inline-flex;align-items:center;gap:8px;font-size:15px;white-space:nowrap}
+.gen .dots{font-style:normal;display:inline-flex}
+.gen .dots b{animation:nbdot 1.2s ease-in-out infinite;font-weight:800}
+.gen .dots b:nth-child(2){animation-delay:.2s}.gen .dots b:nth-child(3){animation-delay:.4s}
+.gen .i{animation:nbpulse 1.6s ease-in-out infinite}
+@keyframes nbdot{0%,60%,100%{opacity:.25}30%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.syncb .dot,.gen .dots b,.gen .i{animation:none}}
+.btn.genr[disabled]{opacity:1;pointer-events:none;background:var(--gold-tint)}
+.gen .dots{margin-left:-7px}
+@media (max-width:360px){.gen{font-size:14px;gap:6px}.gen .i{display:none}.gen .dots{margin-left:-5px}}

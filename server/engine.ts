@@ -57,6 +57,9 @@ const TERMS_TTL = 10 * 60_000
 // paying gets a little more (see paying()), and the escrow is scanned for deposits whose hash never reached us.
 const FUND_TTL = 5 * 60_000
 const PAYING_GRACE = 3 * 60_000
+/** After Nimiq Pay fails before sending, the seat keeps at least this long to try again, for the first PAY_RETRY_MAX failures */
+const PAY_RETRY_GRACE = 3 * 60_000
+const PAY_RETRY_MAX = 3
 const SCAN_EVERY = 10_000
 const ORPHAN_LOOKBACK = 2 * 3600_000
 /** How long after a payout to a player Nimiq Pay may still be moving that wallet into a new HTLC (seen: ~40 s) */
@@ -169,6 +172,8 @@ export class Engine {
       unlocked: unlockedCosmetics(lv.level, p.cosmetics ?? []),
       style: { frame: p.frame ?? '', theme: p.theme ?? '' },
       ...({ vaultToday: p.vaultDay === today, vaultDay: p.vaultDay } as object),
+      // when the escrow or campaign wallet last paid this player: Nimiq Pay may refuse new payments for a while after
+      paidAt: Math.max(this.lastPaidTo(address), p.payAddr ? this.lastPaidTo(p.payAddr) : 0) || undefined,
     } as Profile
   }
 
@@ -215,6 +220,7 @@ export class Engine {
     const out: any = { ...m }
     delete out.pipSalt
     delete out.paying
+    delete out.payFails
     delete out.scannedAt
     delete out.size
     delete out.trivia
@@ -607,6 +613,30 @@ export class Engine {
     const last = Math.max(this.lastPaidTo(addr), pl.payTo ? this.lastPaidTo(pl.payTo) : 0, this.db.profiles[addr]?.payAddr ? this.lastPaidTo(this.db.profiles[addr].payAddr!) : 0)
     const waitMs = Math.max(0, Math.min(PAY_SETTLE_MS, last + PAY_SETTLE_MS - Date.now()))
     return { ...this.view(m, addr), waitMs }
+  }
+
+  /** The device's wallet failed before sending (Nimiq Pay busy, or the player stopped waiting for it). The seat is not
+   *  "paying" any more, so the window will not wait on a payment that never left, but the player keeps the seat and can
+   *  tap Lock again: the first few failures each push the window to at least PAY_RETRY_GRACE from now. Nothing is locked
+   *  or charged here. The raw wallet error is only logged. */
+  payFailed(addr: string, id: string, info: { code?: unknown; error?: unknown; maybeSent?: unknown } = {}) {
+    const m = this.db.matches[id]
+    if (!m) throw bad('Match not found', 404)
+    const pl = m.players.find((p) => p.player.address === addr)
+    if (!pl) throw bad('Not your match', 403)
+    if (m.status === 'funding' && !pl.funded) {
+      const now = Date.now()
+      // a timeout may still have gone out: then the seat stays "paying" so the window gets its last look on chain
+      if (m.paying && info.maybeSent !== true) delete m.paying[addr]
+      const n = ((m.payFails ??= {})[addr] ?? 0) + 1
+      m.payFails[addr] = n
+      if (n <= PAY_RETRY_MAX && m.fundBy && m.fundBy < now + PAY_RETRY_GRACE) m.fundBy = now + PAY_RETRY_GRACE
+      const code = String(info.code ?? '').replace(/[^\w-]/g, '').slice(0, 24)
+      const msg = String(info.error ?? '').replace(/[^\x20-\x7e]/g, '').slice(0, 160)
+      console.warn(`[pay] match ${m.id} seat ${addr.slice(0, 9)}… wallet failed before sending (${n}): ${code} ${msg}`)
+      this.store.save()
+    }
+    return this.view(m, addr)
   }
 
   /** The device lost track of its payment (the wallet timed out, the app was closed). Look for it on chain now. */

@@ -4,7 +4,7 @@ import { init, getHostNetwork, NimiqProviderError } from '@nimiq/mini-app-sdk'
 import { api, type Config } from './api'
 import { randomHex } from './lib'
 import { retry } from '../../shared/retry'
-import { isSendDenied, isSendNotSent, isSendTimeout } from '../../shared/pay-errors'
+import { classifyPayError, isPayBusy, isSendDenied, isSendNotSent, isSendTimeout } from '../../shared/pay-errors'
 import {
   parsePayAccounts,
   resolveSpendableLuna,
@@ -14,6 +14,8 @@ import {
 export type Net = 'mainnet' | 'testnet'
 /** waitMs: the server just paid this wallet, so Nimiq Pay is probably still moving it into a new HTLC. Wait first. */
 export type SendOpts = { waitMs?: number }
+/** ok=false: Pay is syncing. waitMs: how long until it is worth asking again (0 = soon) */
+export type Readiness = { ok: boolean; waitMs: number; why?: string }
 export type Wallet = {
   kind: 'nimiq-pay' | 'preview'
   /** the address that will really pay, once the server has verified the wallet's signature */
@@ -33,6 +35,9 @@ export type Wallet = {
    * null = unavailable (not a real zero). Never jar/escrow; never other wallets.
    */
   balance(): Promise<number | null>
+  /** Is Nimiq Pay able to pay right now? Asked before every stake payment, so a payment is never requested while Pay is
+   *  still syncing. Never throws, never hangs: a missing or failing check counts as ready, the payment error is handled. */
+  ready?(): Promise<Readiness>
   /** Optional: subscribe to Pay HTLC replacement / account list updates. Returns unsubscribe. */
   onAccountsChanged?(cb: (accounts: string[]) => void): () => void
 }
@@ -50,15 +55,16 @@ function previewAddress(): string {
 export const isInsideNimiqPay = () => typeof window !== 'undefined' && (!!window.nimiqPay || !!window.nimiq)
 
 export function friendlyWalletError(e: unknown): string {
-  const m = String((e as any)?.message ?? e ?? '')
-  if (/reject|denied|cancel|declin/i.test(m)) return 'You cancelled the payment in Nimiq Pay'
-  if (/insufficient|balance|funds/i.test(m)) return 'Not enough NIM in your wallet for that stake plus the network fee'
-  if (isSendNotSent(e)) return 'Nimiq Pay could not finish the payment because it was still updating your wallet. That happens right after NIM arrives. Nothing was sent. Wait a few seconds, then try again'
-  if (isSendTimeout(e)) return 'Nimiq Pay could not reach the network in time. If NIM left your wallet it is found and counted, or refunded. Try again'
-  return m || 'Nimiq Pay could not send that payment'
+  switch (classifyPayError(e)) {
+    case 'denied': return 'You cancelled the payment in Nimiq Pay'
+    case 'funds': return 'Not enough NIM in your wallet for that stake plus the network fee'
+    case 'busy': return 'Nimiq Pay is busy. Your NIM is safe. Try again in a few minutes'
+    case 'timeout': return 'Nimiq Pay could not reach the network in time. If NIM left your wallet it is found and counted, or refunded. Try again'
+    default: return 'Nimiq Pay could not send that payment. Your NIM is safe. Try again in a few minutes'
+  }
 }
 
-export { isSendTimeout, isSendNotSent, isSendDenied }
+export { isSendTimeout, isSendNotSent, isSendDenied, isPayBusy, classifyPayError }
 
 /** Lower-case-insensitive, spacing-insensitive address compare */
 export const sameAddress = (a: string, b: string) => a.replace(/\s+/g, '').toUpperCase() === b.replace(/\s+/g, '').toUpperCase()
@@ -174,17 +180,29 @@ async function settle(waitMs: number, status: (m: string) => void) {
   }
 }
 
-/** Waits (up to ~45 s) until Nimiq Pay says it is in consensus. A host without the call is assumed ready. */
+/** One consensus reading: true/false, or null when the host has no such call or it failed in an unknown way. */
+async function consensusNow(nq: any): Promise<boolean | null> {
+  if (typeof nq?.isConsensusEstablished !== 'function') return null
+  try {
+    const ok = await withTimeout(Promise.resolve(nq.isConsensusEstablished()) as Promise<unknown>, 5000, 'Consensus check')
+    return typeof ok === 'boolean' ? ok : null
+  } catch (e) {
+    // a network error from Pay means it is not in consensus; anything else means the call is unsupported
+    return isPayBusy(e) || /timed out/i.test(String((e as any)?.message ?? '')) ? false : null
+  }
+}
+
+/** Waits (up to ~25 s) until Nimiq Pay says it is in consensus. A host without the call is assumed ready. */
 async function waitConsensus(nq: any, status: (m: string) => void) {
   if (typeof nq?.isConsensusEstablished !== 'function') return
-  const end = Date.now() + 45_000
+  const end = Date.now() + 25_000
   let said = false
   for (;;) {
     let ok: boolean | null = null
     try { ok = await withTimeout(nq.isConsensusEstablished() as Promise<boolean>, 5000, 'Consensus') } catch { ok = null }
     if (ok === true || ok === null && !said) return // an error here means the host does not support it; do not block
     if (!said) { status('Nimiq Pay is connecting to the network…'); said = true }
-    if (Date.now() > end) throw new Error('Nimiq Pay could not reach the network (consensus timed out)')
+    if (Date.now() > end) throw Object.assign(new Error('Nimiq network is not ready'), { code: -32000 })
     await sleep(1500)
   }
 }
@@ -336,6 +354,28 @@ async function connectNimiqPay(onStatus: (msg: string) => void, userTap: boolean
         sending = false
       }
     },
+    async ready() {
+      try {
+        // Pay just replaced the wallet's HTLC: give it a quiet moment before asking for a payment
+        const quiet = accountsChangedAt ? accountsChangedAt + ACCOUNTS_QUIET_MS - Date.now() : 0
+        if (quiet > 0) return { ok: false, waitMs: quiet, why: 'accounts changed' }
+        const c = await consensusNow(nq)
+        if (c === false) return { ok: false, waitMs: 0, why: 'no consensus' }
+        // Pay's own balance read fails with -32000 "Error getting balance" while it is still syncing the wallet
+        const { htlc } = parsePayAccounts(w.accounts)
+        if (htlc && typeof (nq as any).getBalance === 'function') {
+          try { await withTimeout(nq.getBalance(htlc), 6000, 'Balance check') } catch (e) {
+            if (isPayBusy(e) || /timed out/i.test(String((e as any)?.message ?? ''))) {
+              console.warn('[pay] readiness: balance read failed', (e as any)?.code ?? '', String((e as any)?.message ?? e).slice(0, 120))
+              return { ok: false, waitMs: 0, why: 'balance' }
+            }
+          }
+        }
+        return { ok: true, waitMs: 0 }
+      } catch {
+        return { ok: true, waitMs: 0 } // never block a payment on the check itself
+      }
+    },
     async balance() {
       // never call the provider while a payment is waiting for approval; the header keeps its last number
       if (sending) return null
@@ -392,13 +432,28 @@ function previewWallet(cfg: Config): Wallet {
     network: cfg.network,
     async send(to, luna, memo) {
       if (!cfg.mock) throw new Error('Open Nimbles inside Nimiq Pay to stake real NIM')
+      // mock dev chain only: ?sim=busy makes the send fail like Nimiq Pay after NIM arrived (tests the busy card)
+      if (simBusy('send')) throw Object.assign(new Error('Failed to send payment transaction: A transaction is still pending. Wait for it to resolve before sending another.'), { code: -32603 })
       return (await api.mockTx({ from: address, to, luna, memo })).hash
+    },
+    async ready() {
+      // mock dev chain only: ?sim=sync keeps the readiness check false for a while (tests the syncing state)
+      return cfg.mock && simBusy('sync') ? { ok: false, waitMs: 0, why: 'simulated' } : { ok: true, waitMs: 0 }
     },
     async balance() {
       // Preview has no Pay HTLC. Mock chain: show a play balance. Live preview outside Pay: unavailable.
       return cfg.mock ? 1_000_000 * 100_000 : null
     },
   }
+}
+
+/** Dev-only simulation switch on the mock chain: ?sim=sync or ?sim=busy, for the first `n` calls (default 2). */
+const simCount: Record<string, number> = {}
+function simBusy(kind: 'sync' | 'send') {
+  const q = new URLSearchParams(location.search)
+  if (q.get('sim') !== kind) return false
+  simCount[kind] = (simCount[kind] ?? 0) + 1
+  return simCount[kind] <= Number(q.get('simn') ?? 2)
 }
 
 export const deepLink = () => `https://nimpay.app/miniapps/open/${location.host}`

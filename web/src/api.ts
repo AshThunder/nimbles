@@ -150,6 +150,7 @@ export const api = {
   move: (id: string, b: unknown) => call<MatchView>('POST', `/matches/${id}/move`, b),
   fund: (id: string, txHash: string) => call<MatchView>('POST', `/matches/${id}/fund`, { txHash }),
   paying: (id: string) => call<MatchView & { waitMs?: number }>('POST', `/matches/${id}/paying`, {}, false, 15_000),
+  payFailed: (id: string, b: { code?: string; error?: string; maybeSent?: boolean }) => call<MatchView>('POST', `/matches/${id}/payfail`, b, false, 15_000),
   findDeposit: (id: string) => call<MatchView>('POST', `/matches/${id}/find`, {}, false, 25_000),
   start: (id: string) => call<MatchView>('POST', `/matches/${id}/start`, {}),
   cancel: (id: string) => call<MatchView>('POST', `/matches/${id}/cancel`, {}),

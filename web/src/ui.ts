@@ -156,3 +156,30 @@ export { avatar }
 export const PAGE = 5
 export const pageRows = (rows: string[], shown: number, act: string) =>
   rows.slice(0, shown).join('') + (rows.length > shown ? `<button class="btn ghost block more" data-act="${act}">Show more<small>${rows.length - shown} left</small></button>` : '')
+
+// ---------------- after a payout: Nimiq Pay may refuse payments for a while ----------------
+/** Nimiq Pay was seen refusing new payments for up to ~10 minutes after NIM arrives (nimiq-pay-app#127) */
+export const PAYOUT_SETTLE_MS = 10 * 60_000
+const PAID_KEY = 'nb:paid-at'
+const PAID_HIDE_KEY = 'nb:paid-hide'
+const lsGet = (k: string) => { try { return Number(localStorage.getItem(k) ?? 0) || 0 } catch { return 0 } }
+const lsSet = (k: string, v: number) => { try { localStorage.setItem(k, String(v)) } catch { /* private mode */ } }
+/** This device just saw a payout to the player (the server's profile also says when it last paid them). */
+export function notePayoutReceived(at = Date.now()) { if (at > lsGet(PAID_KEY)) lsSet(PAID_KEY, at) }
+const lastPayout = () => Math.max(lsGet(PAID_KEY), Number((S.me as any)?.paidAt ?? 0) || 0)
+/** A small dismissible note for ~10 minutes after the player received NIM. Empty once dismissed or expired. */
+export function payoutBanner() {
+  const at = lastPayout()
+  if (!at || Date.now() - at > PAYOUT_SETTLE_MS || lsGet(PAID_HIDE_KEY) >= at) return ''
+  return `<div class="pbn" role="status">${ic('clock', 's16')}<span>You just received NIM. Staked games may be unavailable in Nimiq Pay for about 10 minutes while it settles.</span><button class="pbx" data-pbn="hide" aria-label="Dismiss">${ic('x', 's16')}</button></div>`
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (ev) => {
+    const el = (ev.target as HTMLElement | null)?.closest?.('[data-pbn]')
+    if (!el) return
+    ev.preventDefault()
+    ev.stopPropagation()
+    lsSet(PAID_HIDE_KEY, lastPayout())
+    el.closest('.pbn')?.remove()
+  }, true)
+}
