@@ -962,11 +962,6 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .paycard p{font-size:14px;line-height:20px;color:var(--ink2);font-weight:600}
 .paycard .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .paycard .two .btn{height:44px;font-size:15px}
-/* after a payout: Nimiq Pay may refuse payments for a while */
-.pbn{display:flex;align-items:flex-start;gap:8px;padding:10px 8px 10px 12px;border-radius:14px;background:var(--gold-tint);border:2px solid var(--ink);font-size:13px;line-height:18px;font-weight:600;color:var(--ink)}
-.pbn>.i{flex:none;margin-top:1px}
-.pbn>span{flex:1;min-width:0}
-.pbx{flex:none;width:28px;height:28px;margin:-4px 0;border-radius:8px;display:grid;place-items:center;background:transparent;border:0;color:var(--ink);cursor:pointer}
 /* AI Trivia: questions being generated */
 .gen{display:inline-flex;align-items:center;gap:8px;font-size:15px;white-space:nowrap}
 .gen .dots{font-style:normal;display:inline-flex}

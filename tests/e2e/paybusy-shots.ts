@@ -72,10 +72,6 @@ try {
   await chris.locator('.glab').scrollIntoViewIfNeeded()
   await chris.screenshot({ path: `${OUT}/1-home-badge.png` })
   await chris.locator('.qm').screenshot({ path: `${OUT}/1b-qm.png` })
-  // payout banner
-  await chris.evaluate(() => localStorage.setItem('nb:paid-at', String(Date.now())))
-  await chris.reload(); await chris.waitForSelector('.pbn')
-  await chris.screenshot({ path: `${OUT}/2-home-banner.png` })
   // chris joins: funding. ada locks first
   const j = await api(chris, 'POST', '/matches/join', { code: lob.code })
   await chris.goto('/#/m/' + j.id)

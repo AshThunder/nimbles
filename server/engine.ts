@@ -172,8 +172,6 @@ export class Engine {
       unlocked: unlockedCosmetics(lv.level, p.cosmetics ?? []),
       style: { frame: p.frame ?? '', theme: p.theme ?? '' },
       ...({ vaultToday: p.vaultDay === today, vaultDay: p.vaultDay } as object),
-      // when the escrow or campaign wallet last paid this player: Nimiq Pay may refuse new payments for a while after
-      paidAt: Math.max(this.lastPaidTo(address), p.payAddr ? this.lastPaidTo(p.payAddr) : 0) || undefined,
     } as Profile
   }
 

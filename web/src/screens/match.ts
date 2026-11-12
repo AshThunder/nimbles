@@ -5,7 +5,7 @@ import { SEAT_COL } from '../games/splat'
 import { meOf, others, type GameInst } from '../games/common'
 import { actions, avatar, confetti, esc, fmtTime, glyph, GLYPH_BG, ic, pipImg, shortAddr, sfx, buzz, toast, tap, $ } from '../lib'
 import { S, go, route } from '../state'
-import { errBox, pipRow, topbar, refreshBalance, noteIncoming, notePayoutReceived, payoutBanner } from '../ui'
+import { errBox, pipRow, topbar, refreshBalance, noteIncoming } from '../ui'
 import { friendlyWalletError, type Readiness } from '../wallet'
 import { classifyPayError, payErrorCode, payErrorLog } from '../../../shared/pay-errors'
 import { GAMES, fmtNim } from '../../../shared/types'
@@ -244,7 +244,6 @@ route('/m/:id', async (root, { id }) => {
       ? `<div class="paycard" role="status"><div class="h">${ic('clock', 's20')}<b>Nimiq Pay is busy</b></div><p>Your NIM is safe. Try again in a few minutes.</p><div class="two"><button class="btn gold sm" data-act="retrypay">Try again</button><button class="btn ghost sm" data-act="dismisspay">Cancel</button></div></div>`
       : ''
     root.innerHTML = `${header('Lock in')}<div class="scroll" style="gap:12px">
-      ${need ? payoutBanner() : ''}
       <div class="card" style="display:flex;flex-direction:column;gap:6px"><div class="row"><b style="font-size:18px">${GAMES[m.game].name}</b><span class="sp"></span><span class="mono" style="font-size:13px" id="fund-left">${fmtTime(fundBy - serverNow())}</span></div><div style="font-size:14px;line-height:20px;color:var(--ink2)">${what}</div></div>
       <div class="rank" style="gap:8px">${rows}</div>
       <div class="note"><span class="paid">${ic('shield-check', 's16')}Held in escrow, refunded if anything fails</span><span class="mono" style="font-size:12px;color:var(--muted)">${shortAddr(m.escrow.address)} · ${esc(m.escrow.network)}</span></div>
@@ -559,7 +558,7 @@ route('/m/:id', async (root, { id }) => {
       if (xp) setTimeout(() => sfx('reward/xp', 0.4), 700)
       // a payout to this wallet: show it as incoming (Nimiq Pay may read 0 for a moment while it moves funds into a new HTLC)
       const owed = myPay.reduce((x, p) => x + p.luna, 0)
-      if (owed > 0 && Date.now() - (m.endsAt ?? Date.now()) < 10 * 60_000) { noteIncoming(owed); notePayoutReceived() }
+      if (owed > 0 && Date.now() - (m.endsAt ?? Date.now()) < 10 * 60_000) noteIncoming(owed)
       else void refreshBalance()
       api.me().then((p) => {
         S.me = p

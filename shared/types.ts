@@ -109,8 +109,6 @@ export type Settlement = {
 
 export type Profile = {
   address: string
-  /** when Nimbles last paid this player (ms). Nimiq Pay may refuse payments for ~10 minutes after */
-  paidAt?: number
   name: string
   avatar: string
   xp: number

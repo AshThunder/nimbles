@@ -147,13 +147,3 @@ test('a deposit for the wrong amount or from a stranger is never credited', asyn
   assert.equal(app.engine.db.orphans?.[small]?.status, 'open', 'kept for a refund')
   assert.equal(app.engine.db.orphans?.[stranger]?.status, 'open', 'kept for a refund')
 })
-
-test('the profile says when Nimbles last paid the player, for the "Nimiq Pay is settling" banner', async () => {
-  const { a, ta, m } = await duel(141)
-  assert.equal((await call(ta, 'GET', '/me')).j.paidAt, undefined)
-  await call(ta, 'POST', `/matches/${m.id}/fund`, { txHash: chain().register({ from: a, to: chain().escrowAddress, luna: 10 * L, memo: m.escrow.memo }) })
-  await call(ta, 'POST', `/matches/${m.id}/cancel`)
-  await new Promise((r) => setTimeout(r, 50))
-  const at = (await call(ta, 'GET', '/me')).j.paidAt
-  assert.ok(typeof at === 'number' && Date.now() - at < 5000, 'refund time reported')
-})
