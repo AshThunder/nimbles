@@ -1,6 +1,7 @@
 import type { ChessLive } from '../../shared/chessgame'
 import type { ChestKind, Contents } from '../../shared/rewards'
 import type { PoolLive } from '../../shared/poolgame'
+import type { BlokadeLive } from '../../shared/blokadegame'
 import type { Profile, PublicMatch } from '../../shared/types'
 
 let token = sessionStorage.getItem('nb:token') ?? ''
@@ -80,7 +81,7 @@ export type MatchView = Omit<PublicMatch, 'players'> & {
   serverNow?: number
   pending?: boolean
   pendingReason?: string
-  live?: ChessLive | PoolLive
+  live?: ChessLive | PoolLive | BlokadeLive
   trivia?: {
     topic: string; source?: string; verified?: boolean; count?: number; qMs?: number
     questions?: { q: string; options: string[]; category: string; answer?: number; fact?: string }[]

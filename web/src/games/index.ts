@@ -19,6 +19,8 @@ import { ghost } from './ghost'
 import { darts } from './darts'
 import { blocks } from './blocks'
 import { speedmath } from './speedmath'
+import { blokade } from './blokade'
+import { blokadeLive } from './blokadeLive'
 
 export const MODS: Partial<Record<GameId, GameMod>> = {
   trivia,
@@ -37,9 +39,10 @@ export const MODS: Partial<Record<GameId, GameMod>> = {
   spider,
   blocks,
   speedmath,
+  blokade,
   sudoku: sudokuGame(9),
   lastbite: sudokuGame(4),
 }
 /** Two people playing live: the server runs the game, the phone only sends moves */
-export const LIVE_MODS: Partial<Record<GameId, GameMod>> = { chess: chessLive, pool: poolLive }
+export const LIVE_MODS: Partial<Record<GameId, GameMod>> = { chess: chessLive, pool: poolLive, blokade: blokadeLive }
 export const BUILT = new Set(Object.keys(MODS))

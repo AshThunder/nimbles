@@ -57,7 +57,7 @@ export function pipScore(game: GameId, level: PipLevel, seed: string): { score: 
 }
 
 /** Games where the human plays an engine live and reports 1 / 0.5 / 0 */
-export const ENGINE_GAMES: GameId[] = ['chess', 'pool']
+export const ENGINE_GAMES: GameId[] = ['chess', 'pool', 'blokade']
 
 export const GAME_DURATION_MS: Record<GameId, number> = {
   trivia: 5 * 17000,
@@ -78,4 +78,5 @@ export const GAME_DURATION_MS: Record<GameId, number> = {
   darts: 60000,
   blocks: 120000,
   speedmath: 60000,
+  blokade: 45 * 60000,
 }

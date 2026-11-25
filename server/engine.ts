@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { sevensOf, scoreWords, wordRack } from '../shared/words'
 import { chessMove, chessResign, chessScore, chessTick, chessTimeUp, initChess, type ChessLive } from '../shared/chessgame'
 import { initPool, poolResign, poolScore, poolShot, poolTick, poolTimeUp, type PoolLive } from '../shared/poolgame'
+import { blokadeMove, blokadeResign, blokadeScore, blokadeTick, DEFAULT_CLOCK, initBlokade, isClockId, type BlokadeLive } from '../shared/blokadegame'
 import { SplatRuns } from './splat'
 import { splatShares, type Payout3 } from '../shared/economy'
 import { ENGINE_GAMES, GAME_DURATION_MS, PIP_ADDRESS, PIP_NAMES, PIP_TRIVIA, pipScore } from '../shared/pip'
@@ -391,6 +392,7 @@ export class Engine {
       config.seats = size
       config.payout = b.config?.payout === 'top3' ? 'top3' : 'wta'
     }
+    if (game === 'blokade') config.clock = isClockId(b.config?.clock) ? b.config.clock : DEFAULT_CLOCK
     const m: MatchRec = {
       id, code, game, mode, opp, pipLevel, stake, status: 'lobby', host, size, seed, seedCommit: sha(seed), config,
       players: [{ player: this.playerOf(host), funded: false, escrowed: 0 }], terms,
@@ -911,9 +913,9 @@ export class Engine {
     return this.view(m, addr)
   }
 
-  // ---------------- live head-to-head (chess, pool) ----------------
+  // ---------------- live head-to-head (chess, pool, blokade) ----------------
 
-  /** Chess and pool between two people run on the server, so the result cannot be reported by a client. */
+  /** Chess, pool and Blokade between two people run on the server, so the result cannot be reported by a client. */
   private isLive(m: MatchRec) {
     return ENGINE_GAMES.includes(m.game) && m.players.length === 2 && m.players.every((p) => !p.isBot)
   }
@@ -933,8 +935,10 @@ export class Engine {
     try {
       if (b?.resign) {
         if (m.live.kind === 'chess') chessResign(m.live, seat)
+        else if (m.live.kind === 'blokade') blokadeResign(m.live, seat)
         else poolResign(m.live, seat)
       } else if (m.live.kind === 'chess') chessMove(m.live, seat, b ?? {}, now)
+      else if (m.live.kind === 'blokade') blokadeMove(m.live, seat, b ?? {}, now)
       else poolShot(m.live, seat, b ?? {}, now)
     } catch (e) {
       throw bad(e instanceof Error ? e.message : 'Bad move')
@@ -946,29 +950,32 @@ export class Engine {
 
   /** Clocks, match timer, and turning a finished game into results. */
   private syncLive(m: MatchRec, now: number) {
-    const l = m.live as ChessLive | PoolLive | undefined
+    const l = m.live as ChessLive | PoolLive | BlokadeLive | undefined
     if (!l || m.status !== 'playing') return
     if (!l.over) {
       if (l.kind === 'chess') chessTick(l, now)
+      else if (l.kind === 'blokade') blokadeTick(l, now)
       else poolTick(l, now)
     }
-    if (!l.over && m.startsAt && now >= m.startsAt + GAME_DURATION_MS[m.game]) {
+    // Blokade has no second match whistle: personal clocks (with increment) are the only time limit
+    if (!l.over && l.kind !== 'blokade' && m.startsAt && now >= m.startsAt + GAME_DURATION_MS[m.game]) {
       if (l.kind === 'chess') chessTimeUp(l)
       else poolTimeUp(l)
     }
     if (!l.over) return
-    const elapsed = Math.max(0, Math.min(GAME_DURATION_MS[m.game], now - (m.startsAt ?? now)))
+    const cap = l.kind === 'blokade' ? 2 * 60 * 60 * 1000 : GAME_DURATION_MS[m.game]
+    const elapsed = Math.max(0, Math.min(cap, now - (m.startsAt ?? now)))
     m.players.forEach((p, i) => {
       if (p.result) return
-      const score = l.kind === 'chess' ? chessScore(l, i as 0 | 1) : poolScore(l, i as 0 | 1)
+      const score = l.kind === 'chess' ? chessScore(l, i as 0 | 1) : l.kind === 'blokade' ? blokadeScore(l, i as 0 | 1) : poolScore(l, i as 0 | 1)
       p.result = { score, time: elapsed, detail: { live: true, reason: l.over!.reason } }
       p.progress = score
     })
     this.maybeSettle(m)
     if (m.settlement) {
       const o = l.over
-      const why: Record<string, string> = { checkmate: 'Checkmate', timeout: 'Won on time', resign: 'Resigned', eight: 'Sank the 8-ball', idle: 'Opponent left the table', time: 'Time up' }
-      m.settlement.reason = o.winner === null ? (o.reason === 'stalemate' ? 'Stalemate' : 'Draw') : (why[o.reason] ?? 'Best score wins')
+      const why: Record<string, string> = { checkmate: 'Checkmate', timeout: 'Won on time', resign: 'Resigned', eight: 'Sank the 8-ball', idle: 'Opponent left the table', time: 'Time up', goal: 'Reached the far side' }
+      m.settlement.reason = ('winner' in o && o.winner === null) ? (o.reason === 'stalemate' ? 'Stalemate' : 'Draw') : (why[o.reason] ?? 'Best score wins')
     }
   }
 
@@ -996,11 +1003,15 @@ export class Engine {
     }
     else if (m.status === 'ready' && m.startsAt && now >= m.startsAt) {
       m.status = 'playing'
-      m.endsAt = m.startsAt + GAME_DURATION_MS[m.game] + GRACE_MS
+      m.endsAt = m.startsAt + (m.game === 'blokade' ? 2 * 60 * 60 * 1000 : GAME_DURATION_MS[m.game]) + GRACE_MS
       if (m.game === 'splat') {
         m.endsAt = m.startsAt + Math.round(this.splat.capTicks * SPLAT_TICK_MS) + GRACE_MS
       }
-      if (this.isLive(m)) m.live = m.game === 'chess' ? initChess(m.seed, m.startsAt) : initPool(m.seed, m.startsAt)
+      if (this.isLive(m)) {
+        if (m.game === 'chess') m.live = initChess(m.seed, m.startsAt)
+        else if (m.game === 'blokade') m.live = initBlokade(m.seed, m.startsAt, isClockId(m.config.clock) ? m.config.clock : DEFAULT_CLOCK)
+        else m.live = initPool(m.seed, m.startsAt)
+      }
       this.store.save()
     } else if (m.status === 'playing' && m.live && !m.live.over) {
       this.syncLive(m, now)

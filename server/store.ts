@@ -1,5 +1,6 @@
 import type { ChessLive } from '../shared/chessgame'
 import type { PoolLive } from '../shared/poolgame'
+import type { BlokadeLive } from '../shared/blokadegame'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ChestRec } from '../shared/rewards'
@@ -77,7 +78,7 @@ export type MatchRec = Omit<PublicMatch, 'seed' | 'players'> & {
   }
   settlement?: Settlement
   settled?: boolean
-  live?: ChessLive | PoolLive
+  live?: ChessLive | PoolLive | BlokadeLive
   challengeTo?: string // a direct challenge to one friend
   pipSalt?: string // server-only salt for Nimo's trivia answers, so the public seed cannot predict them
   tourney?: { id: string; round: number; slot: number } // a knockout tournament round

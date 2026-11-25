@@ -1,4 +1,4 @@
-export type GameId = 'trivia' | 'solitaire' | 'chess' | 'pool' | 'sudoku' | 'bubble' | 'word' | 'lastbite' | 'splat' | 'darts' | 'blocks' | 'speedmath' | 'spider' | 'dominoes' | 'blitz' | 'bowling' | 'carrom' | 'ghost'
+export type GameId = 'trivia' | 'solitaire' | 'chess' | 'pool' | 'sudoku' | 'bubble' | 'word' | 'lastbite' | 'splat' | 'darts' | 'blocks' | 'speedmath' | 'spider' | 'dominoes' | 'blitz' | 'bowling' | 'carrom' | 'ghost' | 'blokade'
 export type Mode = 'play' | 'win' | 'save' | 'settle'
 export type OppKind = 'invite' | 'auto' | 'pip'
 export type PipLevel = 'easy' | 'med' | 'hard'
@@ -27,6 +27,7 @@ export const GAMES: Record<GameId, { name: string; blurb: string; tag?: 'Hot' | 
   bowling: { name: 'Bowling', blurb: 'Ten frames', tag: 'New', minutes: '2 min', level: 3, maxPlayers: 2 },
   carrom: { name: 'Carrom', blurb: 'Eight strikes', tag: 'New', minutes: '2 min', level: 3, maxPlayers: 2 },
   ghost: { name: 'Ghost Race', blurb: '45 sec dash', tag: 'New', minutes: '1 min', level: 2, maxPlayers: 2 },
+  blokade: { name: 'Blokade', blurb: '3+5', tag: 'New', minutes: '3+5', level: 2, maxPlayers: 2 },
   splat: { name: 'Splat Royale', blurb: '2 to 6 players', tag: 'New', minutes: '3 min', level: 3, maxPlayers: 6 },
 }
 

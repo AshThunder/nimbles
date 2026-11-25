@@ -4,6 +4,7 @@ import { S, go, route } from '../state'
 import { coin, errBox, topbar } from '../ui'
 import { billOf, draftBody, draftOk, newDraft, termsActions, termsInput, termsLine, termsSheet, type TermsDraft } from './terms'
 import { GAMES, MIN_STAKE_NIM, STAKES, cleanStake, isSoon, fmtNim, type GameId, type Mode, type OppKind, type PipLevel } from '../../../shared/types'
+import { DEFAULT_CLOCK, type ClockId } from '../../../shared/blokadegame'
 import { toLuna } from '../../../shared/economy'
 import { saveFee } from '../../../shared/rewards'
 
@@ -20,7 +21,7 @@ const LEVELS: Record<PipLevel, string> = { easy: 'Easy', med: 'Medium', hard: 'H
 const GCOL: Record<string, string> = GLYPH_BG
 
 type Setup = {
-  mode: Mode; opp: OppKind | 'join'; pip: PipLevel; stake: number; d: TermsDraft
+  mode: Mode; opp: OppKind | 'join'; pip: PipLevel; stake: number; clock: ClockId; d: TermsDraft
   topic: string; count: number; note: string; code: string; seats: number; payout: 'wta' | 'top3'
   receipt?: { items: { name: string; price: number }[]; total: number; currency: string; merchant?: string }
   busy?: boolean; err?: string; scanning?: boolean; sheet?: boolean
@@ -37,7 +38,7 @@ route('/g/:id', (root, p) => {
   if (!g || isSoon(id)) return go('/')
   const canStake = !(S.wallet.kind === 'preview' && !S.cfg.mock)
   const st: Setup = {
-    mode: id === 'lastbite' ? 'settle' : 'play', opp: id === 'lastbite' ? 'invite' : 'pip', pip: 'med', stake: STAKES[0], d: newDraft(),
+    mode: id === 'lastbite' ? 'settle' : 'play', opp: id === 'lastbite' ? 'invite' : 'pip', pip: 'med', stake: STAKES[0], clock: DEFAULT_CLOCK, d: newDraft(),
     topic: TOPICS[0], count: 5, note: '', code: '', seats: 4, payout: 'wta', topicLocked: true,
   }
   try {
@@ -159,7 +160,9 @@ route('/g/:id', (root, p) => {
   const topicField = () => st.topicLocked
     ? `<div class="tpk" role="status"><span class="tck">${ic('check')}</span><span class="tx"><small>Topic locked in</small><b>${esc(st.topic)}</b></span><button class="tpe" data-act="tedit" aria-label="Edit topic">${ic('pencil', 's16')}Edit</button></div>`
     : `<form class="field tpf" id="tform" autocomplete="off">${ic('search')}<input id="topic" value="${esc(st.topic)}" maxlength="60" placeholder="Type any topic" enterkeyhint="done" aria-label="Trivia topic"><button type="submit" class="tps" data-act="tlock" aria-label="Lock in topic" ${st.topic.trim().length < 2 ? 'disabled' : ''}>${ic('corner-down-left', 's20')}</button></form>`
+  const clockBlock = () => `<div class="sec"><div class="lab">Clock<small>${st.clock === '1+0' ? '1 min each' : st.clock === '5+5' ? '5 min + 5s' : '3 min + 5s'}</small></div><div class="stkrow clkrow" role="radiogroup" aria-label="Clock">${(['3+5', '5+5', '1+0'] as ClockId[]).map((c) => `<button class="pc stk ${st.clock === c ? 'on' : ''}" data-act="clock" data-c="${c}" role="radio" aria-checked="${st.clock === c}">${st.clock === c ? ic('check') : ''}${c}</button>`).join('')}</div><div class="hint">Each player has a clock. Seconds are added after every move. vs Nimo is untimed</div></div>`
   const draw = () => {
+
     pickOpp()
     const [c1, c2] = summary()
     const [ctaTxt, ctaIcon] = cta()
@@ -176,6 +179,7 @@ route('/g/:id', (root, p) => {
       ${oppBlock()}
       ${royale && st.opp !== 'join' ? seatsBlock() : ''}
       ${st.opp === 'join' ? '' : paid() ? stakeBlock() : st.mode === 'settle' ? settleCard() : ''}
+      ${id === 'blokade' && st.opp !== 'join' && st.opp !== 'pip' ? clockBlock() : ''}
       ${st.err ? errBox(st.err) : ''}
     </div>${st.suggest ? suggestSheet(st.suggest) : ''}
     <div class="foot" style="gap:8px;border-top:2px solid var(--ink);background:var(--bg);padding-top:12px"><div class="sumr"><span id="sum1">${c1}</span><span class="mono" id="sum2">${c2}</span></div>
@@ -328,6 +332,7 @@ route('/g/:id', (root, p) => {
     seats: (el) => ((st.seats = Number(el.dataset.n)), sfx('ui/select'), draw()),
     payout: (el) => ((st.payout = el.dataset.k as 'wta' | 'top3'), sfx('ui/select'), draw()),
     stake: (el) => ((st.stake = Number(el.dataset.s)), (st.custom = false), sfx('ui/select'), draw()),
+    clock: (el) => { const c = el.dataset.c; if (c === '3+5' || c === '5+5' || c === '1+0') { st.clock = c; sfx('ui/select'); draw() } },
     stkc: () => {
       st.custom = true
       st.stake = cleanStake(st.customText || 'x')
@@ -362,7 +367,7 @@ route('/g/:id', (root, p) => {
           game: id, mode: st.mode, opp: st.opp, pipLevel: st.opp === 'pip' ? st.pip : undefined,
           stake: paid() ? st.stake : 0, terms: st.mode === 'settle' ? draftBody(st.d) : undefined, noNearby,
           challenge: st.opp === 'invite' ? st.challenge?.address : undefined,
-          config: royale ? { seats: st.seats, payout: st.payout } : { topic: st.topic, count: st.count, note: st.note, receipt: st.receipt },
+          config: royale ? { seats: st.seats, payout: st.payout } : id === 'blokade' ? { clock: st.clock } : { topic: st.topic, count: st.count, note: st.note, receipt: st.receipt },
         })
       }
       if (m?.suggest) {

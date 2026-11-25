@@ -1,6 +1,6 @@
 import { api, type MatchView } from '../api'
 import { board } from '../games/sudoku'
-import { actions, avatar, confetti, esc, glyph, GLYPH_BG, ic, isMuted, lvBadge, pipImg, setMuted, sfx, shortAddr, tap, toast, $ } from '../lib'
+import { actions, avatar, blokadePlace, confetti, esc, glyph, GLYPH_BG, ic, isMuted, lvBadge, pipImg, setBlokadePlace, setMuted, sfx, shortAddr, tap, toast, $ } from '../lib'
 import { S, go, route } from '../state'
 import { FLAME, JAR, PAGE, errBox, pageRows, pipRow, tabs, topbar, refreshBalance } from '../ui'
 import { friendlyWalletError } from '../wallet'
@@ -292,6 +292,7 @@ route('/me', (root) => {
       <div class="lab" style="margin:0">Avatar</div><div style="display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px">${AVATARS.map((a) => `<button data-act="av" data-a="${a}" aria-label="${a}" style="position:relative;border-radius:50%;padding:0;${me.avatar === a ? 'outline:3px solid var(--ink);outline-offset:1px' : ''}">${avatar(a, 'av')}${me.avatar === a ? `<span class="ck" style="position:absolute;right:-2px;bottom:-2px;width:16px;height:16px;border-radius:8px;background:var(--ink);color:var(--gold);display:grid;place-items:center">${ic('check', 's12')}</span>` : ''}</button>`).join('')}</div>
       ${styleBlock(me)}
       <div class="opt ${isMuted() ? '' : 'on'}" data-act="mute" role="switch" aria-checked="${!isMuted()}" tabindex="0" style="min-height:52px"><span class="ic" style="width:36px;height:36px">${ic(isMuted() ? 'volume-x' : 'volume-2', 's20')}</span><span class="tx"><span class="n">Sound</span><span class="m">${isMuted() ? 'Off' : 'On'}</span></span>${isMuted() ? '<span class="ring"></span>' : `<span class="ck">${ic('check')}</span>`}</div>
+      <div class="card flat" style="padding:10px 12px"><div class="row" style="align-items:center;gap:10px"><b style="color:var(--ink);flex:1">Blokade walls</b><div class="pick" role="radiogroup" aria-label="Blokade wall placement">${(['drag', 'tap'] as const).map((m) => `<button class="pc ${blokadePlace() === m ? 'on' : ''}" data-act="bkplace" data-m="${m}" role="radio" aria-checked="${blokadePlace() === m}">${blokadePlace() === m ? ic('check') : ''}${m === 'drag' ? 'Drag' : 'Tap'}</button>`).join('')}</div></div><div class="hint" style="margin-top:6px">Drag a wall from Flat or Standing, or tap to place</div></div>
       <div class="card flat" style="font-size:13px;line-height:19px;color:var(--ink2)"><div class="row"><b style="color:var(--ink)">Wallet</b><span class="sp"></span><span class="mono">${S.wallet.kind === 'nimiq-pay' ? 'Nimiq Pay' : 'Preview'}</span></div><div class="row"><b style="color:var(--ink)">Network</b><span class="sp"></span><span class="mono">${esc(S.wallet.network)} (server: ${esc(S.cfg.network)}${S.cfg.mock ? ', mock chain' : ''})</span></div><div class="row"><b style="color:var(--ink)">AI</b><span class="sp"></span><span class="mono">${S.cfg.ai.gemini ? 'Gemini' : 'Built-in bank'}</span></div></div>
       <button class="btn ghost block" data-act="friends">${ic('users', 's20')}Friends</button>
       ${isAdminMe ? `<button class="btn ghost block" data-act="admin">${ic('chart-column', 's20')}Admin</button>` : ''}
@@ -322,6 +323,7 @@ route('/me', (root) => {
       draw()
     },
     mute: () => (setMuted(!isMuted()), tap(), draw()),
+    bkplace: (el) => { const m = el.dataset.m; if (m === 'drag' || m === 'tap') { setBlokadePlace(m); sfx('ui/select'); draw() } },
     credits: () => go('/credits'),
     friends: () => go('/friends'),
     admin: () => go('/admin'),

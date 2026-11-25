@@ -18,7 +18,7 @@ export function ic(name: string, cls = ''): string {
 }
 export const glyph = (id: string) => (GLYPHS[id] ?? '').replace(/<svg([^>]*)>/, (_m, a) => `<svg${a.replace(/\s(width|height)="[^"]*"/g, '')} class="gl">`)
 export const GLYPH_BG: Record<string, string> = {
-  trivia: '#1F78C4', solitaire: '#1F8A5B', chess: '#1F2348', pool: '#1F7F73', sudoku: '#F4B323', bubble: '#F29AAE', word: '#D0432E', lastbite: '#EBD6A0', vault: '#1F2348', splat: '#6C4AB6', spider: '#1F2348', dominoes: '#7A4B2A', blitz: '#C98E0A', bowling: '#1F78C4', carrom: '#8A5A2B', ghost: '#6C4AB6', darts: '#D0432E', blocks: '#1F78C4', speedmath: '#1F8A5B',
+  trivia: '#1F78C4', solitaire: '#1F8A5B', chess: '#1F2348', pool: '#1F7F73', sudoku: '#F4B323', bubble: '#F29AAE', word: '#D0432E', lastbite: '#EBD6A0', vault: '#1F2348', splat: '#6C4AB6', spider: '#1F2348', dominoes: '#7A4B2A', blitz: '#C98E0A', bowling: '#1F78C4', carrom: '#8A5A2B', ghost: '#6C4AB6', darts: '#D0432E', blocks: '#1F78C4', speedmath: '#1F8A5B', blokade: '#C45C26',
 }
 export const pipImg = (mood = 'happy', cls = '') => `<img class="${cls}" src="/pip/pip-${mood}.svg" alt="" width="52" height="52">`
 /** An avatar, optionally wearing a frame: a solid ring in the frame's colour, no gradients. */
@@ -49,12 +49,19 @@ export function setMuted(v: boolean) {
   muted = v
   localStorage.setItem('nb:muted', v ? '1' : '0')
 }
+
+export type BlokadePlace = 'drag' | 'tap'
+export const blokadePlace = (): BlokadePlace => (localStorage.getItem('nb:blokade-place') === 'tap' ? 'tap' : 'drag')
+export function setBlokadePlace(v: BlokadePlace) {
+  localStorage.setItem('nb:blokade-place', v)
+}
 const cache = new Map<string, HTMLAudioElement>()
 export type Sfx =
-  | 'ui/tap' | 'ui/select' | 'ui/confirm' | 'ui/back' | 'ui/open' | 'ui/close' | 'ui/correct' | 'ui/wrong' | 'ui/error' | 'ui/tile'
-  | 'ui/countdown-tick' | 'ui/countdown-last' | 'ui/countdown-go' | 'reward/win-big' | 'reward/lose' | 'reward/draw' | 'reward/coin' | 'reward/xp'
+  | 'ui/tap' | 'ui/select' | 'ui/confirm' | 'ui/back' | 'ui/open' | 'ui/close' | 'ui/correct' | 'ui/wrong' | 'ui/error' | 'ui/tile' | 'ui/toggle'
+  | 'ui/countdown-tick' | 'ui/countdown-last' | 'ui/countdown-go' | 'reward/win-big' | 'reward/win' | 'reward/lose' | 'reward/draw' | 'reward/coin' | 'reward/xp'
   | 'reward/bonus' | 'reward/chest-open' | 'game/card-place' | 'game/card-slide' | 'game/card-shuffle' | 'game/chess-move' | 'game/chess-capture'
   | 'game/pool-hit' | 'game/pool-pocket' | 'game/bubble-pop' | 'game/bubble-shoot'
+  | 'game/blokade-step' | 'game/blokade-wall' | 'game/blokade-jump' | 'game/blokade-invalid'
 export function sfx(name: Sfx, volume = 0.6) {
   if (muted) return
   try {

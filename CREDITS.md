@@ -408,6 +408,14 @@ Kenney Playing Cards, Boardgame and Game Icons packs are CC0 but realistic or ou
 | sounds/game/pool-hit.ogg | https://kenney.nl/assets/impact-sounds (original file: Audio/impactMetal_light_000.ogg) | CC0 1.0 |  |
 | sounds/game/pool-pocket.mp3 | https://kenney.nl/assets/impact-sounds (original file: Audio/impactSoft_medium_000.ogg) | CC0 1.0 | (mp3 transcode) |
 | sounds/game/pool-pocket.ogg | https://kenney.nl/assets/impact-sounds (original file: Audio/impactSoft_medium_000.ogg) | CC0 1.0 |  |
+| sounds/game/blokade-step.mp3 | Original synthesis for Nimbles | CC0 1.0 | (mp3 transcode) |
+| sounds/game/blokade-step.ogg | Original synthesis for Nimbles | CC0 1.0 | short wood tick for a pawn step |
+| sounds/game/blokade-wall.mp3 | Original synthesis for Nimbles | CC0 1.0 | (mp3 transcode) |
+| sounds/game/blokade-wall.ogg | Original synthesis for Nimbles | CC0 1.0 | comic bonk when a wall drops |
+| sounds/game/blokade-jump.mp3 | Original synthesis for Nimbles | CC0 1.0 | (mp3 transcode) |
+| sounds/game/blokade-jump.ogg | Original synthesis for Nimbles | CC0 1.0 | rising boing for a pawn jump |
+| sounds/game/blokade-invalid.mp3 | Original synthesis for Nimbles | CC0 1.0 | (mp3 transcode) |
+| sounds/game/blokade-invalid.ogg | Original synthesis for Nimbles | CC0 1.0 | rubbery boing for an illegal drop |
 | sounds/reward/bonus.mp3 | https://kenney.nl/assets/digital-audio (original file: Audio/powerUp4.ogg) | CC0 1.0 | (mp3 transcode) |
 | sounds/reward/bonus.ogg | https://kenney.nl/assets/digital-audio (original file: Audio/powerUp4.ogg) | CC0 1.0 |  |
 | sounds/reward/chest-open.mp3 | https://kenney.nl/assets/music-jingles (original file: Audio/Hit jingles/jingles_HIT11.ogg) | CC0 1.0 | (mp3 transcode) |

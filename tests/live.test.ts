@@ -30,7 +30,7 @@ const login = async (a: string, name: string) => (await call(null, 'POST', '/ses
 const deposit = (from: string, luna: number, memo: string) => (app.chain as any).register({ from, to: app.chain.escrowAddress, luna, memo })
 
 /** Two funded players, staked, match started */
-async function startMatch(game: 'chess' | 'pool', stake = 2) {
+async function startMatch(game: 'chess' | 'pool' | 'blokade', stake = 2) {
   const ta = await login(A, 'Ada')
   const tb = await login(B, 'Bisi')
   const c = (await call(ta, 'POST', '/matches', { game, mode: 'save', stake, opp: 'invite' })).j
@@ -137,4 +137,21 @@ test('pool: idle shot clock fouls then forfeits; concede ends the match', async 
   const loser = (s2.rec.live as any).turn === 0 ? s2.ta : s2.tb
   const res = (await call(loser, 'POST', `/matches/${s2.id}/move`, { resign: true })).j
   assert.equal(res.status, 'settled')
+})
+
+test('blokade: server rejects illegal walls and resigns on request', async () => {
+  const { id, ta, tb, live } = await startMatch('blokade')
+  assert.equal(live.kind, 'blokade')
+  const south = live.south === 0 ? ta : tb
+  const north = live.south === 0 ? tb : ta
+  assert.equal((await call(north, 'POST', `/matches/${id}/move`, { kind: 'pawn', r: 1, c: 4 })).status, 400, 'north cannot open')
+  assert.equal((await call(south, 'POST', `/matches/${id}/move`, { kind: 'pawn', r: 0, c: 0 })).status, 400, 'illegal pawn move')
+  const ok = await call(south, 'POST', `/matches/${id}/move`, { kind: 'pawn', r: 7, c: 4 })
+  assert.equal(ok.status, 200)
+  assert.equal((await call(south, 'POST', `/matches/${id}/result`, { score: 1, time: 1000 })).status, 400, 'client cannot self-report')
+  const res = await call(north, 'POST', `/matches/${id}/move`, { resign: true })
+  assert.equal(res.status, 200)
+  assert.equal(res.j.status, 'settled')
+  assert.equal(res.j.live.over.reason, 'resign')
+  assert.equal(res.j.settlement.reason, 'Resigned')
 })
